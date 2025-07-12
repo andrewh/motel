@@ -8,7 +8,7 @@ BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
 
-.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown
+.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package
 
 # Default target
 help: ## Show this help message
@@ -196,3 +196,9 @@ full-verify: ## Full verification suite (requires all dependencies)
 	@echo "3. For Docker verification: make verify-docker"
 	@echo "4. For database verification: make verify-database"
 	@echo "5. For detailed coverage: make verify-coverage"
+
+# Package targets
+deb-package: ## Build Debian package
+	@echo "Building Debian package..."
+	./deployments/build-deb.sh
+	@echo "✅ Debian package built"
