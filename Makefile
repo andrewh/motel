@@ -8,7 +8,7 @@ BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
 
-.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package
+.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package
 
 # Default target
 help: ## Show this help message
@@ -202,3 +202,8 @@ deb-package: ## Build Debian package
 	@echo "Building Debian package..."
 	./deployments/build-deb.sh
 	@echo "✅ Debian package built"
+
+apk-package: ## Build Alpine Linux package (requires Alpine Linux system)
+	@echo "Building Alpine Linux package..."
+	./deployments/build-apk.sh
+	@echo "✅ Alpine Linux package built"
