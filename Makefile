@@ -7,8 +7,15 @@ MODULE=github.com/andrewh/beacon
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
+D2 := d2
+DIAGRAMS := architecture.d2 dataflow.d2 state.d2 handler-registry.d2
+DIAGRAMS_DIR := diagrams
+D2_FILES := $(wildcard $(DIAGRAMS_DIR)/*.d2)
+SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
-.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package
+
+
+.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
 
 # Default target
 help: ## Show this help message
@@ -207,3 +214,8 @@ apk-package: ## Build Alpine Linux package (requires Alpine Linux system)
 	@echo "Building Alpine Linux package..."
 	./deployments/build-apk.sh
 	@echo "✅ Alpine Linux package built"
+
+diagrams: $(SVG_FILES)
+
+$(DIAGRAMS_DIR)/%.svg: $(DIAGRAMS_DIR)/%.d2
+	$(D2) $< $@
