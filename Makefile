@@ -7,6 +7,16 @@ MODULE=github.com/andrewh/beacon
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
+
+# Version information
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME ?= $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+# Build flags
+LDFLAGS = -X 'main.version=$(VERSION)' \
+          -X 'main.commit=$(COMMIT)' \
+          -X 'main.buildTime=$(BUILD_TIME)'
 D2 := d2
 DIAGRAMS := architecture.d2 dataflow.d2 state.d2 handler-registry.d2
 DIAGRAMS_DIR := diagrams
@@ -31,8 +41,11 @@ help: ## Show this help message
 # Build targets
 build: ## Build the beacon binary
 	@echo "Building beacon binary..."
+	@echo "Version: $(VERSION)"
+	@echo "Commit: $(COMMIT)"
+	@echo "Build time: $(BUILD_TIME)"
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	@echo "✅ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
 build-docker: ## Build Docker image
@@ -114,7 +127,7 @@ verify-all: ## Run all verification checks
 dev: ## Build with race detection
 	@echo "Building with race detection..."
 	@mkdir -p $(BUILD_DIR)
-	go build -race -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
+	go build -race -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	@echo "✅ Development build complete"
 
 run: build ## Build and run the server
@@ -183,7 +196,7 @@ ci-test: ## Run tests suitable for CI environment
 
 ci-build: ## Build for CI environment
 	@echo "Building for CI..."
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s $(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	@echo "✅ CI build complete"
 
 # Quick commands for common workflows
