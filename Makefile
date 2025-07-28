@@ -25,7 +25,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
+.PHONY: help build test test-unit test-integration lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
 
 # Default target
 help: ## Show this help message
@@ -59,18 +59,24 @@ install: build ## Build and install to ~/bin
 	@echo "✅ Installed $(BINARY_NAME) to $(INSTALL_DIR)"
 
 # Test targets
-test: ## Run all tests
-	@echo "Running tests..."
+test: ## Run all tests (unit + integration)
+	@echo "Running all tests..."
 	./scripts/run_tests.sh
 	@echo "✅ All tests passed"
+
+test-unit: ## Run unit tests only (fast, parallel)
+	@echo "Running unit tests..."
+	./scripts/test_unit.sh
+	@echo "✅ Unit tests passed"
+
+test-integration: ## Run integration tests only (requires database)
+	@echo "Running integration tests..."
+	./scripts/test_integration.sh
+	@echo "✅ Integration tests passed"
 
 test-verbose: ## Run tests with verbose output
 	@echo "Running tests with verbose output..."
 	go test -v ./...
-
-test-integration: ## Run integration tests only
-	@echo "Running integration tests..."
-	go test ./tests/integration/...
 
 # Code quality targets
 lint: ## Run linting
@@ -190,8 +196,15 @@ teardown: ## Teardown development environment
 # CI/CD targets
 ci-test: ## Run tests suitable for CI environment
 	@echo "Running CI tests..."
-	go test -race -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	@echo "Running unit tests with race detection..."
+	go test -race -coverprofile=coverage-unit.out ./internal/pkg/query/... ./internal/pkg/models/... ./internal/pkg/executor/handlers/... ./internal/pkg/validation/... ./internal/pkg/config/... ./internal/pkg/metrics/...
+	@echo "Running integration tests with coverage..."
+	go test -tags=integration -race -coverprofile=coverage-integration.out -p 1 ./internal/pkg/service/...
+	go test -race -coverprofile=coverage-http.out -p 1 ./internal/app/beacon/...
+	go test -race -coverprofile=coverage-main.out ./cmd/beacon/...
+	@echo "Generating coverage report..."
+	go tool cover -html=coverage-unit.out -o coverage-unit.html
+	go tool cover -html=coverage-integration.out -o coverage-integration.html
 	@echo "✅ CI tests complete"
 
 ci-build: ## Build for CI environment
@@ -200,7 +213,10 @@ ci-build: ## Build for CI environment
 	@echo "✅ CI build complete"
 
 # Quick commands for common workflows
-quick-test: ## Quick test and lint
+quick-test: ## Quick unit tests and lint (fast feedback)
+	@$(MAKE) test-unit lint
+
+full-test: ## Run all tests and lint
 	@$(MAKE) test lint
 
 quick-verify: ## Quick verification (completeness check only)
@@ -209,6 +225,10 @@ quick-verify: ## Quick verification (completeness check only)
 full-verify: ## Full verification suite (requires all dependencies)
 	@echo "Running full verification suite..."
 	@$(MAKE) lint test verify-completeness
+	@echo ""
+	@echo "Test execution summary:"
+	@echo "• Unit tests: Fast parallel execution (~0.8s)"
+	@echo "• Integration tests: Sequential with database isolation (~15s)"
 	@echo ""
 	@echo "For complete verification including live services:"
 	@echo "1. Start the server: make run"
