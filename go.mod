@@ -1,8 +1,6 @@
 module github.com/andrewh/beacon
 
-go 1.23.3
-
-toolchain go1.24.4
+go 1.24.4
 
 require (
 	github.com/golang-migrate/migrate/v4 v4.18.3
