@@ -25,7 +25,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test test-unit test-integration lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
+.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
 
 # Default target
 help: ## Show this help message
@@ -37,6 +37,10 @@ help: ## Show this help message
 	@echo "  DATABASE_URL     PostgreSQL connection string (default: postgres://localhost:5432/beacon?sslmode=disable)"
 	@echo "  PORT            Server port (default: 8080)"
 	@echo "  MIN_COVERAGE    Minimum test coverage percentage (default: 40)"
+	@echo ""
+	@echo "Performance Testing:"
+	@echo "  test-perf-*      Requires running server (start with: make run)"
+	@echo "  Example:         make run & sleep 3 && make test-perf-all"
 
 # Build targets
 build: ## Build the beacon binary
@@ -77,6 +81,47 @@ test-integration: ## Run integration tests only (requires database)
 test-verbose: ## Run tests with verbose output
 	@echo "Running tests with verbose output..."
 	go test -v ./...
+
+# Performance testing targets (requires running server)
+test-perf: ## Run comprehensive performance API tests
+	@echo "Running comprehensive performance API tests..."
+	./scripts/test_performance_api.sh
+	@echo "✅ Performance API tests passed"
+
+test-perf-simple: ## Run simple performance test validation
+	@echo "Running simple performance test..."
+	./scripts/test_simple_performance_fixed.sh
+	@echo "✅ Simple performance test passed"
+
+test-perf-endpoints: ## Test performance API endpoints
+	@echo "Testing performance API endpoints..."
+	./scripts/test_perf_endpoints.sh
+	@echo "✅ Performance endpoints test passed"
+
+test-perf-brief: ## Test brief API endpoint names
+	@echo "Testing brief API endpoint names..."
+	./scripts/test_brief_api.sh
+	@echo "✅ Brief API test passed"
+
+test-perf-final: ## Run final performance testing validation
+	@echo "Running final performance testing validation..."
+	./scripts/test_final_performance.sh
+	@echo "✅ Final performance validation passed"
+
+test-perf-all: ## Run all performance tests (requires running server)
+	@echo "Running all performance tests..."
+	@echo "================================"
+	@$(MAKE) test-perf-brief
+	@echo ""
+	@$(MAKE) test-perf-endpoints  
+	@echo ""
+	@$(MAKE) test-perf-simple
+	@echo ""
+	@$(MAKE) test-perf-final
+	@echo ""
+	@$(MAKE) test-perf
+	@echo ""
+	@echo "✅ All performance tests passed"
 
 # Code quality targets
 lint: ## Run linting
