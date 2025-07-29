@@ -3,10 +3,12 @@
 
 # Variables
 BINARY_NAME=beacon
+CLI_BINARY_NAME=beaconctl
 MODULE=github.com/andrewh/beacon
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
+CLI_SOURCE_DIR=./cmd/beacon-cli
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
@@ -17,6 +19,9 @@ BUILD_TIME ?= $(shell date -u '+%Y-%m-%d %H:%M:%S UTC')
 LDFLAGS = -X 'main.version=$(VERSION)' \
           -X 'main.commit=$(COMMIT)' \
           -X 'main.buildTime=$(BUILD_TIME)'
+CLI_LDFLAGS = -X 'main.version=$(VERSION)' \
+              -X 'main.commit=$(COMMIT)' \
+              -X 'main.buildTime=$(BUILD_TIME)'
 D2 := d2
 DIAGRAMS := architecture.d2 dataflow.d2 state.d2 handler-registry.d2
 DIAGRAMS_DIR := diagrams
@@ -38,6 +43,12 @@ help: ## Show this help message
 	@echo "  PORT            Server port (default: 8080)"
 	@echo "  MIN_COVERAGE    Minimum test coverage percentage (default: 40)"
 	@echo ""
+	@echo "Build Targets:"
+	@echo "  build            Build beacon server binary"
+	@echo "  build-cli        Build beaconctl CLI binary"
+	@echo "  build-all        Build both binaries"
+	@echo "  install          Build and install both binaries to ~/bin"
+	@echo ""
 	@echo "Performance Testing:"
 	@echo "  test-perf-*      Requires running server (start with: make run)"
 	@echo "  Example:         make run & sleep 3 && make test-perf-all"
@@ -52,15 +63,27 @@ build: ## Build the beacon binary
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	@echo "✅ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
+build-cli: ## Build the beaconctl CLI binary
+	@echo "Building beaconctl CLI binary..."
+	@echo "Version: $(VERSION)"
+	@echo "Commit: $(COMMIT)"
+	@echo "Build time: $(BUILD_TIME)"
+	@mkdir -p $(BUILD_DIR)
+	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR)
+	@echo "✅ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
+
+build-all: build build-cli ## Build both beacon and beaconctl binaries
+
 build-docker: ## Build Docker image
 	@echo "Building Docker image..."
 	docker build -t beacon .
 	@echo "✅ Docker image built: beacon"
 
-install: build ## Build and install to ~/bin
+install: build-all ## Build and install both binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	@echo "✅ Installed $(BINARY_NAME) to $(INSTALL_DIR)"
+	cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
+	@echo "✅ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
 
 # Test targets
 test: ## Run all tests (unit + integration)
@@ -175,11 +198,12 @@ verify-all: ## Run all verification checks
 	@echo "  make verify-coverage   (generates detailed reports)"
 
 # Development targets
-dev: ## Build with race detection
+dev: ## Build both binaries with race detection
 	@echo "Building with race detection..."
 	@mkdir -p $(BUILD_DIR)
 	go build -race -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
-	@echo "✅ Development build complete"
+	go build -race -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR)
+	@echo "✅ Development build complete for both binaries"
 
 run: build ## Build and run the server
 	@echo "Starting beacon server..."
