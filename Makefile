@@ -8,7 +8,7 @@ MODULE=github.com/andrewh/beacon
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/beacon
-CLI_SOURCE_DIR=./cmd/beacon-cli
+CLI_SOURCE_DIR=./cmd/beaconctl
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
