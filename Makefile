@@ -61,7 +61,7 @@ build: ## Build the beacon binary
 	@echo "Build time: $(BUILD_TIME)"
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
-	@echo "✅ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "✓ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
 build-cli: ## Build the beaconctl CLI binary
 	@echo "Building beaconctl CLI binary..."
@@ -70,36 +70,36 @@ build-cli: ## Build the beaconctl CLI binary
 	@echo "Build time: $(BUILD_TIME)"
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR)
-	@echo "✅ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
+	@echo "✓ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
 
 build-all: build build-cli ## Build both beacon and beaconctl binaries
 
 build-docker: ## Build Docker image
 	@echo "Building Docker image..."
 	docker build -t beacon .
-	@echo "✅ Docker image built: beacon"
+	@echo "✓ Docker image built: beacon"
 
 install: build-all ## Build and install both binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
-	@echo "✅ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
+	@echo "✓ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
 
 # Test targets
 test: ## Run all tests (unit + integration)
 	@echo "Running all tests..."
 	./scripts/run_tests.sh
-	@echo "✅ All tests passed"
+	@echo "✓ All tests passed"
 
 test-unit: ## Run unit tests only (fast, parallel)
 	@echo "Running unit tests..."
 	./scripts/test_unit.sh
-	@echo "✅ Unit tests passed"
+	@echo "✓ Unit tests passed"
 
 test-integration: ## Run integration tests only (requires database)
 	@echo "Running integration tests..."
 	./scripts/test_integration.sh
-	@echo "✅ Integration tests passed"
+	@echo "✓ Integration tests passed"
 
 test-verbose: ## Run tests with verbose output
 	@echo "Running tests with verbose output..."
@@ -109,27 +109,27 @@ test-verbose: ## Run tests with verbose output
 test-perf: ## Run comprehensive performance API tests
 	@echo "Running comprehensive performance API tests..."
 	./scripts/test_performance_api.sh
-	@echo "✅ Performance API tests passed"
+	@echo "✓ Performance API tests passed"
 
 test-perf-simple: ## Run simple performance test validation
 	@echo "Running simple performance test..."
 	./scripts/test_simple_performance_fixed.sh
-	@echo "✅ Simple performance test passed"
+	@echo "✓ Simple performance test passed"
 
 test-perf-endpoints: ## Test performance API endpoints
 	@echo "Testing performance API endpoints..."
 	./scripts/test_perf_endpoints.sh
-	@echo "✅ Performance endpoints test passed"
+	@echo "✓ Performance endpoints test passed"
 
 test-perf-brief: ## Test brief API endpoint names
 	@echo "Testing brief API endpoint names..."
 	./scripts/test_brief_api.sh
-	@echo "✅ Brief API test passed"
+	@echo "✓ Brief API test passed"
 
 test-perf-final: ## Run final performance testing validation
 	@echo "Running final performance testing validation..."
 	./scripts/test_final_performance.sh
-	@echo "✅ Final performance validation passed"
+	@echo "✓ Final performance validation passed"
 
 test-perf-all: ## Run all performance tests (requires running server)
 	@echo "Running all performance tests..."
@@ -144,7 +144,7 @@ test-perf-all: ## Run all performance tests (requires running server)
 	@echo ""
 	@$(MAKE) test-perf
 	@echo ""
-	@echo "✅ All performance tests passed"
+	@echo "✓ All performance tests passed"
 
 # Code quality targets
 lint: ## Run linting
@@ -154,14 +154,14 @@ lint: ## Run linting
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run; \
 	else \
-		echo "⚠️  golangci-lint not installed, skipping advanced linting"; \
+		echo "▲  golangci-lint not installed, skipping advanced linting"; \
 	fi
-	@echo "✅ Linting complete"
+	@echo "✓ Linting complete"
 
 fmt: ## Format code
 	@echo "Formatting code..."
 	go fmt ./...
-	@echo "✅ Code formatted"
+	@echo "✓ Code formatted"
 
 # Verification targets
 verify-api: ## Verify API implementation
@@ -203,7 +203,7 @@ dev: ## Build both binaries with race detection
 	@mkdir -p $(BUILD_DIR)
 	go build -race -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	go build -race -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR)
-	@echo "✅ Development build complete for both binaries"
+	@echo "✓ Development build complete for both binaries"
 
 run: build ## Build and run the server
 	@echo "Starting beacon server..."
@@ -227,9 +227,9 @@ db-setup: ## Setup database (create databases and run migrations)
 	@if command -v migrate >/dev/null 2>&1; then \
 		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/beacon?sslmode=disable}" up; \
 		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/beacon_test?sslmode=disable}" up; \
-		echo "✅ Migrations applied"; \
+		echo "✓ Migrations applied"; \
 	else \
-		echo "⚠️  migrate command not found. Install with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
+		echo "▲  migrate command not found. Install with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
 	fi
 
 db-reset: ## Reset database (drop and recreate)
@@ -244,7 +244,7 @@ clean: ## Clean build artifacts and temporary files
 	rm -rf $(BUILD_DIR)/
 	rm -rf coverage/
 	go clean
-	@echo "✅ Clean complete"
+	@echo "✓ Clean complete"
 
 setup: ## Setup development environment
 	@echo "Setting up development environment..."
@@ -254,13 +254,13 @@ setup: ## Setup development environment
 	mkdir -p $(BUILD_DIR)
 	@echo "Setting up databases..."
 	@$(MAKE) db-setup
-	@echo "✅ Development environment ready"
+	@echo "✓ Development environment ready"
 
 teardown: ## Teardown development environment
 	@echo "Tearing down development environment..."
 	@$(MAKE) clean
 	@$(MAKE) db-reset
-	@echo "✅ Environment cleaned up"
+	@echo "✓ Environment cleaned up"
 
 # CI/CD targets
 ci-test: ## Run tests suitable for CI environment
@@ -274,12 +274,12 @@ ci-test: ## Run tests suitable for CI environment
 	@echo "Generating coverage report..."
 	go tool cover -html=coverage-unit.out -o coverage-unit.html
 	go tool cover -html=coverage-integration.out -o coverage-integration.html
-	@echo "✅ CI tests complete"
+	@echo "✓ CI tests complete"
 
 ci-build: ## Build for CI environment
 	@echo "Building for CI..."
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s $(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
-	@echo "✅ CI build complete"
+	@echo "✓ CI build complete"
 
 # Quick commands for common workflows
 quick-test: ## Quick unit tests and lint (fast feedback)
@@ -310,12 +310,12 @@ full-verify: ## Full verification suite (requires all dependencies)
 deb-package: ## Build Debian package
 	@echo "Building Debian package..."
 	./deployments/build-deb.sh
-	@echo "✅ Debian package built"
+	@echo "✓ Debian package built"
 
 apk-package: ## Build Alpine Linux package (requires Alpine Linux system)
 	@echo "Building Alpine Linux package..."
 	./deployments/build-apk.sh
-	@echo "✅ Alpine Linux package built"
+	@echo "✓ Alpine Linux package built"
 
 diagrams: $(SVG_FILES)
 
