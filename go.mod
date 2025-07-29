@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.2.4
 	github.com/jackc/pgx/v5 v5.7.5
+	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/pgx-contrib/pgxotel v0.0.0-20250625223024-cb5ea1c4aa0b
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
@@ -43,7 +44,6 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/jedib0t/go-pretty/v6 v6.6.8 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
