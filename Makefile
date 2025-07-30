@@ -30,7 +30,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams
+.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill
 
 # Default target
 help: ## Show this help message
@@ -321,3 +321,6 @@ diagrams: $(SVG_FILES)
 
 $(DIAGRAMS_DIR)/%.svg: $(DIAGRAMS_DIR)/%.d2
 	$(D2) $< $@
+
+kill: ## Kill any running beacon servers
+	@lsof -t -i:8080 | xargs kill
