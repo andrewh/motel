@@ -63,7 +63,7 @@ build: ## Build the beacon binary
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
 	@echo "✓ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
-build-cli: ## Build the beaconctl CLI binary
+build-cli: generate ## Build the beaconctl CLI binary
 	@echo "Building beaconctl CLI binary..."
 	@echo "Version: $(VERSION)"
 	@echo "Commit: $(COMMIT)"
@@ -145,6 +145,30 @@ test-perf-all: ## Run all performance tests (requires running server)
 	@$(MAKE) test-perf
 	@echo ""
 	@echo "✓ All performance tests passed"
+
+# Code generation targets
+generate: ## Generate code from OpenAPI spec
+	@echo "Generating client models from OpenAPI spec..."
+	@if command -v oapi-codegen >/dev/null 2>&1; then \
+		oapi-codegen -config oapi-codegen.yaml -o cmd/beaconctl/pkg/generated/models.go cmd/beacon/api/openapi.yaml; \
+		echo "✓ Client models generated"; \
+	else \
+		echo "▲  oapi-codegen not installed. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen"; \
+		exit 1; \
+	fi
+
+generate-check: ## Check if generated code is up to date
+	@echo "Checking if generated code is up to date..."
+	@tmp_file=$$(mktemp); \
+	oapi-codegen -config oapi-codegen.yaml cmd/beacon/api/openapi.yaml > "$$tmp_file"; \
+	if ! diff -q "$$tmp_file" cmd/beaconctl/pkg/generated/models.go >/dev/null 2>&1; then \
+		echo "❌ Generated code is out of date. Run 'make generate' to update."; \
+		rm "$$tmp_file"; \
+		exit 1; \
+	else \
+		echo "✓ Generated code is up to date"; \
+		rm "$$tmp_file"; \
+	fi
 
 # Code quality targets
 lint: ## Run linting
