@@ -30,7 +30,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill
+.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update
 
 # Default target
 help: ## Show this help message
@@ -52,6 +52,11 @@ help: ## Show this help message
 	@echo "Performance Testing:"
 	@echo "  test-perf-*      Requires running server (start with: make run)"
 	@echo "  Example:         make run & sleep 3 && make test-perf-all"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  pre-commit-install  Setup pre-commit hooks and tools"
+	@echo "  pre-commit          Run all pre-commit hooks"
+	@echo "  lint                Run Go linting (gofmt, govet, golangci-lint)"
 
 # Build targets
 build: ## Build the beacon binary
@@ -278,6 +283,12 @@ setup: ## Setup development environment
 	mkdir -p $(BUILD_DIR)
 	@echo "Setting up databases..."
 	@$(MAKE) db-setup
+	@echo "Setting up pre-commit hooks..."
+	@if [ -f scripts/setup_pre_commit.sh ]; then \
+		./scripts/setup_pre_commit.sh; \
+	else \
+		echo "⚠️  Pre-commit setup script not found"; \
+	fi
 	@echo "✓ Development environment ready"
 
 teardown: ## Teardown development environment
@@ -348,3 +359,33 @@ $(DIAGRAMS_DIR)/%.svg: $(DIAGRAMS_DIR)/%.d2
 
 kill: ## Kill any running beacon servers
 	@lsof -t -i:8080 | xargs kill
+
+# Pre-commit targets
+pre-commit-install: ## Install and setup pre-commit hooks
+	@echo "Installing pre-commit hooks..."
+	@if [ -f scripts/setup_pre_commit.sh ]; then \
+		./scripts/setup_pre_commit.sh; \
+	else \
+		echo "❌ Pre-commit setup script not found"; \
+		exit 1; \
+	fi
+
+pre-commit-run: ## Run pre-commit hooks on all files
+	@echo "Running pre-commit hooks on all files..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit run --all-files; \
+	else \
+		echo "❌ pre-commit not installed. Run 'make pre-commit-install' first."; \
+		exit 1; \
+	fi
+
+pre-commit-update: ## Update pre-commit hooks to latest versions
+	@echo "Updating pre-commit hooks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit autoupdate; \
+	else \
+		echo "❌ pre-commit not installed. Run 'make pre-commit-install' first."; \
+		exit 1; \
+	fi
+
+pre-commit: pre-commit-run ## Alias for pre-commit-run
