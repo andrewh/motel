@@ -180,15 +180,10 @@ lint: ## Run linting
 	@echo "Running linting..."
 	go fmt ./...
 	go vet ./...
-	# Enhanced golangci-lint configuration (command-line approach for v2.3.0+ compatibility)
+	# Enhanced golangci-lint configuration via .golangci.yml (compatible with v2.3.0+)
 	# Focuses on: error handling, security, resource management, basic quality
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run --no-config \
-			--enable=errcheck,govet,staticcheck,unused,ineffassign \
-			--enable=gosec,misspell,unconvert \
-			--enable=bodyclose,errorlint,sqlclosecheck \
-			--timeout=10m \
-			./...; \
+		golangci-lint run; \
 	else \
 		echo "▲  golangci-lint not installed, skipping advanced linting"; \
 	fi
