@@ -141,7 +141,7 @@ test-perf-all: ## Run all performance tests (requires running server)
 	@echo "================================"
 	@$(MAKE) test-perf-brief
 	@echo ""
-	@$(MAKE) test-perf-endpoints  
+	@$(MAKE) test-perf-endpoints
 	@echo ""
 	@$(MAKE) test-perf-simple
 	@echo ""
@@ -180,8 +180,15 @@ lint: ## Run linting
 	@echo "Running linting..."
 	go fmt ./...
 	go vet ./...
+	# Enhanced golangci-lint configuration (command-line approach for v2.3.0+ compatibility)
+	# Focuses on: error handling, security, resource management, basic quality
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
+		golangci-lint run --no-config \
+			--enable=errcheck,govet,staticcheck,unused,ineffassign \
+			--enable=gosec,misspell,unconvert \
+			--enable=bodyclose,errorlint,sqlclosecheck \
+			--timeout=10m \
+			./...; \
 	else \
 		echo "▲  golangci-lint not installed, skipping advanced linting"; \
 	fi
