@@ -30,7 +30,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update
+.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
 
 # Default target
 help: ## Show this help message
@@ -57,6 +57,11 @@ help: ## Show this help message
 	@echo "  pre-commit-install  Setup pre-commit hooks and tools"
 	@echo "  pre-commit          Run all pre-commit hooks"
 	@echo "  lint                Run Go linting (gofmt, govet, golangci-lint)"
+	@echo ""
+	@echo "Version Management:"
+	@echo "  version             Show current version information"
+	@echo "  set-version         Set new version tag (make set-version VERSION=v1.2.3)"
+	@echo "  tag-release         Interactive version tagging for releases"
 
 # Build targets
 build: ## Build the beacon binary
@@ -391,3 +396,70 @@ pre-commit-update: ## Update pre-commit hooks to latest versions
 	fi
 
 pre-commit: pre-commit-run ## Alias for pre-commit-run
+
+# Version management targets
+version: ## Show current version information
+	@echo "Current Version Information:"
+	@echo "============================"
+	@echo "VERSION:    $(VERSION)"
+	@echo "COMMIT:     $(COMMIT)"
+	@echo "BUILD_TIME: $(BUILD_TIME)"
+	@echo ""
+	@echo "Git Status:"
+	@git status --porcelain 2>/dev/null | head -5 || echo "No git repository or changes"
+	@echo ""
+	@if [ -x "$(BUILD_DIR)/$(BINARY_NAME)" ]; then \
+		echo "Built beacon version:"; \
+		./$(BUILD_DIR)/$(BINARY_NAME) --version 2>/dev/null || echo "Binary not built or not executable"; \
+	else \
+		echo "Beacon binary not found. Run 'make build' first."; \
+	fi
+	@echo ""
+	@if [ -x "$(BUILD_DIR)/$(CLI_BINARY_NAME)" ]; then \
+		echo "Built beaconctl version:"; \
+		./$(BUILD_DIR)/$(CLI_BINARY_NAME) version 2>/dev/null || echo "CLI binary not built or not executable"; \
+	else \
+		echo "Beaconctl binary not found. Run 'make build-cli' first."; \
+	fi
+
+set-version: ## Set a new version tag (usage: make set-version VERSION=v1.2.3)
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION is required. Usage: make set-version VERSION=v1.2.3"; \
+		exit 1; \
+	fi
+	@if ! echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9-]+)?$$'; then \
+		echo "❌ Invalid version format. Expected: v1.2.3 or v1.2.3-beta"; \
+		echo "   Provided: $(VERSION)"; \
+		exit 1; \
+	fi
+	@echo "Setting version to $(VERSION)..."
+	@if git rev-parse "$(VERSION)" >/dev/null 2>&1; then \
+		echo "❌ Tag $(VERSION) already exists"; \
+		exit 1; \
+	fi
+	@if ! git diff-index --quiet HEAD --; then \
+		echo "❌ Working directory is not clean. Please commit your changes first."; \
+		echo "Uncommitted changes:"; \
+		git status --porcelain; \
+		exit 1; \
+	fi
+	@echo "Creating and pushing tag $(VERSION)..."
+	git tag -a "$(VERSION)" -m "Release $(VERSION)"
+	git push origin "$(VERSION)"
+	@echo "✓ Version $(VERSION) tagged and pushed"
+	@echo ""
+	@echo "To create a release, the GitHub Actions workflow will trigger automatically."
+	@echo "You can also manually trigger it at: https://github.com/andrewh/beacon-go/actions/workflows/release.yml"
+
+tag-release: ## Create a release tag with current version (interactive)
+	@echo "Creating a new release tag..."
+	@echo ""
+	@echo "Current version: $(VERSION)"
+	@echo ""
+	@echo "Please enter the new version (e.g., v1.2.3 or v1.2.3-beta):"
+	@read -p "Version: " NEW_VERSION; \
+	if [ -n "$$NEW_VERSION" ]; then \
+		$(MAKE) set-version VERSION=$$NEW_VERSION; \
+	else \
+		echo "❌ No version provided. Cancelling."; \
+	fi
