@@ -62,6 +62,9 @@ help: ## Show this help message
 	@echo "  version             Show current version information"
 	@echo "  set-version         Set new version tag (make set-version VERSION=v1.2.3)"
 	@echo "  tag-release         Interactive version tagging for releases"
+ 	@echo ""
+ 	@echo "Codegen:"
+ 	@echo "  sqlc-generate       Generate PostgreSQL and SQLite query packages via sqlc"
 
 # Build targets
 build: ## Build the beacon binary
@@ -164,6 +167,16 @@ generate: ## Generate code from OpenAPI spec
 		echo "✓ Client models generated"; \
 	else \
 		echo "▲  oapi-codegen not installed. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen"; \
+		exit 1; \
+	fi
+
+sqlc-generate: ## Generate PostgreSQL (pkg/db) and SQLite (pkg/dbsqlite) query code via sqlc
+	@echo "Generating sqlc code (PostgreSQL + SQLite)..."
+	@if command -v sqlc >/dev/null 2>&1; then \
+		sqlc generate; \
+		echo "✓ sqlc code generated"; \
+	else \
+		echo "❌ sqlc not installed. Install with: brew install sqlc (macOS) or go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest"; \
 		exit 1; \
 	fi
 
