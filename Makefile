@@ -30,57 +30,29 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
+.PHONY: all help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
+
+# Standard aggregate target for makefile linters
+all: build-all ## Build both binaries (aggregate)
 
 # Default target
 help: ## Show this help message
 	@echo "Beacon Project - Available Make Targets"
 	@echo "======================================"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Environment Variables:"
-	@echo "  DATABASE_URL     PostgreSQL connection string (default: postgres://localhost:5432/beacon?sslmode=disable)"
-	@echo "  PORT            Server port (default: 8080)"
-	@echo "  MIN_COVERAGE    Minimum test coverage percentage (default: 40)"
-	@echo ""
-	@echo "Build Targets:"
-	@echo "  build            Build beacon server binary"
-	@echo "  build-cli        Build beaconctl CLI binary"
-	@echo "  build-all        Build both binaries"
-	@echo "  install          Build and install both binaries to ~/bin"
-	@echo ""
-	@echo "Performance Testing:"
-	@echo "  test-perf-*      Requires running server (start with: make run)"
-	@echo "  Example:         make run & sleep 3 && make test-perf-all"
-	@echo ""
-	@echo "Code Quality:"
-	@echo "  pre-commit-install  Setup pre-commit hooks and tools"
-	@echo "  pre-commit          Run all pre-commit hooks"
-	@echo "  lint                Run Go linting (gofmt, govet, golangci-lint)"
-	@echo ""
-	@echo "Version Management:"
-	@echo "  version             Show current version information"
-	@echo "  set-version         Set new version tag (make set-version VERSION=v1.2.3)"
-	@echo "  tag-release         Interactive version tagging for releases"
 
 # Build targets
 build: ## Build the beacon binary
-	@echo "Building beacon binary..."
-	@echo "Version: $(VERSION)"
-	@echo "Commit: $(COMMIT)"
-	@echo "Build time: $(BUILD_TIME)"
-	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR)
-	@echo "✓ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Building beacon... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+	mkdir -p $(BUILD_DIR); \
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR); \
+	echo "✓ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
 build-cli: generate ## Build the beaconctl CLI binary
-	@echo "Building beaconctl CLI binary..."
-	@echo "Version: $(VERSION)"
-	@echo "Commit: $(COMMIT)"
-	@echo "Build time: $(BUILD_TIME)"
-	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR)
-	@echo "✓ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
+	@echo "Building beaconctl... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+	mkdir -p $(BUILD_DIR); \
+	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR); \
+	echo "✓ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
 
 build-all: build build-cli ## Build both beacon and beaconctl binaries
 
@@ -158,12 +130,16 @@ test-perf-all: ## Run all performance tests (requires running server)
 
 # Code generation targets
 generate: ## Generate code from OpenAPI spec
-	@echo "Generating client models from OpenAPI spec..."
-	@if command -v oapi-codegen >/dev/null 2>&1; then \
-		oapi-codegen -config oapi-codegen.yaml -o cmd/beaconctl/pkg/generated/models.go cmd/beacon/api/openapi.yaml; \
-		echo "✓ Client models generated"; \
+	@echo "Generating client models..."; \
+	command -v oapi-codegen >/dev/null 2>&1 && oapi-codegen -config oapi-codegen.yaml -o cmd/beaconctl/pkg/generated/models.go cmd/beacon/api/openapi.yaml && echo "✓ Client models generated" || (echo "▲  Install: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen" && exit 1)
+
+sqlc-generate: ## Generate PostgreSQL (pkg/db) and SQLite (pkg/dbsqlite) query code via sqlc
+	@echo "Generating sqlc code (PostgreSQL + SQLite)..."
+	@if command -v sqlc >/dev/null 2>&1; then \
+		sqlc generate; \
+		echo "✓ sqlc code generated"; \
 	else \
-		echo "▲  oapi-codegen not installed. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen"; \
+		echo "❌ sqlc not installed. Install with: brew install sqlc (macOS) or go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest"; \
 		exit 1; \
 	fi
 
@@ -182,17 +158,11 @@ generate-check: ## Check if generated code is up to date
 
 # Code quality targets
 lint: ## Run linting
-	@echo "Running linting..."
-	go fmt ./...
-	go vet ./...
-	# Enhanced golangci-lint configuration via .golangci.yml (compatible with v2.3.0+)
-	# Focuses on: error handling, security, resource management, basic quality
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "▲  golangci-lint not installed, skipping advanced linting"; \
-	fi
-	@echo "✓ Linting complete"
+	@echo "Running linting..."; \
+	go fmt ./...; \
+	go vet ./...; \
+	(command -v golangci-lint >/dev/null 2>&1 && golangci-lint run) || echo "▲  golangci-lint not installed, skipping"; \
+	echo "✓ Linting complete"
 
 fmt: ## Format code
 	@echo "Formatting code..."
@@ -283,20 +253,7 @@ clean: ## Clean build artifacts and temporary files
 	@echo "✓ Clean complete"
 
 setup: ## Setup development environment
-	@echo "Setting up development environment..."
-	@echo "Installing dependencies..."
-	go mod download
-	@echo "Creating build directory..."
-	mkdir -p $(BUILD_DIR)
-	@echo "Setting up databases..."
-	@$(MAKE) db-setup
-	@echo "Setting up pre-commit hooks..."
-	@if [ -f scripts/setup_pre_commit.sh ]; then \
-		./scripts/setup_pre_commit.sh; \
-	else \
-		echo "⚠️  Pre-commit setup script not found"; \
-	fi
-	@echo "✓ Development environment ready"
+	@echo "Setting up dev env..."; go mod download; mkdir -p $(BUILD_DIR); $(MAKE) db-setup; [ -f scripts/setup_pre_commit.sh ] && ./scripts/setup_pre_commit.sh || echo "⚠️  Pre-commit setup script not found"; echo "✓ Development environment ready"
 
 teardown: ## Teardown development environment
 	@echo "Tearing down development environment..."
@@ -399,28 +356,10 @@ pre-commit: pre-commit-run ## Alias for pre-commit-run
 
 # Version management targets
 version: ## Show current version information
-	@echo "Current Version Information:"
-	@echo "============================"
-	@echo "VERSION:    $(VERSION)"
-	@echo "COMMIT:     $(COMMIT)"
-	@echo "BUILD_TIME: $(BUILD_TIME)"
-	@echo ""
-	@echo "Git Status:"
-	@git status --porcelain 2>/dev/null | head -5 || echo "No git repository or changes"
-	@echo ""
-	@if [ -x "$(BUILD_DIR)/$(BINARY_NAME)" ]; then \
-		echo "Built beacon version:"; \
-		./$(BUILD_DIR)/$(BINARY_NAME) --version 2>/dev/null || echo "Binary not built or not executable"; \
-	else \
-		echo "Beacon binary not found. Run 'make build' first."; \
-	fi
-	@echo ""
-	@if [ -x "$(BUILD_DIR)/$(CLI_BINARY_NAME)" ]; then \
-		echo "Built beaconctl version:"; \
-		./$(BUILD_DIR)/$(CLI_BINARY_NAME) version 2>/dev/null || echo "CLI binary not built or not executable"; \
-	else \
-		echo "Beaconctl binary not found. Run 'make build-cli' first."; \
-	fi
+	@echo "VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_TIME=$(BUILD_TIME)"; \
+	echo "Git Status:"; git status --porcelain 2>/dev/null | head -5 || echo "No git repo"; \
+	([ -x "$(BUILD_DIR)/$(BINARY_NAME)" ] && ./$(BUILD_DIR)/$(BINARY_NAME) --version || echo "(build first: make build)"); \
+	([ -x "$(BUILD_DIR)/$(CLI_BINARY_NAME)" ] && ./$(BUILD_DIR)/$(CLI_BINARY_NAME) version || echo "(build first: make build-cli)")
 
 set-version: ## Set a new version tag (usage: make set-version VERSION=v1.2.3)
 	@if [ -z "$(VERSION)" ]; then \
