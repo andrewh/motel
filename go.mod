@@ -1,4 +1,4 @@
-module github.com/andrewh/beacon
+module github.com/andrewh/motel
 
 go 1.25
 

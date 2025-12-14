@@ -1,14 +1,14 @@
-# ABOUTME: Makefile for beacon project with comprehensive verification and build tasks
+# ABOUTME: Makefile for motel project with comprehensive verification and build tasks
 # ABOUTME: Provides targets for testing, verification, building, and deployment automation
 
 # Variables
-BINARY_NAME=beacon
-CLI_BINARY_NAME=beaconctl
-MODULE=github.com/andrewh/beacon
+BINARY_NAME=motel
+CLI_BINARY_NAME=motelier
+MODULE=github.com/andrewh/motel
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
-SOURCE_DIR=./cmd/beacon
-CLI_SOURCE_DIR=./cmd/beaconctl
+SOURCE_DIR=./cmd/motel
+CLI_SOURCE_DIR=./cmd/motelier
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
@@ -37,29 +37,29 @@ all: build-all ## Build both binaries (aggregate)
 
 # Default target
 help: ## Show this help message
-	@echo "Beacon Project - Available Make Targets"
+	@echo "Motel Project - Available Make Targets"
 	@echo "======================================"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # Build targets
-build: ## Build the beacon binary
-	@echo "Building beacon... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+build: ## Build the motel binary
+	@echo "Building motel... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
 	mkdir -p $(BUILD_DIR); \
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(SOURCE_DIR); \
 	echo "✓ Build complete: ./$(BUILD_DIR)/$(BINARY_NAME)"
 
-build-cli: generate ## Build the beaconctl CLI binary
-	@echo "Building beaconctl... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+build-cli: generate ## Build the motelier CLI binary
+	@echo "Building motelier... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
 	mkdir -p $(BUILD_DIR); \
 	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR); \
 	echo "✓ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
 
-build-all: build build-cli ## Build both beacon and beaconctl binaries
+build-all: build build-cli ## Build both motel and motelier binaries
 
 build-docker: ## Build Docker image
 	@echo "Building Docker image..."
-	docker build -t beacon .
-	@echo "✓ Docker image built: beacon"
+	docker build -t motel .
+	@echo "✓ Docker image built: motel"
 
 install: build-all ## Build and install both binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
@@ -131,7 +131,7 @@ test-perf-all: ## Run all performance tests (requires running server)
 # Code generation targets
 generate: ## Generate code from OpenAPI spec
 	@echo "Generating client models..."; \
-	command -v oapi-codegen >/dev/null 2>&1 && oapi-codegen -config oapi-codegen.yaml -o cmd/beaconctl/pkg/generated/models.go cmd/beacon/api/openapi.yaml && echo "✓ Client models generated" || (echo "▲  Install: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen" && exit 1)
+	command -v oapi-codegen >/dev/null 2>&1 && oapi-codegen -config oapi-codegen.yaml -o cmd/motelier/pkg/generated/models.go cmd/motel/api/openapi.yaml && echo "✓ Client models generated" || (echo "▲  Install: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen" && exit 1)
 
 sqlc-generate: ## Generate PostgreSQL (pkg/db) and SQLite (pkg/dbsqlite) query code via sqlc
 	@echo "Generating sqlc code (PostgreSQL + SQLite)..."
@@ -146,8 +146,8 @@ sqlc-generate: ## Generate PostgreSQL (pkg/db) and SQLite (pkg/dbsqlite) query c
 generate-check: ## Check if generated code is up to date
 	@echo "Checking if generated code is up to date..."
 	@tmp_file=$$(mktemp); \
-	oapi-codegen -config oapi-codegen.yaml cmd/beacon/api/openapi.yaml > "$$tmp_file"; \
-	if ! diff -q "$$tmp_file" cmd/beaconctl/pkg/generated/models.go >/dev/null 2>&1; then \
+	oapi-codegen -config oapi-codegen.yaml cmd/motel/api/openapi.yaml > "$$tmp_file"; \
+	if ! diff -q "$$tmp_file" cmd/motelier/pkg/generated/models.go >/dev/null 2>&1; then \
 		echo "❌ Generated code is out of date. Run 'make generate' to update."; \
 		rm "$$tmp_file"; \
 		exit 1; \
@@ -212,9 +212,9 @@ dev: ## Build both binaries with race detection
 	@echo "✓ Development build complete for both binaries"
 
 run: build ## Build and run the server
-	@echo "Starting beacon server..."
+	@echo "Starting motel server..."
 	@if [ -z "$(DATABASE_URL)" ]; then \
-		export DATABASE_URL="postgres://localhost:5432/beacon?sslmode=disable"; \
+		export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"; \
 	fi
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
@@ -222,17 +222,17 @@ run-docker: build-docker ## Build and run Docker container
 	@echo "Running Docker container..."
 	docker run -it --rm \
 		-p 8080:8080 \
-		-e DATABASE_URL="$${DATABASE_URL:-postgres://host.docker.internal:5432/beacon?sslmode=disable}" \
-		beacon
+		-e DATABASE_URL="$${DATABASE_URL:-postgres://host.docker.internal:5432/motel?sslmode=disable}" \
+		motel
 
 # Database targets
 db-setup: ## Setup database (create databases and run migrations)
 	@echo "Setting up databases..."
-	@psql postgres -c "CREATE DATABASE beacon;" 2>/dev/null || echo "beacon database already exists"
-	@psql postgres -c "CREATE DATABASE beacon_test;" 2>/dev/null || echo "beacon_test database already exists"
+	@psql postgres -c "CREATE DATABASE motel;" 2>/dev/null || echo "motel database already exists"
+	@psql postgres -c "CREATE DATABASE motel_test;" 2>/dev/null || echo "motel_test database already exists"
 	@if command -v migrate >/dev/null 2>&1; then \
-		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/beacon?sslmode=disable}" up; \
-		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/beacon_test?sslmode=disable}" up; \
+		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/motel?sslmode=disable}" up; \
+		migrate -path migrations -database "$${DATABASE_URL:-postgres://localhost:5432/motel_test?sslmode=disable}" up; \
 		echo "✓ Migrations applied"; \
 	else \
 		echo "▲  migrate command not found. Install with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
@@ -240,8 +240,8 @@ db-setup: ## Setup database (create databases and run migrations)
 
 db-reset: ## Reset database (drop and recreate)
 	@echo "Resetting databases..."
-	@psql postgres -c "DROP DATABASE IF EXISTS beacon;"
-	@psql postgres -c "DROP DATABASE IF EXISTS beacon_test;"
+	@psql postgres -c "DROP DATABASE IF EXISTS motel;"
+	@psql postgres -c "DROP DATABASE IF EXISTS motel_test;"
 	@$(MAKE) db-setup
 
 # Utility targets
@@ -269,7 +269,7 @@ ci-test: ## Run tests suitable for CI environment
 	@echo "Running integration tests with coverage..."
 	go test -tags=integration -race -coverprofile=coverage-integration.out -p 1 ./pkg/service/...
 	go test -race -coverprofile=coverage-http.out -p 1 ./pkg/app/...
-	go test -race -coverprofile=coverage-main.out ./cmd/beacon/...
+	go test -race -coverprofile=coverage-main.out ./cmd/motel/...
 	@echo "Generating coverage report..."
 	go tool cover -html=coverage-unit.out -o coverage-unit.html
 	go tool cover -html=coverage-integration.out -o coverage-integration.html
@@ -321,7 +321,7 @@ diagrams: $(SVG_FILES)
 $(DIAGRAMS_DIR)/%.svg: $(DIAGRAMS_DIR)/%.d2
 	$(D2) $< $@
 
-kill: ## Kill any running beacon servers
+kill: ## Kill any running motel servers
 	@lsof -t -i:8080 | xargs kill
 
 # Pre-commit targets
@@ -388,7 +388,7 @@ set-version: ## Set a new version tag (usage: make set-version VERSION=v1.2.3)
 	@echo "✓ Version $(VERSION) tagged and pushed"
 	@echo ""
 	@echo "To create a release, the GitHub Actions workflow will trigger automatically."
-	@echo "You can also manually trigger it at: https://github.com/andrewh/beacon-go/actions/workflows/release.yml"
+	@echo "You can also manually trigger it at: https://github.com/andrewh/motel-go/actions/workflows/release.yml"
 
 tag-release: ## Create a release tag with current version (interactive)
 	@echo "Creating a new release tag..."
