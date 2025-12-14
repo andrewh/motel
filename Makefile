@@ -388,7 +388,7 @@ set-version: ## Set a new version tag (usage: make set-version VERSION=v1.2.3)
 	@echo "✓ Version $(VERSION) tagged and pushed"
 	@echo ""
 	@echo "To create a release, the GitHub Actions workflow will trigger automatically."
-	@echo "You can also manually trigger it at: https://github.com/andrewh/motel-go/actions/workflows/release.yml"
+	@echo "You can also manually trigger it at: https://github.com/andrewh/motel/actions/workflows/release.yml"
 
 tag-release: ## Create a release tag with current version (interactive)
 	@echo "Creating a new release tag..."
