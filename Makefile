@@ -30,7 +30,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
+.PHONY: all help build install test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
 
 # Standard aggregate target for makefile linters
 all: build-all ## Build both binaries (aggregate)
@@ -66,6 +66,11 @@ install: build-all ## Build and install both binaries to ~/bin
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
 	@echo "✓ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		$(MAKE) install-manpages-macos; \
+	else \
+		echo "▲  Skipping manpage install (not macOS)"; \
+	fi
 
 # Test targets
 test: ## Run all tests (unit + integration)
@@ -315,6 +320,9 @@ apk-package: ## Build Alpine Linux package (requires Alpine Linux system)
 	@echo "Building Alpine Linux package..."
 	./deployments/build-apk.sh
 	@echo "✓ Alpine Linux package built"
+
+install-manpages-macos: ## Install manpages into a macOS manpath
+	./scripts/install_manpages_macos.sh --sudo
 
 diagrams: $(SVG_FILES)
 
