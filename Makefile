@@ -322,7 +322,7 @@ apk-package: ## Build Alpine Linux package (requires Alpine Linux system)
 	@echo "✓ Alpine Linux package built"
 
 install-manpages-macos: ## Install manpages into a macOS manpath
-	./scripts/install_manpages_macos.sh --sudo
+	./scripts/install_manpages_macos.sh --prefix $$HOME/.local
 
 diagrams: $(SVG_FILES)
 
