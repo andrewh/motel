@@ -39,3 +39,18 @@ For macOS, you can use:
 ```sh
 ./scripts/install_manpages_macos.sh --sudo
 ```
+
+## Install without sudo (macOS)
+
+Install into your home directory and add it to your manpath:
+
+```sh
+mkdir -p "$HOME/.local/share/man/man1"
+./scripts/install_manpages_macos.sh --prefix "$HOME/.local"
+```
+
+Then ensure your shell includes it, e.g. add to `~/.zshrc`:
+
+```sh
+export MANPATH="$HOME/.local/share/man:$MANPATH"
+```
