@@ -31,3 +31,11 @@ install -m 0644 docs/man/man1/motelier.1 /usr/local/share/man/man1/motelier.1
 ```
 
 Then rebuild the man database if your system requires it (varies by OS).
+
+## macOS helper
+
+For macOS, you can use:
+
+```sh
+./scripts/install_manpages_macos.sh --sudo
+```
