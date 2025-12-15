@@ -1,0 +1,266 @@
+.TH MOTEL 1 "2025-12-14" "Motel" "User Commands"
+.SH NAME
+motel \- Motel server for synthetic OpenTelemetry generation and plan execution
+.SH SYNOPSIS
+.B motel
+[\fB\-\-config\fR \fIpath\fR]
+[\fB\-\-listen\-addr\fR \fIip:port\fR | \fB\-\-port\fR \fIport\fR]
+[\fB\-\-database\-url\fR \fIurl\fR]
+.PP
+.B motel
+\fB\-\-health\-check\fR
+[\fB\-\-port\fR \fIport\fR]
+.PP
+.B motel
+\fB\-\-validate\-config\fR
+[\fB\-\-config\fR \fIpath\fR]
+.PP
+.B motel
+\fB\-\-print\-config\fR \fByaml\fR|\fBjson\fR|\fBenv\fR
+[\fB\-\-config\fR \fIpath\fR]
+.PP
+.B motel
+\fB\-\-generate\-config\fR \fIpath\fR
+.PP
+.B motel
+\fB\-\-version\fR
+.SH DESCRIPTION
+.B motel
+is the Motel HTTP API server. It runs a REST API for managing and executing
+plans and jobs and can emit or forward OpenTelemetry signals.
+.PP
+For quick, standalone use, Motel can run with in\-memory storage (no database
+required). For persistence and authentication token management, configure a
+database backend (PostgreSQL or SQLite).
+.SH OPTIONS
+.TP
+.B \-\-config
+\fIpath\fR
+Path to a server configuration file (YAML or JSON). If not set, Motel searches
+standard locations (see
+.B FILES
+).
+.TP
+.B \-\-port
+\fIport\fR
+HTTP server port (default: 8080). This overrides
+.B server.port
+from configuration when explicitly set.
+.TP
+.B \-\-listen\-addr
+\fIip:port\fR
+Explicit listen address (for example,
+.IR 127.0.0.1:8080 ).
+If set, this takes precedence over
+.B server.host
+and
+.B server.port
+and clears the configured host.
+.TP
+.B \-\-database\-url
+\fIurl\fR
+Database connection string. If set, Motel uses persistent storage. If the
+configured
+.B database.driver
+is still
+.BR memory ,
+Motel infers the driver from the URL:
+.BR postgres:// " or " postgresql:// " selects PostgreSQL; everything else selects SQLite."
+.TP
+.B \-\-health\-check
+Perform a health check against
+.B /api/v1/health
+on localhost and exit. Intended for container health checks.
+.TP
+.B \-\-version
+Print build/version information and exit.
+.TP
+.B \-\-generate\-config
+\fIpath\fR
+Write a sample configuration file and exit. The format is inferred from the
+file extension (YAML by default; JSON if the filename ends in
+.BR .json ).
+.TP
+.B \-\-print\-config
+\fByaml\fR|\fBjson\fR|\fBenv\fR
+Print the effective configuration (after file/env processing) and exit.
+.TP
+.B \-\-validate\-config
+Validate configuration, print a summary, and exit.
+.SH AUTHENTICATION COMMANDS
+The server binary includes a small set of administrative commands for managing
+users and API tokens. These commands require a persistent database and will use
+.B \-\-database\-url
+or
+.B DATABASE_URL
+.
+.TP
+.B \-\-bootstrap
+Create an initial admin user and token if no users exist.
+Use with
+.B \-\-admin\-email
+and optionally
+.BR \-\-admin\-name .
+.TP
+.B \-\-admin\-email
+\fIemail\fR
+Email for the bootstrap admin user (required with
+.BR \-\-bootstrap ).
+.TP
+.B \-\-admin\-name
+\fIname\fR
+Name for the bootstrap admin user (default:
+.BR admin ).
+.TP
+.B \-\-create\-user
+\fIname\fR
+Create a user and an initial API token, then exit. Requires
+.BR \-\-user\-email .
+.TP
+.B \-\-user\-email
+\fIemail\fR
+Email address for
+.BR \-\-create\-user .
+.TP
+.B \-\-create\-token
+\fIuser\-id\fR
+Create a new API token for an existing user, then exit.
+.TP
+.B \-\-token\-name
+\fIname\fR
+Name for created tokens (default:
+.BR "CLI Token" ).
+.TP
+.B \-\-list\-users
+List users and exit.
+.TP
+.B \-\-list\-tokens
+\fIuser\-id\fR
+List tokens for a user and exit (token values are never displayed).
+.SH CONFIGURATION
+Motel uses configuration in this precedence order:
+.PP
+command\-line flags \-> environment variables \-> configuration file \->
+defaults.
+.PP
+Environment variables are read with the
+.B BEACON_
+prefix and use underscores for nesting (for example,
+.BR BEACON_SERVER_PORT ).
+For backward compatibility,
+.B DATABASE_URL
+and common OpenTelemetry variables (for example
+.BR OTEL_EXPORTER_OTLP_ENDPOINT )
+are also supported.
+.SH FILES
+.TP
+.B ./config.yaml
+Preferred config filename in the working directory.
+.TP
+.B ./motel.yaml
+Legacy config filename in the working directory.
+.TP
+.B ~/.motel/config.yaml
+Preferred config filename in the user config directory.
+.TP
+.B ~/.motel/motel.yaml
+Legacy config filename in the user config directory.
+.TP
+.B /etc/motel/config.yaml
+Preferred system config filename.
+.TP
+.B /etc/motel/motel.yaml
+Legacy system config filename.
+.TP
+.B $BEACON_CONFIG_DIR/config.yaml
+Preferred config filename in an explicit config directory.
+.TP
+.B $BEACON_CONFIG_DIR/motel.yaml
+Legacy config filename in an explicit config directory.
+.SH ENVIRONMENT
+.TP
+.B BEACON_LISTEN_ADDR
+Fallback listen address when
+.B \-\-listen\-addr
+is not set.
+.TP
+.B DATABASE_URL
+Legacy database URL (maps to
+.BR database.url ).
+.TP
+.B BEACON_SERVER_PORT
+Server port (maps to
+.BR server.port ).
+.TP
+.B BEACON_DATABASE_URL
+Database URL (maps to
+.BR database.url ).
+.TP
+.B OTEL_EXPORTER_OTLP_ENDPOINT
+OpenTelemetry endpoint (maps to
+.BR telemetry.endpoint ).
+.TP
+.B OTEL_EXPORTER_OTLP_HEADERS
+OpenTelemetry OTLP headers (maps to
+.BR telemetry.headers ).
+.SH EXAMPLES
+Start the server with defaults (in\-memory storage, console telemetry
+exporters):
+.PP
+.nf
+motel
+.fi
+.PP
+Bind to localhost only:
+.PP
+.nf
+motel \-\-listen\-addr 127.0.0.1:8080
+.fi
+.PP
+Run with PostgreSQL persistence:
+.PP
+.nf
+export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"
+motel
+.fi
+.PP
+Run with SQLite persistence:
+.PP
+.nf
+motel \-\-database\-url ./motel.sqlite
+.fi
+.PP
+Generate a sample config file and validate it:
+.PP
+.nf
+motel \-\-generate\-config motel.yaml
+motel \-\-config motel.yaml \-\-validate\-config
+.fi
+.PP
+Bootstrap authentication (creates the first admin user and a token):
+.PP
+.nf
+export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"
+motel \-\-bootstrap \-\-admin\-email admin@example.com \-\-admin\-name admin
+.fi
+.PP
+Create a user and initial API token:
+.PP
+.nf
+motel \-\-create\-user "Jane Doe" \-\-user\-email jane@example.com
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Configuration error, startup failure, or command failure.
+.SH SEE ALSO
+.BR motelier (1)
+.PP
+Run
+.B motel \-\-help
+for a complete, version\-specific list of flags, and use
+.B motel \-\-generate\-config
+to generate a sample configuration file.
