@@ -30,12 +30,15 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build install test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
+.PHONY: all help build install install-binaries install-manpages test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
+
+# Default target - show help when running 'make' with no arguments
+.DEFAULT_GOAL := help
 
 # Standard aggregate target for makefile linters
 all: build-all ## Build both binaries (aggregate)
 
-# Default target
+# Help target
 help: ## Show this help message
 	@echo "Motel Project - Available Make Targets"
 	@echo "======================================"
@@ -61,16 +64,16 @@ build-docker: ## Build Docker image
 	docker build -t motel .
 	@echo "✓ Docker image built: motel"
 
-install: build-all ## Build and install both binaries to ~/bin
+install: build-all install-binaries install-manpages ## Build and install both binaries and manpages
+
+install-binaries: ## Install binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
-	cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
+	@cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
 	@echo "✓ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
-	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		$(MAKE) install-manpages-macos; \
-	else \
-		echo "▲  Skipping manpage install (not macOS)"; \
-	fi
+
+install-manpages: ## Install manpages (macOS only)
+	@if [ "$$(uname -s)" = "Darwin" ]; then $(MAKE) install-manpages-macos; fi
 
 # Test targets
 test: ## Run all tests (unit + integration)
@@ -265,6 +268,34 @@ teardown: ## Teardown development environment
 	@$(MAKE) clean
 	@$(MAKE) db-reset
 	@echo "✓ Environment cleaned up"
+
+# Tool installation targets
+check-tools: ## Check if required development tools are installed
+	@echo "Checking required development tools..."
+	@echo ""
+	@missing_tools=""; \
+	for t in oapi-codegen sqlc golangci-lint migrate pre-commit; do \
+		echo "Checking $$t..."; \
+		if ! command -v $$t >/dev/null 2>&1; then \
+			echo "  ❌ $$t not found"; \
+			missing_tools="$$missing_tools $$t"; \
+		else \
+			echo "  ✓ $$t installed"; \
+		fi; \
+	done; \
+	echo ""; \
+	if [ -n "$$missing_tools" ]; then \
+		echo "Missing tools:$$missing_tools"; \
+		echo ""; \
+		echo "Run 'make install-tools' to install missing tools"; \
+		exit 1; \
+	else \
+		echo "✓ All required tools are installed"; \
+	fi
+
+install-tools: ## Install required development tools
+	@bash ./scripts/install-tools.sh
+
 
 # CI/CD targets
 ci-test: ## Run tests suitable for CI environment
