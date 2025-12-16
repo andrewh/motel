@@ -30,12 +30,15 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build install test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release
+.PHONY: all help build install install-binaries install-manpages test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
+
+# Default target - show help when running 'make' with no arguments
+.DEFAULT_GOAL := help
 
 # Standard aggregate target for makefile linters
 all: build-all ## Build both binaries (aggregate)
 
-# Default target
+# Help target
 help: ## Show this help message
 	@echo "Motel Project - Available Make Targets"
 	@echo "======================================"
@@ -61,16 +64,16 @@ build-docker: ## Build Docker image
 	docker build -t motel .
 	@echo "✓ Docker image built: motel"
 
-install: build-all ## Build and install both binaries to ~/bin
+install: build-all install-binaries install-manpages ## Build and install both binaries and manpages
+
+install-binaries: ## Install binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
-	cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
+	@cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
 	@echo "✓ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
-	@if [ "$$(uname -s)" = "Darwin" ]; then \
-		$(MAKE) install-manpages-macos; \
-	else \
-		echo "▲  Skipping manpage install (not macOS)"; \
-	fi
+
+install-manpages: ## Install manpages (macOS only)
+	@if [ "$$(uname -s)" = "Darwin" ]; then $(MAKE) install-manpages-macos; fi
 
 # Test targets
 test: ## Run all tests (unit + integration)
@@ -265,6 +268,140 @@ teardown: ## Teardown development environment
 	@$(MAKE) clean
 	@$(MAKE) db-reset
 	@echo "✓ Environment cleaned up"
+
+# Tool installation targets
+check-tools: ## Check if required development tools are installed
+	@echo "Checking required development tools..."
+	@echo ""
+	@missing_tools=""; \
+	echo "Checking oapi-codegen..."; \
+	if ! command -v oapi-codegen >/dev/null 2>&1; then \
+		echo "  ❌ oapi-codegen not found"; \
+		missing_tools="$$missing_tools oapi-codegen"; \
+	else \
+		echo "  ✓ oapi-codegen installed"; \
+	fi; \
+	echo "Checking sqlc..."; \
+	if ! command -v sqlc >/dev/null 2>&1; then \
+		echo "  ❌ sqlc not found"; \
+		missing_tools="$$missing_tools sqlc"; \
+	else \
+		echo "  ✓ sqlc installed"; \
+	fi; \
+	echo "Checking golangci-lint..."; \
+	if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "  ❌ golangci-lint not found"; \
+		missing_tools="$$missing_tools golangci-lint"; \
+	else \
+		echo "  ✓ golangci-lint installed"; \
+	fi; \
+	echo "Checking migrate..."; \
+	if ! command -v migrate >/dev/null 2>&1; then \
+		echo "  ❌ migrate not found"; \
+		missing_tools="$$missing_tools migrate"; \
+	else \
+		echo "  ✓ migrate installed"; \
+	fi; \
+	echo "Checking pre-commit..."; \
+	if ! command -v pre-commit >/dev/null 2>&1; then \
+		echo "  ❌ pre-commit not found"; \
+		missing_tools="$$missing_tools pre-commit"; \
+	else \
+		echo "  ✓ pre-commit installed"; \
+	fi; \
+	echo ""; \
+	if [ -n "$$missing_tools" ]; then \
+		echo "Missing tools:$$missing_tools"; \
+		echo ""; \
+		echo "Run 'make install-tools' to install missing tools"; \
+		exit 1; \
+	else \
+		echo "✓ All required tools are installed"; \
+	fi
+
+install-tools: ## Install required development tools
+	@echo "Installing required development tools..."
+	@echo ""
+	@echo "Installing oapi-codegen..."; \
+	if ! command -v oapi-codegen >/dev/null 2>&1; then \
+		go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest && \
+		echo "  ✓ oapi-codegen installed"; \
+	else \
+		echo "  ✓ oapi-codegen already installed"; \
+	fi
+	@echo ""
+	@echo "Installing sqlc..."; \
+	if ! command -v sqlc >/dev/null 2>&1; then \
+		if [ "$$(uname -s)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install sqlc && echo "  ✓ sqlc installed via Homebrew"; \
+			else \
+				go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && echo "  ✓ sqlc installed via go install"; \
+			fi; \
+		else \
+			go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && echo "  ✓ sqlc installed"; \
+		fi; \
+	else \
+		echo "  ✓ sqlc already installed"; \
+	fi
+	@echo ""
+	@echo "Installing golangci-lint..."; \
+	if ! command -v golangci-lint >/dev/null 2>&1; then \
+		if [ "$$(uname -s)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install golangci-lint && echo "  ✓ golangci-lint installed via Homebrew"; \
+			else \
+				curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin && echo "  ✓ golangci-lint installed"; \
+			fi; \
+		else \
+			curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin && echo "  ✓ golangci-lint installed"; \
+		fi; \
+	else \
+		echo "  ✓ golangci-lint already installed"; \
+	fi
+	@echo ""
+	@echo "Installing migrate..."; \
+	if ! command -v migrate >/dev/null 2>&1; then \
+		if [ "$$(uname -s)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install golang-migrate && echo "  ✓ migrate installed via Homebrew"; \
+			else \
+				go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest && echo "  ✓ migrate installed"; \
+			fi; \
+		else \
+			go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest && echo "  ✓ migrate installed"; \
+		fi; \
+	else \
+		echo "  ✓ migrate already installed"; \
+	fi
+	@echo ""
+	@echo "Installing pre-commit..."; \
+	if ! command -v pre-commit >/dev/null 2>&1; then \
+		if [ "$$(uname -s)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install pre-commit && echo "  ✓ pre-commit installed via Homebrew"; \
+			elif command -v pip3 >/dev/null 2>&1; then \
+				pip3 install --user pre-commit && echo "  ✓ pre-commit installed via pip3"; \
+			else \
+				echo "  ❌ Unable to install pre-commit. Install Homebrew or pip3."; \
+			fi; \
+		else \
+			if command -v pip3 >/dev/null 2>&1; then \
+				pip3 install --user pre-commit && echo "  ✓ pre-commit installed via pip3"; \
+			elif command -v pip >/dev/null 2>&1; then \
+				pip install --user pre-commit && echo "  ✓ pre-commit installed via pip"; \
+			else \
+				echo "  ❌ Unable to install pre-commit. Install pip or pip3."; \
+			fi; \
+		fi; \
+	else \
+		echo "  ✓ pre-commit already installed"; \
+	fi
+	@echo ""
+	@echo "✓ Tool installation complete"
+	@echo ""
+	@echo "Note: You may need to add $$(go env GOPATH)/bin to your PATH"
+	@echo "Run 'make check-tools' to verify all tools are accessible"
 
 # CI/CD targets
 ci-test: ## Run tests suitable for CI environment
