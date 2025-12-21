@@ -38,7 +38,7 @@ Motel API endpoint (default:
 .B \-\-api\-key
 \fItoken\fR
 API token for authentication. This can also be set via
-.BR BEACON_API_KEY .
+.BR MOTEL_API_KEY .
 .TP
 .B \-f ", " \-\-format
 \fBtable\fR|\fBjson\fR|\fByaml\fR
@@ -125,24 +125,24 @@ loads
 and creates it with sensible defaults if missing.
 .PP
 Environment variables prefixed with
-.B BEACON_
+.B MOTEL_
 override configuration values. Common overrides include:
-.B BEACON_ENDPOINT
+.B MOTEL_ENDPOINT
 and
-.BR BEACON_API_KEY .
+.BR MOTEL_API_KEY .
 .SH FILES
 .TP
 .B ~/.motel/config.yaml
 Default configuration file.
 .SH ENVIRONMENT
 .TP
-.B BEACON_ENDPOINT
+.B MOTEL_ENDPOINT
 Override API endpoint.
 .TP
-.B BEACON_API_KEY
+.B MOTEL_API_KEY
 Override API key.
 .TP
-.B BEACON_FORMAT
+.B MOTEL_FORMAT
 Override output format.
 .SH EXAMPLES
 Check server status:

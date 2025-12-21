@@ -144,9 +144,9 @@ command\-line flags \-> environment variables \-> configuration file \->
 defaults.
 .PP
 Environment variables are read with the
-.B BEACON_
+.B MOTEL_
 prefix and use underscores for nesting (for example,
-.BR BEACON_SERVER_PORT ).
+.BR MOTEL_SERVER_PORT ).
 For backward compatibility,
 .B DATABASE_URL
 and common OpenTelemetry variables (for example
@@ -172,14 +172,14 @@ Preferred system config filename.
 .B /etc/motel/motel.yaml
 Legacy system config filename.
 .TP
-.B $BEACON_CONFIG_DIR/config.yaml
+.B $MOTEL_CONFIG_DIR/config.yaml
 Preferred config filename in an explicit config directory.
 .TP
-.B $BEACON_CONFIG_DIR/motel.yaml
+.B $MOTEL_CONFIG_DIR/motel.yaml
 Legacy config filename in an explicit config directory.
 .SH ENVIRONMENT
 .TP
-.B BEACON_LISTEN_ADDR
+.B MOTEL_LISTEN_ADDR
 Fallback listen address when
 .B \-\-listen\-addr
 is not set.
@@ -188,11 +188,11 @@ is not set.
 Legacy database URL (maps to
 .BR database.url ).
 .TP
-.B BEACON_SERVER_PORT
+.B MOTEL_SERVER_PORT
 Server port (maps to
 .BR server.port ).
 .TP
-.B BEACON_DATABASE_URL
+.B MOTEL_DATABASE_URL
 Database URL (maps to
 .BR database.url ).
 .TP
