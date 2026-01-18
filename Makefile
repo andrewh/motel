@@ -91,9 +91,9 @@ test-integration: ## Run integration tests only (requires database)
 	./scripts/test_integration.sh
 	@echo "✓ Integration tests passed"
 
-test-verbose: ## Run tests with verbose output
+test-verbose: ## Run tests with verbose output (sequential for database isolation)
 	@echo "Running tests with verbose output..."
-	go test -v ./...
+	go test -v -p 1 ./...
 
 # Performance testing targets (requires running server)
 test-perf: ## Run comprehensive performance API tests
