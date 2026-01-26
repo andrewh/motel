@@ -29,8 +29,8 @@ motel \- Motel server for synthetic OpenTelemetry generation and plan execution
 is the Motel HTTP API server. It runs a REST API for managing and executing
 plans and jobs and can emit or forward OpenTelemetry signals.
 .PP
-For quick, standalone use, Motel can run with in\-memory storage (no database
-required). For persistence and authentication token management, configure a
+For quick, standalone use, Motel runs with an in\-memory SQLite database by
+default. For persistence and authentication token management, configure a
 database backend (PostgreSQL or SQLite).
 .SH OPTIONS
 .TP
