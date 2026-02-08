@@ -397,7 +397,7 @@ pre-commit: pre-commit-run ## Alias for pre-commit-run
 version: ## Show current version information
 	@echo "VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_TIME=$(BUILD_TIME)"; \
 	echo "Git Status:"; git status --porcelain 2>/dev/null | head -5 || echo "No git repo"; \
-	([ -x "$(BUILD_DIR)/$(BINARY_NAME)" ] && ./$(BUILD_DIR)/$(BINARY_NAME) --version || echo "(build first: make build)"); \
+	([ -x "$(BUILD_DIR)/$(BINARY_NAME)" ] && ./$(BUILD_DIR)/$(BINARY_NAME) version || echo "(build first: make build)"); \
 	([ -x "$(BUILD_DIR)/$(CLI_BINARY_NAME)" ] && ./$(BUILD_DIR)/$(CLI_BINARY_NAME) version || echo "(build first: make build-cli)")
 
 set-version: ## Set a new version tag (usage: make set-version VERSION=v1.2.3)
