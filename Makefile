@@ -30,7 +30,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build install install-binaries install-manpages test test-unit test-integration test-perf test-perf-simple test-perf-endpoints test-perf-brief test-perf-final test-perf-all lint clean verify verify-all verify-api verify-docker verify-database verify-coverage verify-completeness run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
+.PHONY: all help build install install-binaries install-manpages test test-unit test-integration lint clean run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
 
 # Default target - show help when running 'make' with no arguments
 .DEFAULT_GOAL := help
@@ -78,63 +78,22 @@ install-manpages: ## Install manpages (macOS only)
 # Test targets
 test: ## Run all tests (unit + integration)
 	@echo "Running all tests..."
-	./scripts/run_tests.sh
+	@$(MAKE) test-unit
+	@$(MAKE) test-integration
 	@echo "✓ All tests passed"
 
 test-unit: ## Run unit tests only (fast, parallel)
 	@echo "Running unit tests..."
-	./scripts/test_unit.sh
+	@go fmt ./...
+	@go test -v ./pkg/query/... ./pkg/models/... ./pkg/executor/handlers/... ./pkg/validation/... ./pkg/config/... ./pkg/metrics/...
 	@echo "✓ Unit tests passed"
 
 test-integration: ## Run integration tests only (requires database)
 	@echo "Running integration tests..."
-	./scripts/test_integration.sh
+	@go test -tags=integration -v -p 1 ./pkg/service/...
+	@go test -v -p 1 ./pkg/app/...
+	@go test -v ./cmd/motel/...
 	@echo "✓ Integration tests passed"
-
-test-verbose: ## Run tests with verbose output (sequential for database isolation)
-	@echo "Running tests with verbose output..."
-	go test -v -p 1 ./...
-
-# Performance testing targets (requires running server)
-test-perf: ## Run comprehensive performance API tests
-	@echo "Running comprehensive performance API tests..."
-	./scripts/test_performance_api.sh
-	@echo "✓ Performance API tests passed"
-
-test-perf-simple: ## Run simple performance test validation
-	@echo "Running simple performance test..."
-	./scripts/test_simple_performance_fixed.sh
-	@echo "✓ Simple performance test passed"
-
-test-perf-endpoints: ## Test performance API endpoints
-	@echo "Testing performance API endpoints..."
-	./scripts/test_perf_endpoints.sh
-	@echo "✓ Performance endpoints test passed"
-
-test-perf-brief: ## Test brief API endpoint names
-	@echo "Testing brief API endpoint names..."
-	./scripts/test_brief_api.sh
-	@echo "✓ Brief API test passed"
-
-test-perf-final: ## Run final performance testing validation
-	@echo "Running final performance testing validation..."
-	./scripts/test_final_performance.sh
-	@echo "✓ Final performance validation passed"
-
-test-perf-all: ## Run all performance tests (requires running server)
-	@echo "Running all performance tests..."
-	@echo "================================"
-	@$(MAKE) test-perf-brief
-	@echo ""
-	@$(MAKE) test-perf-endpoints
-	@echo ""
-	@$(MAKE) test-perf-simple
-	@echo ""
-	@$(MAKE) test-perf-final
-	@echo ""
-	@$(MAKE) test-perf
-	@echo ""
-	@echo "✓ All performance tests passed"
 
 # Code generation targets
 generate: ## Generate code from OpenAPI spec
@@ -176,40 +135,6 @@ fmt: ## Format code
 	@echo "Formatting code..."
 	go fmt ./...
 	@echo "✓ Code formatted"
-
-# Verification targets
-verify-api: ## Verify API implementation
-	@echo "Verifying API implementation..."
-	./scripts/verify_api.sh
-
-verify-docker: ## Verify Docker implementation
-	@echo "Verifying Docker implementation..."
-	./scripts/verify_docker.sh
-
-verify-database: ## Verify database schema
-	@echo "Verifying database schema..."
-	./scripts/verify_database.sh
-
-verify-coverage: ## Analyze test coverage
-	@echo "Analyzing test coverage..."
-	./scripts/verify_coverage.sh
-
-verify-completeness: ## Run comprehensive completeness check
-	@echo "Running completeness verification..."
-	./scripts/verify_completeness.sh
-
-verify: verify-completeness ## Run basic verification (alias for verify-completeness)
-
-verify-all: ## Run all verification checks
-	@echo "Running all verification checks..."
-	@echo "=================================="
-	@$(MAKE) verify-completeness
-	@echo ""
-	@echo "Note: Run individual verification commands for detailed analysis:"
-	@echo "  make verify-api        (requires running server)"
-	@echo "  make verify-docker     (requires Docker)"
-	@echo "  make verify-database   (requires PostgreSQL)"
-	@echo "  make verify-coverage   (generates detailed reports)"
 
 # Development targets
 dev: ## Build both binaries with race detection
@@ -322,24 +247,6 @@ quick-test: ## Quick unit tests and lint (fast feedback)
 
 full-test: ## Run all tests and lint
 	@$(MAKE) test lint
-
-quick-verify: ## Quick verification (completeness check only)
-	@$(MAKE) verify-completeness
-
-full-verify: ## Full verification suite (requires all dependencies)
-	@echo "Running full verification suite..."
-	@$(MAKE) lint test verify-completeness
-	@echo ""
-	@echo "Test execution summary:"
-	@echo "• Unit tests: Fast parallel execution (~0.8s)"
-	@echo "• Integration tests: Sequential with database isolation (~15s)"
-	@echo ""
-	@echo "For complete verification including live services:"
-	@echo "1. Start the server: make run"
-	@echo "2. In another terminal: make verify-api"
-	@echo "3. For Docker verification: make verify-docker"
-	@echo "4. For database verification: make verify-database"
-	@echo "5. For detailed coverage: make verify-coverage"
 
 # Package targets
 deb-package: ## Build Debian package
