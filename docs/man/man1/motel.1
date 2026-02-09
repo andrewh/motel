@@ -87,56 +87,19 @@ Print the effective configuration (after file/env processing) and exit.
 .TP
 .B \-\-validate\-config
 Validate configuration, print a summary, and exit.
-.SH AUTHENTICATION COMMANDS
-The server binary includes a small set of administrative commands for managing
-users and API tokens. These commands require a persistent database and will use
-.B \-\-database\-url
-or
-.B DATABASE_URL
-.
-.TP
-.B \-\-bootstrap
-Create an initial admin user and token if no users exist.
-Use with
-.B \-\-admin\-email
-and optionally
-.BR \-\-admin\-name .
-.TP
-.B \-\-admin\-email
-\fIemail\fR
-Email for the bootstrap admin user (required with
-.BR \-\-bootstrap ).
-.TP
-.B \-\-admin\-name
-\fIname\fR
-Name for the bootstrap admin user (default:
+.SH ADMIN SEEDING
+When
+.B MOTEL_ADMIN_EMAIL
+is set and the database contains no users, the server creates an admin user and
+prints the API token to stdout on startup. Use
+.B MOTEL_ADMIN_NAME
+to set the admin name (default:
 .BR admin ).
-.TP
-.B \-\-create\-user
-\fIname\fR
-Create a user and an initial API token, then exit. Requires
-.BR \-\-user\-email .
-.TP
-.B \-\-user\-email
-\fIemail\fR
-Email address for
-.BR \-\-create\-user .
-.TP
-.B \-\-create\-token
-\fIuser\-id\fR
-Create a new API token for an existing user, then exit.
-.TP
-.B \-\-token\-name
-\fIname\fR
-Name for created tokens (default:
-.BR "CLI Token" ).
-.TP
-.B \-\-list\-users
-List users and exit.
-.TP
-.B \-\-list\-tokens
-\fIuser\-id\fR
-List tokens for a user and exit (token values are never displayed).
+Seeding is skipped if any users already exist.
+.PP
+User and token management after initial setup is handled by the
+.BR motelier (1)
+CLI client.
 .SH CONFIGURATION
 Motel uses configuration in this precedence order:
 .PP
@@ -203,6 +166,16 @@ OpenTelemetry endpoint (maps to
 .B OTEL_EXPORTER_OTLP_HEADERS
 OpenTelemetry OTLP headers (maps to
 .BR telemetry.headers ).
+.TP
+.B MOTEL_ADMIN_EMAIL
+Admin user email for automatic seeding on startup (maps to
+.BR admin.email ).
+.TP
+.B MOTEL_ADMIN_NAME
+Admin user name for automatic seeding (default:
+.BR admin ;
+maps to
+.BR admin.name ).
 .SH EXAMPLES
 Start the server with defaults (in\-memory storage, console telemetry
 exporters):
@@ -237,17 +210,13 @@ motel \-\-generate\-config motel.yaml
 motel \-\-config motel.yaml \-\-validate\-config
 .fi
 .PP
-Bootstrap authentication (creates the first admin user and a token):
+Seed an admin user on first startup:
 .PP
 .nf
 export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"
-motel \-\-bootstrap \-\-admin\-email admin@example.com \-\-admin\-name admin
-.fi
-.PP
-Create a user and initial API token:
-.PP
-.nf
-motel \-\-create\-user "Jane Doe" \-\-user\-email jane@example.com
+export MOTEL_ADMIN_EMAIL=admin@example.com
+motel serve
+# Token is printed to stdout on first start only
 .fi
 .SH EXIT STATUS
 .TP
