@@ -4,11 +4,13 @@
 # Variables
 BINARY_NAME=motel
 CLI_BINARY_NAME=motelier
+LLM_BINARY_NAME=motel-llm
 MODULE=github.com/andrewh/motel
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/motel
 CLI_SOURCE_DIR=./cmd/motelier
+LLM_SOURCE_DIR=./cmd/motel-llm
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
@@ -30,7 +32,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build install install-binaries install-manpages test test-unit test-integration lint clean run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
+.PHONY: all help build build-llm install install-binaries install-manpages test test-unit test-integration lint clean run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
 
 # Default target - show help when running 'make' with no arguments
 .DEFAULT_GOAL := help
@@ -57,7 +59,13 @@ build-cli: generate ## Build the motelier CLI binary
 	go build -ldflags "$(CLI_LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME) $(CLI_SOURCE_DIR); \
 	echo "✓ CLI build complete: ./$(BUILD_DIR)/$(CLI_BINARY_NAME)"
 
-build-all: build build-cli ## Build both motel and motelier binaries
+build-llm: ## Build the motel-llm CLI binary
+	@echo "Building motel-llm... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+	mkdir -p $(BUILD_DIR); \
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(LLM_BINARY_NAME) $(LLM_SOURCE_DIR); \
+	echo "✓ LLM CLI build complete: ./$(BUILD_DIR)/$(LLM_BINARY_NAME)"
+
+build-all: build build-cli build-llm ## Build all binaries
 
 build-docker: ## Build Docker image
 	@echo "Building Docker image..."
