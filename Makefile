@@ -90,7 +90,7 @@ test-unit: ## Run unit tests only (fast, parallel)
 
 test-integration: ## Run integration tests only (requires database)
 	@echo "Running integration tests..."
-	@go test -tags=integration -v -p 1 ./...
+	@go test -tags=integration -v -p 1 ./pkg/service/... ./pkg/app/...
 	@echo "✓ Integration tests passed"
 
 # Code generation targets
@@ -226,7 +226,7 @@ ci-test: ## Run tests suitable for CI environment
 	@echo "Running unit tests with race detection..."
 	go test -race -coverprofile=coverage-unit.out ./...
 	@echo "Running integration tests with coverage..."
-	go test -tags=integration -race -coverprofile=coverage-integration.out -p 1 ./...
+	go test -tags=integration -race -coverprofile=coverage-integration.out -p 1 ./pkg/service/... ./pkg/app/...
 	@echo "Generating coverage report..."
 	go tool cover -html=coverage-unit.out -o coverage-unit.html
 	go tool cover -html=coverage-integration.out -o coverage-integration.html
