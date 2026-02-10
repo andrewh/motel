@@ -78,7 +78,8 @@ install-binaries: ## Install binaries to ~/bin
 	@mkdir -p $(INSTALL_DIR)
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	@cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
-	@echo "✓ Installed $(BINARY_NAME) and $(CLI_BINARY_NAME) to $(INSTALL_DIR)"
+	@cp $(BUILD_DIR)/$(LLM_BINARY_NAME) $(INSTALL_DIR)/$(LLM_BINARY_NAME)
+	@echo "✓ Installed $(BINARY_NAME), $(CLI_BINARY_NAME) and $(LLM_BINARY_NAME) to $(INSTALL_DIR)"
 
 install-manpages: ## Install manpages (macOS only)
 	@if [ "$$(uname -s)" = "Darwin" ]; then $(MAKE) install-manpages-macos; fi
