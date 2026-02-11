@@ -22,11 +22,13 @@ type Service struct {
 
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
-	Service   *Service
-	Name      string
-	Duration  Distribution
-	ErrorRate float64
-	Calls     []*Operation
+	Service    *Service
+	Name       string
+	Duration   Distribution
+	ErrorRate  float64
+	Calls      []*Operation
+	CallStyle  string
+	Attributes map[string]AttributeGenerator
 }
 
 // BuildTopology resolves a validated Config into a traversable Topology graph.
@@ -54,11 +56,24 @@ func BuildTopology(cfg *Config) (*Topology, error) {
 					return nil, fmt.Errorf("service %q operation %q: %w", svcCfg.Name, opCfg.Name, err)
 				}
 			}
+			var attrs map[string]AttributeGenerator
+			if len(opCfg.Attributes) > 0 {
+				attrs = make(map[string]AttributeGenerator, len(opCfg.Attributes))
+				for name, acfg := range opCfg.Attributes {
+					gen, err := NewAttributeGenerator(acfg)
+					if err != nil {
+						return nil, fmt.Errorf("service %q operation %q attribute %q: %w", svcCfg.Name, opCfg.Name, name, err)
+					}
+					attrs[name] = gen
+				}
+			}
 			svc.Operations[opCfg.Name] = &Operation{
-				Service:   svc,
-				Name:      opCfg.Name,
-				Duration:  dist,
-				ErrorRate: errorRate,
+				Service:    svc,
+				Name:       opCfg.Name,
+				Duration:   dist,
+				ErrorRate:  errorRate,
+				CallStyle:  opCfg.CallStyle,
+				Attributes: attrs,
 			}
 		}
 		topo.Services[svcCfg.Name] = svc

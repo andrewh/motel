@@ -100,6 +100,39 @@ scenarios:
 		require.Contains(t, cfg.Scenarios[0].Override, "user-service.list")
 	})
 
+	t.Run("config with attributes and call_style", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+        call_style: parallel
+        attributes:
+          http.route:
+            value: "/api/v1/users"
+          http.response.status_code:
+            values:
+              "200": 95
+              "500": 5
+          user.id:
+            sequence: "user-{n}"
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		require.Len(t, cfg.Services, 1)
+
+		op := cfg.Services[0].Operations[0]
+		assert.Equal(t, "parallel", op.CallStyle)
+		require.Len(t, op.Attributes, 3)
+		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Value)
+		assert.Equal(t, map[string]int{"200": 95, "500": 5}, op.Attributes["http.response.status_code"].Values)
+		assert.Equal(t, "user-{n}", op.Attributes["user.id"].Sequence)
+	})
+
 	t.Run("file not found", func(t *testing.T) {
 		t.Parallel()
 		_, err := LoadConfig("/nonexistent/path.yaml")
@@ -277,6 +310,99 @@ func TestValidateConfig(t *testing.T) {
 		}
 		err := ValidateConfig(cfg)
 		require.NoError(t, err)
+	})
+
+	t.Run("valid call_style sequential", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:      "op",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.NoError(t, err)
+	})
+
+	t.Run("valid call_style parallel", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:      "op",
+					Duration:  "10ms",
+					CallStyle: "parallel",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid call_style", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:      "op",
+					Duration:  "10ms",
+					CallStyle: "batched",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "call_style")
+	})
+
+	t.Run("valid operation attributes", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Attributes: map[string]AttributeValueConfig{
+						"http.route":                {Value: "/api/v1/users"},
+						"http.response.status_code": {Values: map[string]int{"200": 95, "500": 5}},
+						"user.id":                   {Sequence: "user-{n}"},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid operation attribute config", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Attributes: map[string]AttributeValueConfig{
+						"bad": {},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attribute")
 	})
 
 	t.Run("scenario override references invalid operation", func(t *testing.T) {

@@ -158,6 +158,54 @@ func TestBuildTopology(t *testing.T) {
 		assert.Equal(t, "prod", topo.Services["svc"].Attributes["env"])
 	})
 
+	t.Run("resolves operation attributes", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Attributes: map[string]AttributeValueConfig{
+						"http.route": {Value: "/api/v1/users"},
+						"status":     {Values: map[string]int{"200": 1}},
+						"req.id":     {Sequence: "req-{n}"},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+		op := topo.Services["svc"].Operations["op"]
+		require.Len(t, op.Attributes, 3)
+		assert.IsType(t, &StaticValue{}, op.Attributes["http.route"])
+		assert.IsType(t, &WeightedChoice{}, op.Attributes["status"])
+		assert.IsType(t, &SequenceValue{}, op.Attributes["req.id"])
+	})
+
+	t.Run("resolves call_style", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{
+					{Name: "parallel-op", Duration: "10ms", CallStyle: "parallel"},
+					{Name: "sequential-op", Duration: "10ms", CallStyle: "sequential"},
+					{Name: "default-op", Duration: "10ms"},
+				},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+		assert.Equal(t, "parallel", topo.Services["svc"].Operations["parallel-op"].CallStyle)
+		assert.Equal(t, "sequential", topo.Services["svc"].Operations["sequential-op"].CallStyle)
+		assert.Equal(t, "", topo.Services["svc"].Operations["default-op"].CallStyle)
+	})
+
 	t.Run("preserves error rate", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{

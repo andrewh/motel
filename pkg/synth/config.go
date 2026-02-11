@@ -35,9 +35,11 @@ type rawServiceConfig struct {
 
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
-	Duration  string   `yaml:"duration"`
-	ErrorRate string   `yaml:"error_rate,omitempty"`
-	Calls     []string `yaml:"calls,omitempty"`
+	Duration   string                          `yaml:"duration"`
+	ErrorRate  string                          `yaml:"error_rate,omitempty"`
+	Calls      []string                        `yaml:"calls,omitempty"`
+	CallStyle  string                          `yaml:"call_style,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
 // ServiceConfig describes a service in the topology.
@@ -49,10 +51,12 @@ type ServiceConfig struct {
 
 // OperationConfig describes an operation within a service.
 type OperationConfig struct {
-	Name      string
-	Duration  string
-	ErrorRate string
-	Calls     []string
+	Name       string
+	Duration   string
+	ErrorRate  string
+	Calls      []string
+	CallStyle  string
+	Attributes map[string]AttributeValueConfig
 }
 
 // TrafficConfig describes the traffic generation pattern.
@@ -115,10 +119,12 @@ func LoadConfig(path string) (*Config, error) {
 		for _, opName := range opNames {
 			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
-				Name:      opName,
-				Duration:  rawOp.Duration,
-				ErrorRate: rawOp.ErrorRate,
-				Calls:     rawOp.Calls,
+				Name:       opName,
+				Duration:   rawOp.Duration,
+				ErrorRate:  rawOp.ErrorRate,
+				Calls:      rawOp.Calls,
+				CallStyle:  rawOp.CallStyle,
+				Attributes: rawOp.Attributes,
 			})
 		}
 		cfg.Services = append(cfg.Services, svc)
@@ -154,6 +160,16 @@ func ValidateConfig(cfg *Config) error {
 			if op.ErrorRate != "" {
 				if _, err := parseErrorRate(op.ErrorRate); err != nil {
 					return fmt.Errorf("service %q operation %q: invalid error_rate: %w", svc.Name, op.Name, err)
+				}
+			}
+
+			if op.CallStyle != "" && op.CallStyle != "parallel" && op.CallStyle != "sequential" {
+				return fmt.Errorf("service %q operation %q: call_style must be \"parallel\" or \"sequential\", got %q", svc.Name, op.Name, op.CallStyle)
+			}
+
+			for attrName, attrCfg := range op.Attributes {
+				if _, err := NewAttributeGenerator(attrCfg); err != nil {
+					return fmt.Errorf("service %q operation %q: attribute %q: %w", svc.Name, op.Name, attrName, err)
 				}
 			}
 
