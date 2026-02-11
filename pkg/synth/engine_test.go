@@ -39,7 +39,7 @@ func newTestEngine(t *testing.T, cfg *Config) (*Engine, *tracetest.InMemoryExpor
 		Traffic:   pattern,
 		Scenarios: scenarios,
 		Provider:  tp,
-		Rng:       rand.New(rand.NewPCG(42, 0)),
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 	}
 
 	return engine, exporter
@@ -84,9 +84,10 @@ func TestEngineWalkTrace(t *testing.T) {
 	// Verify parent-child
 	var rootSpan, childSpan tracetest.SpanStub
 	for _, s := range spans {
-		if s.Name == "GET /users" {
+		switch s.Name {
+		case "GET /users":
 			rootSpan = s
-		} else if s.Name == "list" {
+		case "list":
 			childSpan = s
 		}
 	}
@@ -228,7 +229,7 @@ func TestEngineScenarioOverrides(t *testing.T) {
 		Traffic:   pattern,
 		Scenarios: scenarios,
 		Provider:  tp,
-		Rng:       rand.New(rand.NewPCG(42, 0)),
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 	}
 
 	// Walk trace with overrides active at elapsed=0

@@ -112,7 +112,7 @@ func TestDistributionSample(t *testing.T) {
 	t.Run("samples within expected range", func(t *testing.T) {
 		t.Parallel()
 		d := Distribution{Mean: 30 * time.Millisecond, StdDev: 10 * time.Millisecond}
-		rng := rand.New(rand.NewPCG(42, 0))
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
 
 		for range 1000 {
 			sample := d.Sample(rng)
@@ -123,7 +123,7 @@ func TestDistributionSample(t *testing.T) {
 	t.Run("zero stddev returns mean", func(t *testing.T) {
 		t.Parallel()
 		d := Distribution{Mean: 50 * time.Millisecond, StdDev: 0}
-		rng := rand.New(rand.NewPCG(42, 0))
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
 
 		for range 100 {
 			assert.Equal(t, 50*time.Millisecond, d.Sample(rng))
@@ -133,7 +133,7 @@ func TestDistributionSample(t *testing.T) {
 	t.Run("samples cluster around mean", func(t *testing.T) {
 		t.Parallel()
 		d := Distribution{Mean: 100 * time.Millisecond, StdDev: 10 * time.Millisecond}
-		rng := rand.New(rand.NewPCG(42, 0))
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
 
 		var total time.Duration
 		n := 10000

@@ -90,7 +90,7 @@ func validateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d services, %d root operations\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d services, %d root operations\n",
 				len(topo.Services), len(topo.Roots))
 			return nil
 		},
@@ -158,7 +158,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Traffic:   traffic,
 		Scenarios: scenarios,
 		Provider:  tp,
-		Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:  duration,
 	}
 

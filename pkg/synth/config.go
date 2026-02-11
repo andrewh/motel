@@ -28,7 +28,7 @@ type rawConfig struct {
 
 // rawServiceConfig is the YAML representation of a service before normalisation.
 type rawServiceConfig struct {
-	Attributes map[string]string            `yaml:"attributes,omitempty"`
+	Attributes map[string]string             `yaml:"attributes,omitempty"`
 	Operations map[string]rawOperationConfig `yaml:"operations"`
 }
 
@@ -76,7 +76,7 @@ type OverrideConfig struct {
 
 // LoadConfig reads and parses a YAML configuration file.
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // user-supplied config path is expected
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}

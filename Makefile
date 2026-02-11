@@ -5,12 +5,14 @@
 BINARY_NAME=motel
 CLI_BINARY_NAME=motelier
 LLM_BINARY_NAME=motel-llm
+SYNTH_BINARY_NAME=motel-synth
 MODULE=github.com/andrewh/motel
 BUILD_DIR=build
 INSTALL_DIR=$(GOPATH)/bin
 SOURCE_DIR=./cmd/motel
 CLI_SOURCE_DIR=./cmd/motelier
 LLM_SOURCE_DIR=./cmd/motel-llm
+SYNTH_SOURCE_DIR=./cmd/motel-synth
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
@@ -32,7 +34,7 @@ SVG_FILES := $(patsubst %.d2,%.svg,$(D2_FILES))
 
 
 
-.PHONY: all help build build-llm install install-binaries install-manpages test test-unit test-integration lint clean run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
+.PHONY: all help build build-llm build-synth install install-binaries install-manpages test test-unit test-integration lint clean run dev docker-build docker-run setup teardown deb-package apk-package install-manpages-macos diagrams kill pre-commit pre-commit-install pre-commit-run pre-commit-update version set-version tag-release install-tools check-tools
 
 # Default target - show help when running 'make' with no arguments
 .DEFAULT_GOAL := help
@@ -65,7 +67,13 @@ build-llm: ## Build the motel-llm CLI binary
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(LLM_BINARY_NAME) $(LLM_SOURCE_DIR); \
 	echo "✓ LLM CLI build complete: ./$(BUILD_DIR)/$(LLM_BINARY_NAME)"
 
-build-all: build build-cli build-llm ## Build all binaries
+build-synth: ## Build the motel-synth binary
+	@echo "Building motel-synth... Version=$(VERSION) Commit=$(COMMIT) Time=$(BUILD_TIME)"; \
+	mkdir -p $(BUILD_DIR); \
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(SYNTH_BINARY_NAME) $(SYNTH_SOURCE_DIR); \
+	echo "✓ Synth build complete: ./$(BUILD_DIR)/$(SYNTH_BINARY_NAME)"
+
+build-all: build build-cli build-llm build-synth ## Build all binaries
 
 build-docker: ## Build Docker image
 	@echo "Building Docker image..."
@@ -79,7 +87,8 @@ install-binaries: ## Install binaries to ~/bin
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	@cp $(BUILD_DIR)/$(CLI_BINARY_NAME) $(INSTALL_DIR)/$(CLI_BINARY_NAME)
 	@cp $(BUILD_DIR)/$(LLM_BINARY_NAME) $(INSTALL_DIR)/$(LLM_BINARY_NAME)
-	@echo "✓ Installed $(BINARY_NAME), $(CLI_BINARY_NAME) and $(LLM_BINARY_NAME) to $(INSTALL_DIR)"
+	@cp $(BUILD_DIR)/$(SYNTH_BINARY_NAME) $(INSTALL_DIR)/$(SYNTH_BINARY_NAME)
+	@echo "✓ Installed $(BINARY_NAME), $(CLI_BINARY_NAME), $(LLM_BINARY_NAME) and $(SYNTH_BINARY_NAME) to $(INSTALL_DIR)"
 
 install-manpages: ## Install manpages (macOS only)
 	@if [ "$$(uname -s)" = "Darwin" ]; then $(MAKE) install-manpages-macos; fi
