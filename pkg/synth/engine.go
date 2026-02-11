@@ -25,25 +25,39 @@ type Engine struct {
 	Duration  time.Duration
 }
 
+// Stats holds counters collected during a simulation run.
+type Stats struct {
+	Traces       int64   `json:"traces"`
+	Spans        int64   `json:"spans"`
+	Errors       int64   `json:"errors"`
+	ElapsedMs    int64   `json:"elapsed_ms"`
+	TracesPerSec float64 `json:"traces_per_second"`
+	SpansPerSec  float64 `json:"spans_per_second"`
+	ErrorRate    float64 `json:"error_rate"`
+}
+
 // Run executes the main simulation loop with rate-controlled trace generation.
-func (e *Engine) Run(ctx context.Context) error {
+func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 	if len(e.Topology.Roots) == 0 {
-		return fmt.Errorf("no root operations to generate traces from")
+		return nil, fmt.Errorf("no root operations to generate traces from")
 	}
 
+	var stats Stats
 	startTime := time.Now()
 	deadline := startTime.Add(e.Duration)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		default:
 		}
 
 		now := time.Now()
 		if now.After(deadline) {
-			return nil
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		}
 
 		elapsed := now.Sub(startTime)
@@ -66,21 +80,36 @@ func (e *Engine) Run(ctx context.Context) error {
 		root := e.Topology.Roots[e.Rng.IntN(len(e.Topology.Roots))]
 
 		// Walk the trace tree
-		e.walkTrace(ctx, root, now, overrides)
+		e.walkTrace(ctx, root, now, overrides, &stats)
+		stats.Traces++
 
 		// Sleep for the inter-arrival interval
 		interval := time.Duration(float64(time.Second) / rate)
 		select {
 		case <-ctx.Done():
-			return nil
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		case <-time.After(interval):
 		}
 	}
 }
 
+func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
+	elapsed := time.Since(startTime)
+	stats.ElapsedMs = elapsed.Milliseconds()
+	secs := elapsed.Seconds()
+	if secs > 0 {
+		stats.TracesPerSec = float64(stats.Traces) / secs
+		stats.SpansPerSec = float64(stats.Spans) / secs
+	}
+	if stats.Spans > 0 {
+		stats.ErrorRate = float64(stats.Errors) / float64(stats.Spans)
+	}
+}
+
 // walkTrace recursively generates spans for an operation and its downstream calls.
 // Synthetic timestamps are computed without sleeping.
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override) time.Time {
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) time.Time {
 	tracer := e.Provider.Tracer(op.Service.Name)
 
 	// Determine effective duration and error rate (apply overrides if active)
@@ -116,6 +145,11 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		span.SetAttributes(attribute.String(k, v))
 	}
 
+	// Add operation attributes
+	for k, gen := range op.Attributes {
+		span.SetAttributes(attribute.String(k, gen.Generate(e.Rng)))
+	}
+
 	// Determine if this span errors
 	isError := e.Rng.Float64() < errorRate
 
@@ -126,12 +160,23 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	// Walk downstream calls
+	// Walk downstream calls (parallel or sequential)
 	latestChildEnd := childStartTime
-	for _, child := range op.Calls {
-		childEnd := e.walkTrace(ctx, child, childStartTime, overrides)
-		if childEnd.After(latestChildEnd) {
-			latestChildEnd = childEnd
+	if op.CallStyle == "sequential" {
+		nextStart := childStartTime
+		for _, child := range op.Calls {
+			childEnd := e.walkTrace(ctx, child, nextStart, overrides, stats)
+			if childEnd.After(latestChildEnd) {
+				latestChildEnd = childEnd
+			}
+			nextStart = childEnd
+		}
+	} else {
+		for _, child := range op.Calls {
+			childEnd := e.walkTrace(ctx, child, childStartTime, overrides, stats)
+			if childEnd.After(latestChildEnd) {
+				latestChildEnd = childEnd
+			}
 		}
 	}
 
@@ -142,8 +187,10 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	if isError {
 		span.SetStatus(codes.Error, "synthetic error")
 		span.RecordError(fmt.Errorf("synthetic error"), trace.WithTimestamp(endTime))
+		stats.Errors++
 	}
 
+	stats.Spans++
 	span.End(trace.WithTimestamp(endTime))
 	return endTime
 }

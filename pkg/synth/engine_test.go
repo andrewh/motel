@@ -73,7 +73,7 @@ func TestEngineWalkTrace(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, now, nil)
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
 
 	// Force flush
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
@@ -122,7 +122,7 @@ func TestEngineErrorInjection(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -147,7 +147,7 @@ func TestEngineRunDuration(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	engine.Duration = 200 * time.Millisecond
 
-	err := engine.Run(t.Context())
+	_, err := engine.Run(t.Context())
 	require.NoError(t, err)
 
 	// Should have generated some spans in 200ms at 100/s
@@ -177,7 +177,7 @@ func TestEngineGracefulShutdown(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		err := engine.Run(ctx)
+		_, err := engine.Run(ctx)
 		assert.NoError(t, err)
 	})
 
@@ -234,7 +234,7 @@ func TestEngineScenarioOverrides(t *testing.T) {
 
 	// Walk trace with overrides active at elapsed=0
 	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides)
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{})
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -265,7 +265,7 @@ func TestEngineMultiRootDistribution(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	engine.Duration = 200 * time.Millisecond
 
-	err := engine.Run(context.Background())
+	_, err := engine.Run(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
@@ -280,6 +280,189 @@ func TestEngineMultiRootDistribution(t *testing.T) {
 	// With 100/s for 200ms and 2 roots, both should get some traffic
 	// (probabilistically guaranteed with enough traces)
 	assert.True(t, len(names) >= 1, "at least one root operation should have traces")
+}
+
+func TestEngineOperationAttributes(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "10ms",
+				Attributes: map[string]AttributeValueConfig{
+					"http.route": {Value: "/api/v1/users"},
+					"status":     {Values: map[string]int{"200": 1}},
+				},
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+
+	attrMap := make(map[string]string)
+	for _, attr := range spans[0].Attributes {
+		attrMap[string(attr.Key)] = attr.Value.AsString()
+	}
+
+	assert.Equal(t, "/api/v1/users", attrMap["http.route"])
+	assert.Equal(t, "200", attrMap["status"])
+}
+
+func TestEngineSequentialCallStyle(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+					Calls:     []string{"child.a", "child.b"},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "a", Duration: "20ms"},
+					{Name: "b", Duration: "20ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3)
+
+	var childA, childB tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "a":
+			childA = s
+		case "b":
+			childB = s
+		}
+	}
+
+	// In sequential mode, child B should start after child A ends
+	assert.False(t, childB.StartTime.Before(childA.EndTime),
+		"sequential: child B (start=%v) should start at or after child A (end=%v)",
+		childB.StartTime, childA.EndTime)
+}
+
+func TestEngineParallelCallStyle(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "parallel",
+					Calls:     []string{"child.a", "child.b"},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "a", Duration: "20ms"},
+					{Name: "b", Duration: "20ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3)
+
+	var childA, childB tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "a":
+			childA = s
+		case "b":
+			childB = s
+		}
+	}
+
+	// In parallel mode, both children start at the same time
+	assert.Equal(t, childA.StartTime, childB.StartTime,
+		"parallel: both children should start at the same time")
+}
+
+func TestEngineRunStats(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:      "op",
+					Duration:  "1ms",
+					ErrorRate: "100%",
+					Calls:     []string{"backend.work"},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	engine.Duration = 200 * time.Millisecond
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, stats)
+
+	assert.Greater(t, stats.Traces, int64(0))
+	assert.Greater(t, stats.Spans, int64(0))
+	// Spans should be > traces because each trace has 2 spans (gateway + backend)
+	assert.Greater(t, stats.Spans, stats.Traces)
+	// All root spans are errors (100% error rate)
+	assert.Greater(t, stats.Errors, int64(0))
+	assert.Greater(t, stats.ElapsedMs, int64(0))
+	assert.Greater(t, stats.TracesPerSec, float64(0))
+	assert.Greater(t, stats.SpansPerSec, float64(0))
+	// Error rate = errors/spans; only gateway op (100% error rate) errors, backend does not
+	// Each trace has 2 spans, so error rate ~ 0.5
+	assert.InDelta(t, 0.5, stats.ErrorRate, 0.05)
 }
 
 func TestEngineSpanAttributes(t *testing.T) {
@@ -300,7 +483,7 @@ func TestEngineSpanAttributes(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
