@@ -10,11 +10,33 @@ services:
       GET /users:
         duration: 30ms +/- 10ms
         error_rate: 0.1%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/users"
+          http.response.status_code:
+            values:
+              "200": 95
+              "404": 3
+              "500": 2
+          user.id:
+            sequence: "user-{n}"
         calls:
           - user-service.list
       POST /orders:
         duration: 80ms +/- 20ms
         error_rate: 0.5%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/orders"
+          http.response.status_code:
+            values:
+              "201": 90
+              "400": 5
+              "500": 5
         calls:
           - order-service.create
 
@@ -35,6 +57,7 @@ services:
       create:
         duration: 50ms +/- 15ms
         error_rate: 0.5%
+        call_style: parallel
         calls:
           - postgres.query
           - redis.get
@@ -46,6 +69,12 @@ services:
       query:
         duration: 5ms +/- 2ms
         error_rate: 0.01%
+        attributes:
+          db.operation:
+            values:
+              SELECT: 70
+              INSERT: 20
+              UPDATE: 10
 
   redis:
     attributes:
@@ -54,6 +83,9 @@ services:
       get:
         duration: 1ms +/- 0.5ms
         error_rate: 0.001%
+        attributes:
+          db.operation:
+            value: GET
 
 traffic:
   rate: 100/s

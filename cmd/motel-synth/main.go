@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -167,10 +168,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(os.Stderr, "Generating traces for %s (%d roots, %d services)\n",
-		duration, len(topo.Roots), len(topo.Services))
+	stats, err := engine.Run(ctx)
+	if err != nil {
+		return err
+	}
 
-	return engine.Run(ctx)
+	return json.NewEncoder(os.Stderr).Encode(stats)
 }
 
 func createTracerProvider(ctx context.Context, opts runOptions) (*sdktrace.TracerProvider, error) {
