@@ -312,6 +312,58 @@ func TestValidateConfig(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("scenario with invalid at", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+			Scenarios: []ScenarioConfig{{
+				Name:     "test",
+				At:       "garbage",
+				Duration: "5m",
+				Override: map[string]OverrideConfig{
+					"svc.op": {Duration: "100ms"},
+				},
+			}},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "scenario \"test\"")
+		assert.Contains(t, err.Error(), "invalid at")
+	})
+
+	t.Run("scenario with invalid duration", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+			Scenarios: []ScenarioConfig{{
+				Name:     "test",
+				At:       "+1m",
+				Duration: "not-a-duration",
+				Override: map[string]OverrideConfig{
+					"svc.op": {Duration: "100ms"},
+				},
+			}},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "scenario \"test\"")
+		assert.Contains(t, err.Error(), "invalid duration")
+	})
+
 	t.Run("valid call_style sequential", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{

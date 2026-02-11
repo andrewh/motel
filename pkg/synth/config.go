@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/andrewh/motel/pkg/models"
 	"gopkg.in/yaml.v3"
@@ -191,6 +192,12 @@ func ValidateConfig(cfg *Config) error {
 
 	// Validate scenarios
 	for _, sc := range cfg.Scenarios {
+		if _, err := ParseOffset(sc.At); err != nil {
+			return fmt.Errorf("scenario %q: invalid at: %w", sc.Name, err)
+		}
+		if _, err := time.ParseDuration(sc.Duration); err != nil {
+			return fmt.Errorf("scenario %q: invalid duration: %w", sc.Name, err)
+		}
 		for ref, override := range sc.Override {
 			if !knownOps[ref] {
 				return fmt.Errorf("scenario %q: override %q references unknown operation", sc.Name, ref)

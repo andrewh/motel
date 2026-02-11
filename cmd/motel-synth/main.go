@@ -104,7 +104,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("motel-synth %s (commit: %s, built: %s)\n", version, commit, buildTime)
+			fmt.Fprintf(cmd.OutOrStdout(), "motel-synth %s (commit: %s, built: %s)\n", version, commit, buildTime)
 		},
 	}
 }
@@ -147,7 +147,9 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = tp.Shutdown(shutdownCtx)
+		if err := tp.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
+		}
 	}()
 
 	duration := opts.duration

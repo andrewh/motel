@@ -1,5 +1,5 @@
 // Simulation engine for walking the topology graph and emitting OTel spans
-// Generates synthetic traces with realistic timestamps without sleeping
+// Span timestamps are synthetic (no per-span sleeping); the outer loop sleeps for rate control
 package synth
 
 import (
