@@ -135,19 +135,20 @@ Running with `--stdout` emits spans as JSON. Each gateway span carries per-opera
 ./build/motel-synth run --stdout --duration 200ms examples/synth/basic-topology.yaml 2>/dev/null | grep 'GET /users' | head -1 | python3 -c "
 import json, sys
 span = json.loads(sys.stdin.readline())
-for attr in span['Attributes']:
-    print(f\"  {attr['Key']}: {attr['Value']['Value']}\")
+attrs = {attr['Key']: attr['Value']['Value'] for attr in span['Attributes']}
+for k in sorted(attrs):
+    print(f'  {k}: {attrs[k]}')
 "
 ```
 
 ```output
-  synth.service: gateway
-  synth.operation: GET /users
   deployment.environment: production
-  service.namespace: demo
   http.request.method: GET
-  http.route: /api/v1/users
   http.response.status_code: 200
+  http.route: /api/v1/users
+  service.namespace: demo
+  synth.operation: GET /users
+  synth.service: gateway
   user.id: user-1
 ```
 
@@ -183,7 +184,7 @@ parallel (query and get share start time): True
 motel-synth emits structured JSON to stderr at the end of a run. This addresses the silent-failure critique: if your observability pipeline drops data, compare these numbers against what arrived.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>&1 >/dev/null | python3 -c "
+./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
 import json, sys
 stats = json.loads(sys.stdin.readline())
 print('fields:', sorted(stats.keys()))
