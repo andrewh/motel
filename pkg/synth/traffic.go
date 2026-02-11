@@ -65,7 +65,7 @@ type DiurnalPattern struct {
 
 func (p *DiurnalPattern) Rate(elapsed time.Duration) float64 {
 	// Sine wave: 0.5 * amplitude oscillation around the base rate
-	// Period is 24 hours, phase shifted so peak is at the 8-hour mark (midday in simulated time)
+	// Period is 24 hours, phase shifted so peak is at the 12-hour mark (midday in simulated time)
 	hours := elapsed.Hours()
 	factor := 1.0 + 0.5*math.Sin(2*math.Pi*(hours-6)/24)
 	return p.BaseRate * factor

@@ -5,6 +5,7 @@ package synth
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -91,13 +92,28 @@ func LoadConfig(path string) (*Config, error) {
 		Scenarios: raw.Scenarios,
 	}
 
-	// Convert map-based services into ordered slice
-	for name, rawSvc := range raw.Services {
+	// Convert map-based services into ordered slice (sorted for determinism)
+	serviceNames := make([]string, 0, len(raw.Services))
+	for name := range raw.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	slices.Sort(serviceNames)
+
+	for _, name := range serviceNames {
+		rawSvc := raw.Services[name]
 		svc := ServiceConfig{
 			Name:       name,
 			Attributes: rawSvc.Attributes,
 		}
-		for opName, rawOp := range rawSvc.Operations {
+
+		opNames := make([]string, 0, len(rawSvc.Operations))
+		for opName := range rawSvc.Operations {
+			opNames = append(opNames, opName)
+		}
+		slices.Sort(opNames)
+
+		for _, opName := range opNames {
+			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
 				Name:      opName,
 				Duration:  rawOp.Duration,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -181,19 +182,34 @@ func createTracerProvider(ctx context.Context, opts runOptions) (*sdktrace.Trace
 		return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter)), nil
 	}
 
-	if opts.endpoint != "" {
-		exporter, err := otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(opts.endpoint),
-			otlptracehttp.WithInsecure(),
-		)
-		if err != nil {
-			return nil, err
-		}
-		return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+	switch opts.protocol {
+	case "grpc":
+		return createGRPCProvider(ctx, opts.endpoint)
+	case "http/protobuf", "":
+		return createHTTPProvider(ctx, opts.endpoint)
+	default:
+		return nil, fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", opts.protocol)
 	}
+}
 
-	// Default: OTLP via environment variables (OTEL_EXPORTER_OTLP_ENDPOINT etc.)
-	exporter, err := otlptracehttp.New(ctx)
+func createHTTPProvider(ctx context.Context, endpoint string) (*sdktrace.TracerProvider, error) {
+	var httpOpts []otlptracehttp.Option
+	if endpoint != "" {
+		httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(endpoint), otlptracehttp.WithInsecure())
+	}
+	exporter, err := otlptracehttp.New(ctx, httpOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+}
+
+func createGRPCProvider(ctx context.Context, endpoint string) (*sdktrace.TracerProvider, error) {
+	var grpcOpts []otlptracegrpc.Option
+	if endpoint != "" {
+		grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
+	}
+	exporter, err := otlptracegrpc.New(ctx, grpcOpts...)
 	if err != nil {
 		return nil, err
 	}
