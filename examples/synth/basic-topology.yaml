@@ -1,0 +1,100 @@
+# Five-service topology demonstrating motel-synth capabilities
+# Generates realistic traces with gateway, two backends, and two datastores
+
+services:
+  gateway:
+    attributes:
+      deployment.environment: production
+      service.namespace: demo
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+        error_rate: 0.1%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/users"
+          http.response.status_code:
+            values:
+              "200": 95
+              "404": 3
+              "500": 2
+          user.id:
+            sequence: "user-{n}"
+        calls:
+          - user-service.list
+      POST /orders:
+        duration: 80ms +/- 20ms
+        error_rate: 0.5%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/orders"
+          http.response.status_code:
+            values:
+              "201": 90
+              "400": 5
+              "500": 5
+        calls:
+          - order-service.create
+
+  user-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      list:
+        duration: 20ms +/- 5ms
+        error_rate: 0.1%
+        calls:
+          - postgres.query
+
+  order-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      create:
+        duration: 50ms +/- 15ms
+        error_rate: 0.5%
+        call_style: parallel
+        calls:
+          - postgres.query
+          - redis.get
+
+  postgres:
+    attributes:
+      db.system: postgresql
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 0.01%
+        attributes:
+          db.operation:
+            values:
+              SELECT: 70
+              INSERT: 20
+              UPDATE: 10
+
+  redis:
+    attributes:
+      db.system: redis
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.001%
+        attributes:
+          db.operation:
+            value: GET
+
+traffic:
+  rate: 100/s
+
+scenarios:
+  - name: database degradation
+    at: +5m
+    duration: 10m
+    override:
+      postgres.query:
+        duration: 500ms +/- 100ms
+        error_rate: 15%

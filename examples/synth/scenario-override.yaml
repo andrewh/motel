@@ -1,0 +1,29 @@
+# Topology for demonstrating scenario overrides
+# Short scenario windows so the demo runs quickly
+
+services:
+  api:
+    operations:
+      request:
+        duration: 10ms +/- 3ms
+        error_rate: 0.5%
+        calls:
+          - database.query
+
+  database:
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+
+traffic:
+  rate: 50/s
+
+scenarios:
+  - name: database degradation
+    at: +2s
+    duration: 3s
+    override:
+      database.query:
+        duration: 200ms +/- 50ms
+        error_rate: 25%
