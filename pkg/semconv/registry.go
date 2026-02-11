@@ -164,12 +164,6 @@ func resolveRef(attr *Attribute, index map[string]*Attribute) {
 		return
 	}
 
-	// Preserve ref-specific overrides.
-	refBrief := attr.Brief
-	refNote := attr.Note
-	refReqLevel := attr.RequirementLevel
-	refSampling := attr.SamplingRelevant
-
 	// Copy definition fields.
 	attr.ID = def.ID
 	attr.Type = def.Type
@@ -177,19 +171,14 @@ func resolveRef(attr *Attribute, index map[string]*Attribute) {
 	attr.Examples = def.Examples
 	attr.Deprecated = def.Deprecated
 
-	// Apply ref overrides.
-	if refBrief != "" {
-		attr.Brief = refBrief
-	} else {
+	// Apply ref overrides: Brief and Note from the ref take precedence if non-empty.
+	// RequirementLevel and SamplingRelevant are already set from the ref.
+	if attr.Brief == "" {
 		attr.Brief = def.Brief
 	}
-	if refNote != "" {
-		attr.Note = refNote
-	} else {
+	if attr.Note == "" {
 		attr.Note = def.Note
 	}
-	attr.RequirementLevel = refReqLevel
-	attr.SamplingRelevant = refSampling
 }
 
 // containsDeprecated checks if a file path includes a "deprecated" directory component.
