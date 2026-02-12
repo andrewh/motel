@@ -104,15 +104,12 @@ services:
 traffic:
   rate: 50/s
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/no-scenario.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-print('baseline error_rate < 5%:', stats['error_rate'] < 0.05)
-"
+./build/motel-synth run --stdout --duration 1s /tmp/no-scenario.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+  '"baseline error_rate < 5%: \(.error_rate < 0.05)"'
 ```
 
 ```output
-baseline error_rate < 5%: True
+baseline error_rate < 5%: true
 ```
 
 ## With scenario: elevated errors
@@ -120,17 +117,14 @@ baseline error_rate < 5%: True
 Running for 6 seconds covers before (0-2s), during (2-5s), and after (5-6s) the degradation window. The 25% error rate on database.query during the scenario drives the overall error rate well above baseline.
 
 ```bash
-./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-print('scenario error_rate > 2%:', stats['error_rate'] > 0.02)
-print('scenario has errors:', stats['errors'] > 0)
-"
+./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+  "scenario error_rate > 2%: \(.error_rate > 0.02)",
+  "scenario has errors: \(.errors > 0)"'
 ```
 
 ```output
-scenario error_rate > 2%: True
-scenario has errors: True
+scenario error_rate > 2%: true
+scenario has errors: true
 ```
 
 ## Latency impact
@@ -138,31 +132,22 @@ scenario has errors: True
 The scenario also inflates database.query duration from 5ms to 200ms. Examining individual span durations shows two distinct populations: fast spans from outside the window and slow spans from during the degradation.
 
 ```bash
-./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>/dev/null | python3 -c "
-import json, sys
-from datetime import datetime
-
-spans = [json.loads(line) for line in sys.stdin]
-durations = []
-for s in spans:
-    if s['Name'] == 'query':
-        start = datetime.fromisoformat(s['StartTime'].rstrip('Z'))
-        end = datetime.fromisoformat(s['EndTime'].rstrip('Z'))
-        dur_ms = (end - start).total_seconds() * 1000
-        durations.append(dur_ms)
-
-fast = [d for d in durations if d < 50]
-slow = [d for d in durations if d >= 50]
-print('has fast spans (<50ms):', len(fast) > 0)
-print('has slow spans (>=50ms):', len(slow) > 0)
-print('bimodal distribution:', len(fast) > 0 and len(slow) > 0)
-"
+./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>/dev/null | jq -rs '
+  def time_secs: split("T")[1] | rtrimstr("Z") | split(":") |
+    (.[0] | tonumber) * 3600 + (.[1] | tonumber) * 60 + (.[2] | tonumber);
+  [.[] | select(.Name == "query") |
+    ((.EndTime | time_secs) - (.StartTime | time_secs)) * 1000] |
+  (map(select(. < 50)) | length > 0) as $fast |
+  (map(select(. >= 50)) | length > 0) as $slow |
+  "has fast spans (<50ms): \($fast)",
+  "has slow spans (>=50ms): \($slow)",
+  "bimodal distribution: \($fast and $slow)"'
 ```
 
 ```output
-has fast spans (<50ms): True
-has slow spans (>=50ms): True
-bimodal distribution: True
+has fast spans (<50ms): true
+has slow spans (>=50ms): true
+bimodal distribution: true
 ```
 
 The fast population (~5ms) corresponds to normal operation; the slow population (~200ms) corresponds to the degradation window. This bimodal latency distribution is exactly what you would see during a real database incident, making it useful for testing alerting thresholds and SLO breach detection.

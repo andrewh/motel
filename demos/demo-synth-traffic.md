@@ -41,16 +41,12 @@ traffic:
 The default. Generates traces at a constant rate throughout the run.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-rate = stats['traces_per_second']
-print('rate within 20% of 50/s:', 40 <= rate <= 60)
-"
+./build/motel-synth run --stdout --duration 1s examples/synth/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+  '"rate within 20% of 50/s: \(.traces_per_second >= 40 and .traces_per_second <= 60)"'
 ```
 
 ```output
-rate within 20% of 50/s: True
+rate within 20% of 50/s: true
 ```
 
 ## Diurnal pattern
@@ -74,21 +70,17 @@ traffic:
   rate: 50/s
   pattern: diurnal
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/diurnal.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-rate = stats['traces_per_second']
-print('rate near 25/s (0.5x trough):', 15 <= rate <= 35)
-"
+./build/motel-synth run --stdout --duration 1s /tmp/diurnal.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+  '"rate near 25/s (0.5x trough): \(.traces_per_second >= 15 and .traces_per_second <= 35)"'
 ```
 
 ```output
-rate near 25/s (0.5x trough): True
+rate near 25/s (0.5x trough): true
 ```
 
 ## Poisson pattern
 
-Constant mean rate with Poisson-distributed inter-arrival times. Over a full run, the throughput matches uniform, but individual intervals vary randomly.
+Constant mean rate with Poisson-distributed inter-arrival times. Over a full run, the throughput matches uniform, but individual intervals vary randomly. [Is it possible to better visualise these? Use a well-supported terminal graph library for Go](feature://)
 
 ```bash
 cat > /tmp/poisson.yaml << 'EOF'
@@ -107,16 +99,12 @@ traffic:
   rate: 50/s
   pattern: poisson
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/poisson.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-rate = stats['traces_per_second']
-print('rate within 20% of 50/s:', 40 <= rate <= 60)
-"
+./build/motel-synth run --stdout --duration 1s /tmp/poisson.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+  '"rate within 20% of 50/s: \(.traces_per_second >= 40 and .traces_per_second <= 60)"'
 ```
 
 ```output
-rate within 20% of 50/s: True
+rate within 20% of 50/s: true
 ```
 
 ## Bursty pattern
@@ -140,16 +128,12 @@ traffic:
   rate: 50/s
   pattern: bursty
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/bursty.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-rate = stats['traces_per_second']
-print('rate above 150/s (5x burst):', rate > 150)
-"
+./build/motel-synth run --stdout --duration 1s /tmp/bursty.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+  '"rate above 150/s (5x burst): \(.traces_per_second > 150)"'
 ```
 
 ```output
-rate above 150/s (5x burst): True
+rate above 150/s (5x burst): true
 ```
 
 ## Comparing all four
@@ -157,13 +141,9 @@ rate above 150/s (5x burst): True
 Running the same topology with each pattern shows how arrival models affect throughput. The `--duration` flag overrides any config-level duration setting.
 
 ```bash
-python3 -c "
-import subprocess, json
-
-patterns = ['uniform', 'diurnal', 'poisson', 'bursty']
-results = {}
-for p in patterns:
-    cfg = f'''services:
+for p in uniform diurnal poisson bursty; do
+cat > /tmp/cmp-${p}.yaml << EOF
+services:
   api:
     operations:
       request:
@@ -176,27 +156,23 @@ for p in patterns:
         duration: 5ms +/- 2ms
 traffic:
   rate: 50/s
-  pattern: {p}
-'''
-    with open(f'/tmp/cmp-{p}.yaml', 'w') as f:
-        f.write(cfg)
-    proc = subprocess.run(
-        ['./build/motel-synth', 'run', '--stdout', '--duration', '1s', f'/tmp/cmp-{p}.yaml'],
-        capture_output=True, text=True)
-    lines = (proc.stdout + proc.stderr).strip().split('\n')
-    stats = json.loads(lines[-1])
-    results[p] = stats['traces_per_second']
-
-print('bursty > uniform:', results['bursty'] > results['uniform'])
-print('diurnal < uniform:', results['diurnal'] < results['uniform'])
-print('poisson close to uniform:', abs(results['poisson'] - results['uniform']) < 20)
-"
+  pattern: ${p}
+EOF
+done
+U=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-uniform.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+D=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-diurnal.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+P=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-poisson.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+B=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-bursty.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+jq -rn --argjson u "$U" --argjson d "$D" --argjson p "$P" --argjson b "$B" '
+  "bursty > uniform: \($b > $u)",
+  "diurnal < uniform: \($d < $u)",
+  "poisson close to uniform: \((($p - $u) | fabs) < 20)"'
 ```
 
 ```output
-bursty > uniform: True
-diurnal < uniform: True
-poisson close to uniform: True
+bursty > uniform: true
+diurnal < uniform: true
+poisson close to uniform: true
 ```
 
 The four patterns cover common load testing scenarios: steady state (uniform), natural traffic cycles (diurnal), realistic arrival randomness (poisson), and sudden traffic spikes (bursty).

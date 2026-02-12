@@ -86,22 +86,14 @@ Error: service "api" operation "request": call "nonexistent.op" references unkno
 Run with `--stdout` to emit spans as JSON, one per line. The `--duration` flag controls how long the generator runs.
 
 ```bash
-./build/motel-synth run --stdout --duration 200ms examples/synth/traffic-patterns.yaml 2>/dev/null | python3 -c "
-import json, sys
-spans = [json.loads(line) for line in sys.stdin]
-services = set()
-for s in spans:
-    for a in s['Attributes']:
-        if a['Key'] == 'synth.service':
-            services.add(a['Value']['Value'])
-print('spans generated:', len(spans) > 0)
-print('services:', sorted(services))
-"
+./build/motel-synth run --stdout --duration 200ms examples/synth/traffic-patterns.yaml 2>/dev/null | jq -rs '
+  "spans generated: \(length > 0)",
+  "services: \([.[].Attributes[] | select(.Key == "synth.service") | .Value.Value] | unique)"'
 ```
 
 ```output
-spans generated: True
-services: ['api', 'database']
+spans generated: true
+services: ["api","database"]
 ```
 
 ## Span structure
@@ -109,30 +101,18 @@ services: ['api', 'database']
 Each span carries standard OTel fields: trace and span IDs, timestamps, attributes, and status. Root operations are `SERVER` spans (SpanKind 2); downstream calls are `CLIENT` spans (SpanKind 3).
 
 ```bash
-./build/motel-synth run --stdout --duration 200ms examples/synth/traffic-patterns.yaml 2>/dev/null | python3 -c "
-import json, sys
-spans = [json.loads(line) for line in sys.stdin]
-# Group by trace
-traces = {}
-for s in spans:
-    tid = s['SpanContext']['TraceID']
-    traces.setdefault(tid, []).append(s)
-# Pick first trace
-first = list(traces.values())[0]
-print('spans per trace:', len(first))
-kinds = sorted(set(s['SpanKind'] for s in first))
-print('span kinds (2=SERVER, 3=CLIENT):', kinds)
-# Check parent-child: the root has a zero parent trace ID
-root = [s for s in first if s['Parent']['TraceID'] == '00000000000000000000000000000000']
-print('has root span:', len(root) == 1)
-print('root operation:', root[0]['Name'])
-"
+./build/motel-synth run --stdout --duration 200ms examples/synth/traffic-patterns.yaml 2>/dev/null | jq -rs '
+  group_by(.SpanContext.TraceID) | .[0] |
+  "spans per trace: \(length)",
+  "span kinds (2=SERVER, 3=CLIENT): \([.[].SpanKind] | unique | sort)",
+  "has root span: \(map(select(.Parent.TraceID == "00000000000000000000000000000000")) | length == 1)",
+  "root operation: \(map(select(.Parent.TraceID == "00000000000000000000000000000000")) | .[0].Name)"'
 ```
 
 ```output
 spans per trace: 2
-span kinds (2=SERVER, 3=CLIENT): [2, 3]
-has root span: True
+span kinds (2=SERVER, 3=CLIENT): [2,3]
+has root span: true
 root operation: request
 ```
 
@@ -141,18 +121,15 @@ root operation: request
 At the end of each run, motel-synth emits a JSON summary to stderr with trace and span counts, timing, and error rates.
 
 ```bash
-./build/motel-synth run --stdout --duration 500ms examples/synth/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | python3 -c "
-import json, sys
-stats = json.loads(sys.stdin.readline())
-print('fields:', sorted(stats.keys()))
-print('traces > 0:', stats['traces'] > 0)
-print('spans per trace:', stats['spans'] // max(stats['traces'], 1))
-"
+./build/motel-synth run --stdout --duration 500ms examples/synth/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+  "fields: \(keys)",
+  "traces > 0: \(.traces > 0)",
+  "spans per trace: \(.spans / (if .traces == 0 then 1 else .traces end) | floor)"'
 ```
 
 ```output
-fields: ['elapsed_ms', 'error_rate', 'errors', 'spans', 'spans_per_second', 'traces', 'traces_per_second']
-traces > 0: True
+fields: ["elapsed_ms","error_rate","errors","spans","spans_per_second","traces","traces_per_second"]
+traces > 0: true
 spans per trace: 2
 ```
 
