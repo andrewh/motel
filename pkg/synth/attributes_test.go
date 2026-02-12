@@ -297,6 +297,17 @@ func TestRangeValue(t *testing.T) {
 			assert.Equal(t, int64(42), gen.Generate(rng))
 		}
 	})
+
+	t.Run("negative to positive range", func(t *testing.T) {
+		t.Parallel()
+		gen := &RangeValue{Min: -100, Max: 100}
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
+		for range 1000 {
+			v := gen.Generate(rng).(int64)
+			assert.GreaterOrEqual(t, v, int64(-100))
+			assert.LessOrEqual(t, v, int64(100))
+		}
+	})
 }
 
 func TestNormalValue(t *testing.T) {

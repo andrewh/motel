@@ -85,7 +85,8 @@ type RangeValue struct {
 }
 
 func (r *RangeValue) Generate(rng *rand.Rand) any {
-	return r.Min + rng.Int64N(r.Max-r.Min+1)
+	span := uint64(r.Max) - uint64(r.Min) + 1       //nolint:gosec // deliberate uint64 cast for overflow-safe range arithmetic
+	return int64(uint64(r.Min) + rng.Uint64N(span)) //nolint:gosec // result is within [Min, Max] by construction
 }
 
 // NormalValue generates a normally distributed float64.
