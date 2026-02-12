@@ -522,3 +522,72 @@ func TestValidateConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "nonexistent.op")
 	})
 }
+
+func TestLoadConfig_NewGenerators(t *testing.T) {
+	t.Parallel()
+
+	t.Run("probability field", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        attributes:
+          cache.hit:
+            probability: 0.85
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		op := cfg.Services[0].Operations[0]
+		require.NotNil(t, op.Attributes["cache.hit"].Probability)
+		assert.InDelta(t, 0.85, *op.Attributes["cache.hit"].Probability, 0.001)
+	})
+
+	t.Run("range field", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        attributes:
+          http.response.status_code:
+            range: [200, 599]
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		op := cfg.Services[0].Operations[0]
+		assert.Equal(t, []int64{200, 599}, op.Attributes["http.response.status_code"].Range)
+	})
+
+	t.Run("distribution field", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        attributes:
+          http.response.body.size:
+            distribution:
+              mean: 4096
+              stddev: 1024
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		op := cfg.Services[0].Operations[0]
+		require.NotNil(t, op.Attributes["http.response.body.size"].Distribution)
+		assert.InDelta(t, 4096, op.Attributes["http.response.body.size"].Distribution.Mean, 0.001)
+		assert.InDelta(t, 1024, op.Attributes["http.response.body.size"].Distribution.StdDev, 0.001)
+	})
+}

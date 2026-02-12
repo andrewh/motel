@@ -30,7 +30,7 @@ func TestGeneratorFor_Enum(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok, "expected *synth.WeightedChoice")
-	assert.Equal(t, []string{"GET", "HEAD", "POST"}, wc.Choices)
+	assert.Equal(t, []any{"GET", "HEAD", "POST"}, wc.Choices)
 	assert.Equal(t, 3, wc.TotalWeight)
 }
 
@@ -50,7 +50,7 @@ func TestGeneratorFor_Enum_SkipsDeprecated(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"GET", "POST"}, wc.Choices)
+	assert.Equal(t, []any{"GET", "POST"}, wc.Choices)
 }
 
 func TestGeneratorFor_Enum_AllDeprecated(t *testing.T) {
@@ -86,7 +86,7 @@ func TestGeneratorFor_Enum_IntValues(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"200", "404"}, wc.Choices)
+	assert.Equal(t, []any{200, 404}, wc.Choices)
 }
 
 func TestGeneratorFor_StringWithExamples(t *testing.T) {
@@ -99,7 +99,7 @@ func TestGeneratorFor_StringWithExamples(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"bar", "baz", "foo"}, wc.Choices)
+	assert.Equal(t, []any{"bar", "baz", "foo"}, wc.Choices)
 }
 
 func TestGeneratorFor_StringWithoutExamples(t *testing.T) {
@@ -129,7 +129,7 @@ func TestGeneratorFor_StringNestedExamples(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"scalar1", "scalar2"}, wc.Choices)
+	assert.Equal(t, []any{"scalar1", "scalar2"}, wc.Choices)
 }
 
 func TestGeneratorFor_IntWithExamples(t *testing.T) {
@@ -142,7 +142,7 @@ func TestGeneratorFor_IntWithExamples(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"443", "80", "8080"}, wc.Choices)
+	assert.Equal(t, []any{443, 80, 8080}, wc.Choices)
 }
 
 func TestGeneratorFor_IntWithoutExamples(t *testing.T) {
@@ -154,7 +154,7 @@ func TestGeneratorFor_IntWithoutExamples(t *testing.T) {
 	require.NoError(t, err)
 	sv, ok := gen.(*synth.StaticValue)
 	require.True(t, ok)
-	assert.Equal(t, "0", sv.Value)
+	assert.Equal(t, int64(0), sv.Value)
 }
 
 func TestGeneratorFor_DoubleWithExamples(t *testing.T) {
@@ -167,7 +167,7 @@ func TestGeneratorFor_DoubleWithExamples(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"0.5", "1", "2.5"}, wc.Choices)
+	assert.Equal(t, []any{0.5, 1.0, 2.5}, wc.Choices)
 }
 
 func TestGeneratorFor_DoubleWithoutExamples(t *testing.T) {
@@ -179,7 +179,7 @@ func TestGeneratorFor_DoubleWithoutExamples(t *testing.T) {
 	require.NoError(t, err)
 	sv, ok := gen.(*synth.StaticValue)
 	require.True(t, ok)
-	assert.Equal(t, "0.0", sv.Value)
+	assert.Equal(t, float64(0.0), sv.Value)
 }
 
 func TestGeneratorFor_Boolean(t *testing.T) {
@@ -191,7 +191,7 @@ func TestGeneratorFor_Boolean(t *testing.T) {
 	require.NoError(t, err)
 	wc, ok := gen.(*synth.WeightedChoice)
 	require.True(t, ok)
-	assert.Equal(t, []string{"false", "true"}, wc.Choices)
+	assert.Equal(t, []any{false, true}, wc.Choices)
 	assert.Equal(t, 2, wc.TotalWeight)
 }
 
@@ -324,7 +324,8 @@ func TestGeneratorFor_RealHTTPMethod(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic RNG for test reproducibility
 	for range 10 {
-		val := gen.Generate(rng)
+		val, ok := gen.Generate(rng).(string)
+		require.True(t, ok, "expected string from HTTP method generator")
 		assert.True(t, knownMethods[val], "unexpected method: %s", val)
 	}
 }

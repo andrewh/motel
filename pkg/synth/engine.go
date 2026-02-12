@@ -147,7 +147,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 
 	// Add operation attributes
 	for k, gen := range op.Attributes {
-		span.SetAttributes(attribute.String(k, gen.Generate(e.Rng)))
+		span.SetAttributes(typedAttribute(k, gen.Generate(e.Rng)))
 	}
 
 	// Determine if this span errors
@@ -198,4 +198,22 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 // isRoot checks whether an operation is a root (entry point) in the topology.
 func isRoot(topo *Topology, op *Operation) bool {
 	return slices.Contains(topo.Roots, op)
+}
+
+// typedAttribute creates a KeyValue with the appropriate OTel type for the value.
+func typedAttribute(key string, value any) attribute.KeyValue {
+	switch v := value.(type) {
+	case string:
+		return attribute.String(key, v)
+	case bool:
+		return attribute.Bool(key, v)
+	case int:
+		return attribute.Int(key, v)
+	case int64:
+		return attribute.Int64(key, v)
+	case float64:
+		return attribute.Float64(key, v)
+	default:
+		return attribute.String(key, fmt.Sprint(v))
+	}
 }
