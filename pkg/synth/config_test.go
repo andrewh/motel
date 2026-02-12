@@ -133,6 +133,46 @@ traffic:
 		assert.Equal(t, "user-{n}", op.Attributes["user.id"].Sequence)
 	})
 
+	t.Run("domain field parsed from YAML", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  gateway:
+    operations:
+      GET /users:
+        domain: http
+        duration: 30ms +/- 10ms
+        attributes:
+          http.route:
+            value: "/api/v1/users"
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		require.Len(t, cfg.Services, 1)
+		op := cfg.Services[0].Operations[0]
+		assert.Equal(t, "http", op.Domain)
+		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Value)
+	})
+
+	t.Run("domain field optional", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+traffic:
+  rate: 100/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		op := cfg.Services[0].Operations[0]
+		assert.Empty(t, op.Domain)
+	})
+
 	t.Run("file not found", func(t *testing.T) {
 		t.Parallel()
 		_, err := LoadConfig("/nonexistent/path.yaml")

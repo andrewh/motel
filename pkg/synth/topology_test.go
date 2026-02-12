@@ -224,4 +224,159 @@ func TestBuildTopology(t *testing.T) {
 		require.NoError(t, err)
 		assert.InDelta(t, 0.05, topo.Services["svc"].Operations["op"].ErrorRate, 0.001)
 	})
+
+	t.Run("domain resolves to generators", func(t *testing.T) {
+		t.Parallel()
+		resolver := func(domain string) map[string]AttributeGenerator {
+			if domain == "http" {
+				return map[string]AttributeGenerator{
+					"http.method": &StaticValue{Value: "GET"},
+					"http.route":  &StaticValue{Value: "/default"},
+				}
+			}
+			return nil
+		}
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Domain:   "http",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg, resolver)
+		require.NoError(t, err)
+		op := topo.Services["svc"].Operations["op"]
+		require.Len(t, op.Attributes, 2)
+		assert.Equal(t, "GET", op.Attributes["http.method"].Generate(nil))
+		assert.Equal(t, "/default", op.Attributes["http.route"].Generate(nil))
+	})
+
+	t.Run("user attributes override domain defaults", func(t *testing.T) {
+		t.Parallel()
+		resolver := func(domain string) map[string]AttributeGenerator {
+			return map[string]AttributeGenerator{
+				"http.route": &StaticValue{Value: "/default"},
+			}
+		}
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Domain:   "http",
+					Duration: "10ms",
+					Attributes: map[string]AttributeValueConfig{
+						"http.route": {Value: "/api/v1/users"},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg, resolver)
+		require.NoError(t, err)
+		op := topo.Services["svc"].Operations["op"]
+		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Generate(nil))
+	})
+
+	t.Run("domain with no resolver returns error", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Domain:   "http",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		_, err := BuildTopology(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "domain")
+		assert.Contains(t, err.Error(), "no domain resolver")
+	})
+
+	t.Run("unknown domain returns error", func(t *testing.T) {
+		t.Parallel()
+		resolver := func(domain string) map[string]AttributeGenerator {
+			return nil
+		}
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Domain:   "nonexistent",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		_, err := BuildTopology(cfg, resolver)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent")
+	})
+
+	t.Run("domain and user attributes merge", func(t *testing.T) {
+		t.Parallel()
+		resolver := func(domain string) map[string]AttributeGenerator {
+			return map[string]AttributeGenerator{
+				"http.method": &StaticValue{Value: "GET"},
+			}
+		}
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Domain:   "http",
+					Duration: "10ms",
+					Attributes: map[string]AttributeValueConfig{
+						"http.route": {Value: "/api/v1/users"},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg, resolver)
+		require.NoError(t, err)
+		op := topo.Services["svc"].Operations["op"]
+		require.Len(t, op.Attributes, 2)
+		assert.Equal(t, "GET", op.Attributes["http.method"].Generate(nil))
+		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Generate(nil))
+	})
+
+	t.Run("no domain ignores resolver", func(t *testing.T) {
+		t.Parallel()
+		called := false
+		resolver := func(domain string) map[string]AttributeGenerator {
+			called = true
+			return nil
+		}
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg, resolver)
+		require.NoError(t, err)
+		assert.False(t, called)
+		assert.Nil(t, topo.Services["svc"].Operations["op"].Attributes)
+	})
 }

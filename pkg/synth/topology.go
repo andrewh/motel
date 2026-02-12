@@ -31,8 +31,18 @@ type Operation struct {
 	Attributes map[string]AttributeGenerator
 }
 
+// DomainResolver maps a domain identifier to attribute generators.
+// Returns nil if the domain is not recognised.
+type DomainResolver func(domain string) map[string]AttributeGenerator
+
 // BuildTopology resolves a validated Config into a traversable Topology graph.
-func BuildTopology(cfg *Config) (*Topology, error) {
+// An optional DomainResolver enables the domain field on operations.
+func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) {
+	var resolve DomainResolver
+	if len(resolvers) > 0 {
+		resolve = resolvers[0]
+	}
+
 	topo := &Topology{
 		Services: make(map[string]*Service, len(cfg.Services)),
 	}
@@ -57,8 +67,19 @@ func BuildTopology(cfg *Config) (*Topology, error) {
 				}
 			}
 			var attrs map[string]AttributeGenerator
+			if opCfg.Domain != "" {
+				if resolve == nil {
+					return nil, fmt.Errorf("service %q operation %q: domain %q specified but no domain resolver configured", svcCfg.Name, opCfg.Name, opCfg.Domain)
+				}
+				attrs = resolve(opCfg.Domain)
+				if attrs == nil {
+					return nil, fmt.Errorf("service %q operation %q: unknown domain %q", svcCfg.Name, opCfg.Name, opCfg.Domain)
+				}
+			}
 			if len(opCfg.Attributes) > 0 {
-				attrs = make(map[string]AttributeGenerator, len(opCfg.Attributes))
+				if attrs == nil {
+					attrs = make(map[string]AttributeGenerator, len(opCfg.Attributes))
+				}
 				for name, acfg := range opCfg.Attributes {
 					gen, err := NewAttributeGenerator(acfg)
 					if err != nil {

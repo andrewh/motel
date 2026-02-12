@@ -36,6 +36,7 @@ type rawServiceConfig struct {
 
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
+	Domain     string                          `yaml:"domain,omitempty"`
 	Duration   string                          `yaml:"duration"`
 	ErrorRate  string                          `yaml:"error_rate,omitempty"`
 	Calls      []string                        `yaml:"calls,omitempty"`
@@ -53,6 +54,7 @@ type ServiceConfig struct {
 // OperationConfig describes an operation within a service.
 type OperationConfig struct {
 	Name       string
+	Domain     string
 	Duration   string
 	ErrorRate  string
 	Calls      []string
@@ -121,6 +123,7 @@ func LoadConfig(path string) (*Config, error) {
 			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
 				Name:       opName,
+				Domain:     rawOp.Domain,
 				Duration:   rawOp.Duration,
 				ErrorRate:  rawOp.ErrorRate,
 				Calls:      rawOp.Calls,

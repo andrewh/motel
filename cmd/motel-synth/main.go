@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/andrewh/motel/pkg/semconv"
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -88,7 +89,7 @@ func validateCmd() *cobra.Command {
 			if err := synth.ValidateConfig(cfg); err != nil {
 				return err
 			}
-			topo, err := synth.BuildTopology(cfg)
+			topo, err := buildTopology(cfg)
 			if err != nil {
 				return err
 			}
@@ -126,7 +127,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	if err := synth.ValidateConfig(cfg); err != nil {
 		return err
 	}
-	topo, err := synth.BuildTopology(cfg)
+	topo, err := buildTopology(cfg)
 	if err != nil {
 		return err
 	}
@@ -219,4 +220,27 @@ func createGRPCProvider(ctx context.Context, endpoint string) (*sdktrace.TracerP
 		return nil, err
 	}
 	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+}
+
+func buildTopology(cfg *synth.Config) (*synth.Topology, error) {
+	reg, err := semconv.LoadEmbedded()
+	if err != nil {
+		return nil, fmt.Errorf("loading semantic conventions: %w", err)
+	}
+	return synth.BuildTopology(cfg, domainResolver(reg))
+}
+
+func domainResolver(reg *semconv.Registry) synth.DomainResolver {
+	return func(domain string) map[string]synth.AttributeGenerator {
+		g := reg.Group(domain)
+		if g == nil {
+			// Semconv registry groups use a "registry." prefix (e.g. "registry.http")
+			// but configs use the short domain name (e.g. "http") for convenience.
+			g = reg.Group("registry." + domain)
+		}
+		if g == nil {
+			return nil
+		}
+		return semconv.GeneratorsFor(g)
+	}
 }
