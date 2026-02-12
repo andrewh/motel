@@ -160,22 +160,43 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	// Walk downstream calls (parallel or sequential)
+	// Filter calls by condition and probability
+	activeCalls := make([]Call, 0, len(op.Calls))
+	for _, call := range op.Calls {
+		if call.Condition == "on-error" && !isError {
+			continue
+		}
+		if call.Condition == "on-success" && isError {
+			continue
+		}
+		if call.Probability > 0 && e.Rng.Float64() >= call.Probability {
+			continue
+		}
+		activeCalls = append(activeCalls, call)
+	}
+
+	// Walk downstream calls (parallel or sequential) with fan-out
 	latestChildEnd := childStartTime
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
-		for _, call := range op.Calls {
-			childEnd := e.walkTrace(ctx, call.Operation, nextStart, overrides, stats)
-			if childEnd.After(latestChildEnd) {
-				latestChildEnd = childEnd
+		for _, call := range activeCalls {
+			count := max(call.Count, 1)
+			for range count {
+				childEnd := e.walkTrace(ctx, call.Operation, nextStart, overrides, stats)
+				if childEnd.After(latestChildEnd) {
+					latestChildEnd = childEnd
+				}
+				nextStart = childEnd
 			}
-			nextStart = childEnd
 		}
 	} else {
-		for _, call := range op.Calls {
-			childEnd := e.walkTrace(ctx, call.Operation, childStartTime, overrides, stats)
-			if childEnd.After(latestChildEnd) {
-				latestChildEnd = childEnd
+		for _, call := range activeCalls {
+			count := max(call.Count, 1)
+			for range count {
+				childEnd := e.walkTrace(ctx, call.Operation, childStartTime, overrides, stats)
+				if childEnd.After(latestChildEnd) {
+					latestChildEnd = childEnd
+				}
 			}
 		}
 	}

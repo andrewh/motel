@@ -210,6 +210,15 @@ func ValidateConfig(cfg *Config) error {
 				if !knownOps[call.Target] {
 					return fmt.Errorf("service %q operation %q: call %q references unknown operation", svc.Name, op.Name, call.Target)
 				}
+				if call.Probability < 0 || call.Probability > 1 {
+					return fmt.Errorf("service %q operation %q: call %q probability must be between 0 and 1", svc.Name, op.Name, call.Target)
+				}
+				if call.Condition != "" && call.Condition != "on-error" && call.Condition != "on-success" {
+					return fmt.Errorf("service %q operation %q: call %q condition must be \"on-error\" or \"on-success\", got %q", svc.Name, op.Name, call.Target, call.Condition)
+				}
+				if call.Count < 0 {
+					return fmt.Errorf("service %q operation %q: call %q count must not be negative", svc.Name, op.Name, call.Target)
+				}
 			}
 		}
 	}

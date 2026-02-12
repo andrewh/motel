@@ -554,6 +554,142 @@ func TestValidateConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "attribute")
 	})
 
+	t.Run("invalid call probability", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "other.op", Probability: 1.5}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "probability")
+	})
+
+	t.Run("negative call probability", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "other.op", Probability: -0.1}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "probability")
+	})
+
+	t.Run("invalid call condition", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "other.op", Condition: "on-timeout"}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "condition")
+	})
+
+	t.Run("negative call count", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "other.op", Count: -1}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "count")
+	})
+
+	t.Run("valid rich call config passes", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls: []CallConfig{
+							{Target: "other.op", Probability: 0.5, Condition: "on-error", Count: 3},
+						},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.NoError(t, err)
+	})
+
 	t.Run("scenario override references invalid operation", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{
