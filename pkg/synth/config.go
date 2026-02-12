@@ -34,12 +34,38 @@ type rawServiceConfig struct {
 	Operations map[string]rawOperationConfig `yaml:"operations"`
 }
 
+// CallConfig describes a downstream call in the YAML DSL.
+// Supports both simple string form ("service.op") and rich mapping form.
+type CallConfig struct {
+	Target      string  `yaml:"target"`
+	Probability float64 `yaml:"probability,omitempty"`
+	Condition   string  `yaml:"condition,omitempty"`
+	Count       int     `yaml:"count,omitempty"`
+}
+
+// UnmarshalYAML handles both scalar string and mapping forms for call config.
+func (c *CallConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var scalar string
+	if err := unmarshal(&scalar); err == nil {
+		c.Target = scalar
+		return nil
+	}
+
+	type plain CallConfig
+	var p plain
+	if err := unmarshal(&p); err != nil {
+		return fmt.Errorf("call: expected string or mapping with target: %w", err)
+	}
+	*c = CallConfig(p)
+	return nil
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain     string                          `yaml:"domain,omitempty"`
 	Duration   string                          `yaml:"duration"`
 	ErrorRate  string                          `yaml:"error_rate,omitempty"`
-	Calls      []string                        `yaml:"calls,omitempty"`
+	Calls      []CallConfig                    `yaml:"calls,omitempty"`
 	CallStyle  string                          `yaml:"call_style,omitempty"`
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
@@ -57,7 +83,7 @@ type OperationConfig struct {
 	Domain     string
 	Duration   string
 	ErrorRate  string
-	Calls      []string
+	Calls      []CallConfig
 	CallStyle  string
 	Attributes map[string]AttributeValueConfig
 }
@@ -178,11 +204,11 @@ func ValidateConfig(cfg *Config) error {
 			}
 
 			for _, call := range op.Calls {
-				if !strings.Contains(call, ".") {
-					return fmt.Errorf("service %q operation %q: call %q must be in service.operation format", svc.Name, op.Name, call)
+				if !strings.Contains(call.Target, ".") {
+					return fmt.Errorf("service %q operation %q: call %q must be in service.operation format", svc.Name, op.Name, call.Target)
 				}
-				if !knownOps[call] {
-					return fmt.Errorf("service %q operation %q: call %q references unknown operation", svc.Name, op.Name, call)
+				if !knownOps[call.Target] {
+					return fmt.Errorf("service %q operation %q: call %q references unknown operation", svc.Name, op.Name, call.Target)
 				}
 			}
 		}

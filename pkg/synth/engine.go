@@ -164,16 +164,16 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	latestChildEnd := childStartTime
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
-		for _, child := range op.Calls {
-			childEnd := e.walkTrace(ctx, child, nextStart, overrides, stats)
+		for _, call := range op.Calls {
+			childEnd := e.walkTrace(ctx, call.Operation, nextStart, overrides, stats)
 			if childEnd.After(latestChildEnd) {
 				latestChildEnd = childEnd
 			}
 			nextStart = childEnd
 		}
 	} else {
-		for _, child := range op.Calls {
-			childEnd := e.walkTrace(ctx, child, childStartTime, overrides, stats)
+		for _, call := range op.Calls {
+			childEnd := e.walkTrace(ctx, call.Operation, childStartTime, overrides, stats)
 			if childEnd.After(latestChildEnd) {
 				latestChildEnd = childEnd
 			}

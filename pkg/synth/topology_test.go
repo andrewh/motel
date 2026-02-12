@@ -21,7 +21,7 @@ func TestBuildTopology(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "GET /users",
 						Duration: "30ms +/- 10ms",
-						Calls:    []string{"backend.list"},
+						Calls:    []CallConfig{{Target: "backend.list"}},
 					}},
 				},
 				{
@@ -45,8 +45,8 @@ func TestBuildTopology(t *testing.T) {
 		// gateway.GET /users should call backend.list
 		gatewayOp := topo.Services["gateway"].Operations["GET /users"]
 		require.Len(t, gatewayOp.Calls, 1)
-		assert.Equal(t, "list", gatewayOp.Calls[0].Name)
-		assert.Equal(t, "backend", gatewayOp.Calls[0].Service.Name)
+		assert.Equal(t, "list", gatewayOp.Calls[0].Operation.Name)
+		assert.Equal(t, "backend", gatewayOp.Calls[0].Operation.Service.Name)
 
 		// backend.list is a leaf
 		backendOp := topo.Services["backend"].Operations["list"]
@@ -62,7 +62,7 @@ func TestBuildTopology(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "entry",
 						Duration: "10ms",
-						Calls:    []string{"b.work"},
+						Calls:    []CallConfig{{Target: "b.work"}},
 					}},
 				},
 				{
@@ -90,8 +90,8 @@ func TestBuildTopology(t *testing.T) {
 				{
 					Name: "gateway",
 					Operations: []OperationConfig{
-						{Name: "GET /users", Duration: "10ms", Calls: []string{"backend.list"}},
-						{Name: "POST /orders", Duration: "20ms", Calls: []string{"backend.create"}},
+						{Name: "GET /users", Duration: "10ms", Calls: []CallConfig{{Target: "backend.list"}}},
+						{Name: "POST /orders", Duration: "20ms", Calls: []CallConfig{{Target: "backend.create"}}},
 					},
 				},
 				{
@@ -119,7 +119,7 @@ func TestBuildTopology(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "op1",
 						Duration: "10ms",
-						Calls:    []string{"b.op2"},
+						Calls:    []CallConfig{{Target: "b.op2"}},
 					}},
 				},
 				{
@@ -127,7 +127,7 @@ func TestBuildTopology(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "op2",
 						Duration: "10ms",
-						Calls:    []string{"a.op1"},
+						Calls:    []CallConfig{{Target: "a.op1"}},
 					}},
 				},
 			},

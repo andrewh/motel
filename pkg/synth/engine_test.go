@@ -55,7 +55,7 @@ func TestEngineWalkTrace(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "GET /users",
 					Duration: "30ms +/- 10ms",
-					Calls:    []string{"backend.list"},
+					Calls:    []CallConfig{{Target: "backend.list"}},
 				}},
 			},
 			{
@@ -329,7 +329,7 @@ func TestEngineSequentialCallStyle(t *testing.T) {
 					Name:      "entry",
 					Duration:  "10ms",
 					CallStyle: "sequential",
-					Calls:     []string{"child.a", "child.b"},
+					Calls:     []CallConfig{{Target: "child.a"}, {Target: "child.b"}},
 				}},
 			},
 			{
@@ -380,7 +380,7 @@ func TestEngineParallelCallStyle(t *testing.T) {
 					Name:      "entry",
 					Duration:  "10ms",
 					CallStyle: "parallel",
-					Calls:     []string{"child.a", "child.b"},
+					Calls:     []CallConfig{{Target: "child.a"}, {Target: "child.b"}},
 				}},
 			},
 			{
@@ -430,7 +430,7 @@ func TestEngineRunStats(t *testing.T) {
 					Name:      "op",
 					Duration:  "1ms",
 					ErrorRate: "100%",
-					Calls:     []string{"backend.work"},
+					Calls:     []CallConfig{{Target: "backend.work"}},
 				}},
 			},
 			{
