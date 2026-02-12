@@ -22,19 +22,35 @@ func TestStaticValue(t *testing.T) {
 	}
 }
 
+func TestStaticValueTyped(t *testing.T) {
+	t.Parallel()
+
+	t.Run("int value", func(t *testing.T) {
+		t.Parallel()
+		gen := &StaticValue{Value: 5432}
+		assert.Equal(t, 5432, gen.Generate(nil))
+	})
+
+	t.Run("bool value", func(t *testing.T) {
+		t.Parallel()
+		gen := &StaticValue{Value: true}
+		assert.Equal(t, true, gen.Generate(nil))
+	})
+}
+
 func TestWeightedChoice(t *testing.T) {
 	t.Parallel()
 
 	t.Run("respects weights", func(t *testing.T) {
 		t.Parallel()
 		gen := &WeightedChoice{
-			Choices:      []string{"200", "404", "500"},
+			Choices:      []any{"200", "404", "500"},
 			CumulWeights: []int{90, 95, 100},
 			TotalWeight:  100,
 		}
 		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
 
-		counts := map[string]int{}
+		counts := map[any]int{}
 		for range 1000 {
 			counts[gen.Generate(rng)]++
 		}
@@ -51,7 +67,7 @@ func TestWeightedChoice(t *testing.T) {
 	t.Run("single choice always returns it", func(t *testing.T) {
 		t.Parallel()
 		gen := &WeightedChoice{
-			Choices:      []string{"only"},
+			Choices:      []any{"only"},
 			CumulWeights: []int{1},
 			TotalWeight:  1,
 		}
@@ -156,5 +172,46 @@ func TestNewAttributeGenerator(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "positive")
+	})
+}
+
+func TestTypedAttribute(t *testing.T) {
+	t.Parallel()
+
+	t.Run("string", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", "value")
+		assert.Equal(t, "key", string(kv.Key))
+		assert.Equal(t, "value", kv.Value.AsString())
+	})
+
+	t.Run("bool", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", true)
+		assert.Equal(t, true, kv.Value.AsBool())
+	})
+
+	t.Run("int", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", 42)
+		assert.Equal(t, int64(42), kv.Value.AsInt64())
+	})
+
+	t.Run("int64", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", int64(99))
+		assert.Equal(t, int64(99), kv.Value.AsInt64())
+	})
+
+	t.Run("float64", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", 3.14)
+		assert.InDelta(t, 3.14, kv.Value.AsFloat64(), 0.001)
+	})
+
+	t.Run("fallback to string", func(t *testing.T) {
+		t.Parallel()
+		kv := typedAttribute("key", uint32(7))
+		assert.Equal(t, "7", kv.Value.AsString())
 	})
 }

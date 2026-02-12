@@ -13,33 +13,33 @@ import (
 
 // AttributeValueConfig defines how an attribute value is generated from YAML.
 type AttributeValueConfig struct {
-	Value    string         `yaml:"value,omitempty"`
+	Value    any            `yaml:"value,omitempty"`
 	Values   map[string]int `yaml:"values,omitempty"`
 	Sequence string         `yaml:"sequence,omitempty"`
 }
 
-// AttributeGenerator produces string values for a span attribute.
+// AttributeGenerator produces typed values for a span attribute.
 type AttributeGenerator interface {
-	Generate(rng *rand.Rand) string
+	Generate(rng *rand.Rand) any
 }
 
-// StaticValue always returns the same string.
+// StaticValue always returns the same value.
 type StaticValue struct {
-	Value string
+	Value any
 }
 
-func (s *StaticValue) Generate(_ *rand.Rand) string {
+func (s *StaticValue) Generate(_ *rand.Rand) any {
 	return s.Value
 }
 
 // WeightedChoice picks from a set of values according to relative weights.
 type WeightedChoice struct {
-	Choices      []string
+	Choices      []any
 	CumulWeights []int
 	TotalWeight  int
 }
 
-func (w *WeightedChoice) Generate(rng *rand.Rand) string {
+func (w *WeightedChoice) Generate(rng *rand.Rand) any {
 	r := rng.IntN(w.TotalWeight)
 	for i, cw := range w.CumulWeights {
 		if r < cw {
@@ -55,7 +55,7 @@ type SequenceValue struct {
 	counter atomic.Int64
 }
 
-func (s *SequenceValue) Generate(_ *rand.Rand) string {
+func (s *SequenceValue) Generate(_ *rand.Rand) any {
 	n := s.counter.Add(1)
 	return strings.ReplaceAll(s.Pattern, "{n}", strconv.FormatInt(n, 10))
 }
@@ -64,7 +64,7 @@ func (s *SequenceValue) Generate(_ *rand.Rand) string {
 // Exactly one of Value, Values, or Sequence must be set.
 func NewAttributeGenerator(cfg AttributeValueConfig) (AttributeGenerator, error) {
 	set := 0
-	if cfg.Value != "" {
+	if cfg.Value != nil {
 		set++
 	}
 	if len(cfg.Values) > 0 {
@@ -77,7 +77,7 @@ func NewAttributeGenerator(cfg AttributeValueConfig) (AttributeGenerator, error)
 		return nil, fmt.Errorf("exactly one of value, values, or sequence must be set")
 	}
 
-	if cfg.Value != "" {
+	if cfg.Value != nil {
 		return &StaticValue{Value: cfg.Value}, nil
 	}
 
@@ -100,7 +100,7 @@ func newWeightedChoice(values map[string]int) (*WeightedChoice, error) {
 	}
 	slices.Sort(keys)
 
-	choices := make([]string, 0, len(keys))
+	choices := make([]any, 0, len(keys))
 	cumul := make([]int, 0, len(keys))
 	total := 0
 

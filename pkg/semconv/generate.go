@@ -19,13 +19,13 @@ func GeneratorFor(attr *Attribute) (synth.AttributeGenerator, error) {
 	case typ == "enum":
 		return generatorForEnum(attr)
 	case typ == "boolean":
-		return equalWeightChoice([]string{"false", "true"}), nil
+		return equalWeightChoice([]any{false, true}), nil
 	case typ == "string":
 		return generatorForScalar(attr, "unknown")
 	case typ == "int":
-		return generatorForScalar(attr, "0")
+		return generatorForScalar(attr, int64(0))
 	case typ == "double":
-		return generatorForScalar(attr, "0.0")
+		return generatorForScalar(attr, float64(0.0))
 	case strings.HasPrefix(typ, "template["):
 		return nil, fmt.Errorf("unsupported type: %s", typ)
 	case strings.HasSuffix(typ, "[]"):
@@ -62,12 +62,12 @@ func generatorForEnum(attr *Attribute) (synth.AttributeGenerator, error) {
 		return equalWeightChoice(values), nil
 	}
 	if len(attr.Type.Members) > 0 {
-		return &synth.StaticValue{Value: fmt.Sprint(attr.Type.Members[0].Value)}, nil
+		return &synth.StaticValue{Value: attr.Type.Members[0].Value}, nil
 	}
 	return nil, fmt.Errorf("enum with no members")
 }
 
-func generatorForScalar(attr *Attribute, fallback string) (synth.AttributeGenerator, error) {
+func generatorForScalar(attr *Attribute, fallback any) (synth.AttributeGenerator, error) {
 	examples := scalarExamples(attr)
 	if len(examples) > 0 {
 		return equalWeightChoice(examples), nil
@@ -75,10 +75,12 @@ func generatorForScalar(attr *Attribute, fallback string) (synth.AttributeGenera
 	return &synth.StaticValue{Value: fallback}, nil
 }
 
-func equalWeightChoice(values []string) *synth.WeightedChoice {
-	sorted := make([]string, len(values))
+func equalWeightChoice(values []any) *synth.WeightedChoice {
+	sorted := make([]any, len(values))
 	copy(sorted, values)
-	slices.Sort(sorted)
+	slices.SortFunc(sorted, func(a, b any) int {
+		return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
+	})
 
 	cumul := make([]int, len(sorted))
 	for i := range sorted {
@@ -92,24 +94,24 @@ func equalWeightChoice(values []string) *synth.WeightedChoice {
 	}
 }
 
-func scalarExamples(attr *Attribute) []string {
-	result := make([]string, 0, len(attr.Examples.Values))
+func scalarExamples(attr *Attribute) []any {
+	result := make([]any, 0, len(attr.Examples.Values))
 	for _, v := range attr.Examples.Values {
 		if _, ok := v.([]any); ok {
 			continue
 		}
-		result = append(result, fmt.Sprint(v))
+		result = append(result, v)
 	}
 	return result
 }
 
-func enumValues(attr *Attribute) []string {
-	result := make([]string, 0, len(attr.Type.Members))
+func enumValues(attr *Attribute) []any {
+	result := make([]any, 0, len(attr.Type.Members))
 	for _, m := range attr.Type.Members {
 		if m.Deprecated != nil {
 			continue
 		}
-		result = append(result, fmt.Sprint(m.Value))
+		result = append(result, m.Value)
 	}
 	return result
 }
