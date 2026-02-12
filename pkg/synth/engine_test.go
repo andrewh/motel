@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -729,11 +730,9 @@ func TestEngineFanOutSequential(t *testing.T) {
 	require.Len(t, children, 3)
 
 	// Sort by start time
-	for i := 1; i < len(children); i++ {
-		for j := i; j > 0 && children[j].StartTime.Before(children[j-1].StartTime); j-- {
-			children[j], children[j-1] = children[j-1], children[j]
-		}
-	}
+	slices.SortFunc(children, func(a, b tracetest.SpanStub) int {
+		return a.StartTime.Compare(b.StartTime)
+	})
 
 	// Each child should start at or after the previous child ends
 	for i := 1; i < len(children); i++ {
