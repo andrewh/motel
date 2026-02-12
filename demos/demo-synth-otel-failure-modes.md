@@ -157,9 +157,9 @@ The order-service uses `call_style: parallel`, so its two downstream calls (post
 ./build/motel-synth run --stdout --duration 200ms examples/synth/basic-topology.yaml 2>/dev/null | jq -rs '
   group_by(.SpanContext.TraceID) |
   map(select(
-    (map(.Name) | contains(["create"])) and
-    (map(.Name) | contains(["query"])) and
-    (map(.Name) | contains(["get"]))
+    any(.Name == "create") and
+    any(.Name == "query") and
+    any(.Name == "get")
   )) | .[0] |
   (map(select(.Name == "query")) | .[0].StartTime) as $qt |
   (map(select(.Name == "get")) | .[0].StartTime) as $gt |

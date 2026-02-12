@@ -137,8 +137,8 @@ The scenario also inflates database.query duration from 5ms to 200ms. Examining 
     (.[0] | tonumber) * 3600 + (.[1] | tonumber) * 60 + (.[2] | tonumber);
   [.[] | select(.Name == "query") |
     ((.EndTime | time_secs) - (.StartTime | time_secs)) * 1000] |
-  (map(select(. < 50)) | length > 0) as $fast |
-  (map(select(. >= 50)) | length > 0) as $slow |
+  any(. < 50) as $fast |
+  any(. >= 50) as $slow |
   "has fast spans (<50ms): \($fast)",
   "has slow spans (>=50ms): \($slow)",
   "bimodal distribution: \($fast and $slow)"'
