@@ -26,9 +26,17 @@ type Operation struct {
 	Name       string
 	Duration   Distribution
 	ErrorRate  float64
-	Calls      []*Operation
+	Calls      []Call
 	CallStyle  string
 	Attributes map[string]AttributeGenerator
+}
+
+// Call represents a resolved downstream call with optional modifiers.
+type Call struct {
+	Operation   *Operation
+	Probability float64
+	Condition   string
+	Count       int
 }
 
 // DomainResolver maps a domain identifier to attribute generators.
@@ -104,13 +112,18 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 	for _, svcCfg := range cfg.Services {
 		for _, opCfg := range svcCfg.Operations {
 			op := topo.Services[svcCfg.Name].Operations[opCfg.Name]
-			for _, callRef := range opCfg.Calls {
-				targetSvc, targetOp, err := resolveRef(topo, callRef)
+			for _, callCfg := range opCfg.Calls {
+				targetSvc, targetOp, err := resolveRef(topo, callCfg.Target)
 				if err != nil {
 					return nil, fmt.Errorf("service %q operation %q: %w", svcCfg.Name, opCfg.Name, err)
 				}
 				_ = targetSvc
-				op.Calls = append(op.Calls, targetOp)
+				op.Calls = append(op.Calls, Call{
+					Operation:   targetOp,
+					Probability: callCfg.Probability,
+					Condition:   callCfg.Condition,
+					Count:       callCfg.Count,
+				})
 			}
 		}
 	}
@@ -150,8 +163,8 @@ func findRoots(topo *Topology) []*Operation {
 	called := make(map[*Operation]bool)
 	for _, svc := range topo.Services {
 		for _, op := range svc.Operations {
-			for _, target := range op.Calls {
-				called[target] = true
+			for _, call := range op.Calls {
+				called[call.Operation] = true
 			}
 		}
 	}
@@ -185,8 +198,8 @@ func detectCycles(topo *Topology) error {
 			return nil
 		}
 		state[op] = visiting
-		for _, child := range op.Calls {
-			if err := visit(child); err != nil {
+		for _, call := range op.Calls {
+			if err := visit(call.Operation); err != nil {
 				return err
 			}
 		}

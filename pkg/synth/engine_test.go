@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestEngineWalkTrace(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "GET /users",
 					Duration: "30ms +/- 10ms",
-					Calls:    []string{"backend.list"},
+					Calls:    []CallConfig{{Target: "backend.list"}},
 				}},
 			},
 			{
@@ -329,7 +330,7 @@ func TestEngineSequentialCallStyle(t *testing.T) {
 					Name:      "entry",
 					Duration:  "10ms",
 					CallStyle: "sequential",
-					Calls:     []string{"child.a", "child.b"},
+					Calls:     []CallConfig{{Target: "child.a"}, {Target: "child.b"}},
 				}},
 			},
 			{
@@ -380,7 +381,7 @@ func TestEngineParallelCallStyle(t *testing.T) {
 					Name:      "entry",
 					Duration:  "10ms",
 					CallStyle: "parallel",
-					Calls:     []string{"child.a", "child.b"},
+					Calls:     []CallConfig{{Target: "child.a"}, {Target: "child.b"}},
 				}},
 			},
 			{
@@ -430,7 +431,7 @@ func TestEngineRunStats(t *testing.T) {
 					Name:      "op",
 					Duration:  "1ms",
 					ErrorRate: "100%",
-					Calls:     []string{"backend.work"},
+					Calls:     []CallConfig{{Target: "backend.work"}},
 				}},
 			},
 			{
@@ -500,4 +501,291 @@ func TestEngineSpanAttributes(t *testing.T) {
 
 	// Should be a SERVER span for root operations
 	assert.Equal(t, trace.SpanKindServer, spans[0].SpanKind)
+}
+
+func TestEngineProbabilisticCall(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.work", Probability: 0.5}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+
+	// Run multiple traces and count how many include the child
+	const trials = 100
+	childCount := 0
+	rootOp := engine.Topology.Roots[0]
+
+	for range trials {
+		exporter.Reset()
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+		spans := exporter.GetSpans()
+		if len(spans) > 1 {
+			childCount++
+		}
+	}
+
+	// With p=0.5 and 100 trials, child should appear in some but not all
+	assert.Greater(t, childCount, 10, "child should appear in some traces")
+	assert.Less(t, childCount, 90, "child should not appear in all traces")
+}
+
+func TestEngineOnErrorCondition(t *testing.T) {
+	t.Parallel()
+
+	makeConfig := func(errorRate string) *Config {
+		return &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "parent",
+					Operations: []OperationConfig{{
+						Name:      "entry",
+						Duration:  "10ms",
+						ErrorRate: errorRate,
+						Calls:     []CallConfig{{Target: "child.retry", Condition: "on-error"}},
+					}},
+				},
+				{
+					Name: "child",
+					Operations: []OperationConfig{{
+						Name:     "retry",
+						Duration: "5ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+	}
+
+	t.Run("100% error rate triggers on-error call", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter := newTestEngine(t, makeConfig("100%"))
+		rootOp := engine.Topology.Roots[0]
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+		spans := exporter.GetSpans()
+		assert.Len(t, spans, 2, "on-error child should be present when parent errors")
+	})
+
+	t.Run("0% error rate skips on-error call", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter := newTestEngine(t, makeConfig("0%"))
+		rootOp := engine.Topology.Roots[0]
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+		spans := exporter.GetSpans()
+		assert.Len(t, spans, 1, "on-error child should be absent when parent succeeds")
+	})
+}
+
+func TestEngineOnSuccessCondition(t *testing.T) {
+	t.Parallel()
+
+	makeConfig := func(errorRate string) *Config {
+		return &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "parent",
+					Operations: []OperationConfig{{
+						Name:      "entry",
+						Duration:  "10ms",
+						ErrorRate: errorRate,
+						Calls:     []CallConfig{{Target: "child.cache", Condition: "on-success"}},
+					}},
+				},
+				{
+					Name: "child",
+					Operations: []OperationConfig{{
+						Name:     "cache",
+						Duration: "5ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+	}
+
+	t.Run("0% error rate triggers on-success call", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter := newTestEngine(t, makeConfig("0%"))
+		rootOp := engine.Topology.Roots[0]
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+		spans := exporter.GetSpans()
+		assert.Len(t, spans, 2, "on-success child should be present when parent succeeds")
+	})
+
+	t.Run("100% error rate skips on-success call", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter := newTestEngine(t, makeConfig("100%"))
+		rootOp := engine.Topology.Roots[0]
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+		spans := exporter.GetSpans()
+		assert.Len(t, spans, 1, "on-success child should be absent when parent errors")
+	})
+}
+
+func TestEngineFanOutCount(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.work", Count: 3}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	assert.Len(t, spans, 4, "should have 1 parent + 3 child spans")
+
+	childCount := 0
+	for _, s := range spans {
+		if s.Name == "work" {
+			childCount++
+		}
+	}
+	assert.Equal(t, 3, childCount, "should have 3 fan-out child spans")
+}
+
+func TestEngineFanOutSequential(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+					Calls:     []CallConfig{{Target: "child.work", Count: 3}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "20ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 4)
+
+	// Collect child spans sorted by start time
+	var children []tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "work" {
+			children = append(children, s)
+		}
+	}
+	require.Len(t, children, 3)
+
+	// Sort by start time
+	slices.SortFunc(children, func(a, b tracetest.SpanStub) int {
+		return a.StartTime.Compare(b.StartTime)
+	})
+
+	// Each child should start at or after the previous child ends
+	for i := 1; i < len(children); i++ {
+		assert.False(t, children[i].StartTime.Before(children[i-1].EndTime),
+			"sequential: child %d (start=%v) should start at or after child %d (end=%v)",
+			i, children[i].StartTime, i-1, children[i-1].EndTime)
+	}
+}
+
+func TestEngineFanOutParallel(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "parallel",
+					Calls:     []CallConfig{{Target: "child.work", Count: 3}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "20ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 4)
+
+	// All child spans should share the same start time
+	var children []tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "work" {
+			children = append(children, s)
+		}
+	}
+	require.Len(t, children, 3)
+
+	for i := 1; i < len(children); i++ {
+		assert.Equal(t, children[0].StartTime, children[i].StartTime,
+			"parallel: all children should start at the same time")
+	}
 }

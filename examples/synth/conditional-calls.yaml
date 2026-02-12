@@ -1,0 +1,53 @@
+# Conditional and probabilistic call paths
+# Demonstrates per-call probability, error/success conditions, and fan-out
+
+services:
+  gateway:
+    attributes:
+      deployment.environment: production
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+        error_rate: 5%
+        calls:
+          - target: redis.get
+            condition: on-success
+          - target: postgres.query
+            condition: on-error
+          - target: audit.log
+            probability: 0.1
+      POST /batch:
+        duration: 50ms +/- 15ms
+        call_style: sequential
+        calls:
+          - target: worker.process
+            count: 3
+
+  redis:
+    attributes:
+      db.system: redis
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.1%
+
+  postgres:
+    attributes:
+      db.system: postgresql
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 1%
+
+  audit:
+    operations:
+      log:
+        duration: 2ms +/- 1ms
+
+  worker:
+    operations:
+      process:
+        duration: 10ms +/- 3ms
+
+traffic:
+  rate: 50/s
