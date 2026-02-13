@@ -28,6 +28,8 @@ type Engine struct {
 }
 
 // Stats holds counters collected during a simulation run.
+// Errors counts all spans in an error state, including those errored by cascading
+// (a child failure marks its parent as errored too). ErrorRate is Errors/Spans.
 type Stats struct {
 	Traces       int64   `json:"traces"`
 	Spans        int64   `json:"spans"`
@@ -166,8 +168,8 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	}
 	span.SetAttributes(spanAttrs...)
 
-	// Determine if this span errors
-	isError := e.Rng.Float64() < errorRate
+	// Determine if this span errors from its own error rate (before cascading)
+	ownError := e.Rng.Float64() < errorRate
 
 	// Sample own processing duration
 	ownDuration := duration.Sample(e.Rng)
@@ -176,13 +178,13 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	// Filter calls by condition and probability
+	// Filter calls by condition and probability (uses own error state, not cascaded)
 	activeCalls := make([]Call, 0, len(op.Calls))
 	for _, call := range op.Calls {
-		if call.Condition == "on-error" && !isError {
+		if call.Condition == "on-error" && !ownError {
 			continue
 		}
-		if call.Condition == "on-success" && isError {
+		if call.Condition == "on-success" && ownError {
 			continue
 		}
 		if call.Probability > 0 && e.Rng.Float64() >= call.Probability {
@@ -229,7 +231,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	endTime := latestChildEnd.Add(postCallDuration)
 
 	// Cascade child failures to parent
-	isError = isError || anyChildFailed
+	isError := ownError || anyChildFailed
 
 	if isError {
 		span.SetStatus(codes.Error, "synthetic error")
@@ -283,7 +285,7 @@ func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time
 		attemptStart = perceivedEnd.Add(call.RetryBackoff)
 	}
 
-	return callStart, true
+	return callStart, true // unreachable: loop always returns on final iteration
 }
 
 // isRoot checks whether an operation is a root (entry point) in the topology.
