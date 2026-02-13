@@ -118,8 +118,9 @@ type ScenarioConfig struct {
 
 // OverrideConfig holds per-operation overrides within a scenario.
 type OverrideConfig struct {
-	Duration  string `yaml:"duration,omitempty"`
-	ErrorRate string `yaml:"error_rate,omitempty"`
+	Duration   string                          `yaml:"duration,omitempty"`
+	ErrorRate  string                          `yaml:"error_rate,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
 // LoadConfig reads and parses a YAML configuration file.
@@ -261,6 +262,11 @@ func ValidateConfig(cfg *Config) error {
 			if override.ErrorRate != "" {
 				if _, err := parseErrorRate(override.ErrorRate); err != nil {
 					return fmt.Errorf("scenario %q: override %q: invalid error_rate: %w", sc.Name, ref, err)
+				}
+			}
+			for attrName, attrCfg := range override.Attributes {
+				if _, err := NewAttributeGenerator(attrCfg); err != nil {
+					return fmt.Errorf("scenario %q: override %q: attribute %q: %w", sc.Name, ref, attrName, err)
 				}
 			}
 		}

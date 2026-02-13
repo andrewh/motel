@@ -5,6 +5,7 @@ package synth
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type Override struct {
 	Duration     Distribution
 	ErrorRate    float64
 	HasErrorRate bool
+	Attributes   map[string]AttributeGenerator
 }
 
 // ParseOffset parses a time offset string like "+5m" or "30s" into a duration.
@@ -69,6 +71,16 @@ func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
 				}
 				o.HasErrorRate = true
 			}
+			if len(ov.Attributes) > 0 {
+				o.Attributes = make(map[string]AttributeGenerator, len(ov.Attributes))
+				for attrName, attrCfg := range ov.Attributes {
+					gen, genErr := NewAttributeGenerator(attrCfg)
+					if genErr != nil {
+						return nil, fmt.Errorf("scenario %q override %q: attribute %q: %w", cfg.Name, ref, attrName, genErr)
+					}
+					o.Attributes[attrName] = gen
+				}
+			}
 			overrides[ref] = o
 		}
 
@@ -101,7 +113,7 @@ func ActiveScenarios(scenarios []Scenario, elapsed time.Duration) []Scenario {
 
 // ResolveOverrides merges overrides from multiple active scenarios.
 // Later scenarios override earlier ones (last-defined-wins), but only for
-// fields that are explicitly set.
+// fields that are explicitly set. Attributes are merged per-key.
 func ResolveOverrides(active []Scenario) map[string]Override {
 	merged := make(map[string]Override)
 	for _, sc := range active {
@@ -117,6 +129,12 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 			if ov.HasErrorRate {
 				existing.ErrorRate = ov.ErrorRate
 				existing.HasErrorRate = true
+			}
+			if len(ov.Attributes) > 0 {
+				if existing.Attributes == nil {
+					existing.Attributes = make(map[string]AttributeGenerator, len(ov.Attributes))
+				}
+				maps.Copy(existing.Attributes, ov.Attributes)
 			}
 			merged[ref] = existing
 		}

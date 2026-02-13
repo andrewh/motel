@@ -715,6 +715,44 @@ func TestValidateConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "nonexistent.op")
 	})
 
+	t.Run("scenario override with valid attributes", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					Attributes: map[string]AttributeValueConfig{
+						"status": {Values: map[string]int{"503": 80, "200": 20}},
+					},
+				},
+			},
+		}}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("scenario override with invalid attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					Attributes: map[string]AttributeValueConfig{
+						"bad": {Range: []int64{5, 3, 1}},
+					},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attribute")
+	})
+
 	t.Run("bursty fields valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()

@@ -244,6 +244,113 @@ func TestResolveOverridesWithPriority(t *testing.T) {
 	assert.InDelta(t, 0.1, overrides["svc.op"].ErrorRate, 0.001)
 }
 
+func TestBuildScenariosWithAttributes(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "error-spike",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {
+				Attributes: map[string]AttributeValueConfig{
+					"http.status": {Values: map[string]int{"503": 80, "200": 20}},
+				},
+			},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	require.Contains(t, scenarios[0].Overrides, "svc.op")
+	require.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes)
+	assert.Contains(t, scenarios[0].Overrides["svc.op"].Attributes, "http.status")
+}
+
+func TestBuildScenariosInvalidAttribute(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "bad",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {
+				Attributes: map[string]AttributeValueConfig{
+					"bad": {Range: []int64{5, 3, 1}}, // invalid: range needs exactly 2 elements
+				},
+			},
+		},
+	}}
+
+	_, err := BuildScenarios(cfgs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attribute")
+}
+
+func TestResolveOverridesMergesAttributes(t *testing.T) {
+	t.Parallel()
+
+	gen1 := &StaticValue{Value: "original"}
+	gen2 := &StaticValue{Value: "override"}
+	gen3 := &StaticValue{Value: "extra"}
+
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {
+					Attributes: map[string]AttributeGenerator{
+						"keep":    gen1,
+						"replace": gen1,
+					},
+				},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {
+					Attributes: map[string]AttributeGenerator{
+						"replace": gen2,
+						"new":     gen3,
+					},
+				},
+			},
+		},
+	}
+
+	overrides := ResolveOverrides(scenarios)
+	require.Contains(t, overrides, "svc.op")
+	attrs := overrides["svc.op"].Attributes
+	require.Len(t, attrs, 3)
+	assert.Equal(t, gen1, attrs["keep"], "untouched attribute preserved")
+	assert.Equal(t, gen2, attrs["replace"], "overridden attribute replaced")
+	assert.Equal(t, gen3, attrs["new"], "new attribute added")
+}
+
+func TestResolveOverridesNoAttributesIsNoop(t *testing.T) {
+	t.Parallel()
+
+	gen := &StaticValue{Value: "v"}
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"a": gen}},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Duration: Distribution{Mean: 100 * time.Millisecond}},
+			},
+		},
+	}
+
+	overrides := ResolveOverrides(scenarios)
+	attrs := overrides["svc.op"].Attributes
+	require.Len(t, attrs, 1)
+	assert.Equal(t, gen, attrs["a"], "earlier attributes preserved when later has none")
+}
+
 func TestResolveOverrides(t *testing.T) {
 	t.Parallel()
 

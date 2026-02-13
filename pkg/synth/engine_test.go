@@ -251,6 +251,72 @@ func TestEngineScenarioOverrides(t *testing.T) {
 	assert.Greater(t, spanDuration, 500*time.Millisecond, "should use overridden duration")
 }
 
+func TestEngineScenarioAttributeOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "10ms",
+				Attributes: map[string]AttributeValueConfig{
+					"status": {Values: map[string]int{"200": 1}},
+					"keep":   {Value: "preserved"},
+				},
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+	pattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:  "error-spike",
+		Start: 0,
+		End:   time.Hour,
+		Overrides: map[string]Override{
+			"svc.op": {
+				Attributes: map[string]AttributeGenerator{
+					"status": &StaticValue{Value: "503"},
+					"extra":  &StaticValue{Value: "added"},
+				},
+			},
+		},
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   pattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+	}
+
+	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{})
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+
+	attrMap := make(map[string]string)
+	for _, attr := range spans[0].Attributes {
+		attrMap[string(attr.Key)] = attr.Value.AsString()
+	}
+
+	assert.Equal(t, "503", attrMap["status"], "overridden attribute should use scenario value")
+	assert.Equal(t, "preserved", attrMap["keep"], "non-overridden attribute should be preserved")
+	assert.Equal(t, "added", attrMap["extra"], "new attribute from scenario should be present")
+}
+
 func TestEngineMultiRootDistribution(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"time"
@@ -113,9 +114,10 @@ func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
 func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) time.Time {
 	tracer := e.Provider.Tracer(op.Service.Name)
 
-	// Determine effective duration and error rate (apply overrides if active)
+	// Determine effective duration, error rate, and attributes (apply overrides if active)
 	duration := op.Duration
 	errorRate := op.ErrorRate
+	opAttrs := op.Attributes
 	ref := op.Service.Name + "." + op.Name
 	if ov, ok := overrides[ref]; ok {
 		if ov.Duration.Mean > 0 {
@@ -123,6 +125,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		}
 		if ov.HasErrorRate {
 			errorRate = ov.ErrorRate
+		}
+		if len(ov.Attributes) > 0 {
+			merged := make(map[string]AttributeGenerator, len(op.Attributes)+len(ov.Attributes))
+			maps.Copy(merged, op.Attributes)
+			maps.Copy(merged, ov.Attributes)
+			opAttrs = merged
 		}
 	}
 
@@ -142,11 +150,11 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	)
 
 	// Collect attributes for both the span and observers
-	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(op.Attributes))
+	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(opAttrs))
 	for k, v := range op.Service.Attributes {
 		spanAttrs = append(spanAttrs, attribute.String(k, v))
 	}
-	for k, gen := range op.Attributes {
+	for k, gen := range opAttrs {
 		spanAttrs = append(spanAttrs, typedAttribute(k, gen.Generate(e.Rng)))
 	}
 	span.SetAttributes(spanAttrs...)
