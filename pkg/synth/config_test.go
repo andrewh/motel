@@ -25,6 +25,7 @@ func TestLoadConfig(t *testing.T) {
 	t.Run("valid minimal config", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -36,6 +37,7 @@ traffic:
 `)
 		cfg, err := LoadConfig(path)
 		require.NoError(t, err)
+		assert.Equal(t, 1, cfg.Version)
 		require.Len(t, cfg.Services, 1)
 		assert.Equal(t, "gateway", cfg.Services[0].Name)
 		require.Len(t, cfg.Services[0].Operations, 1)
@@ -48,6 +50,7 @@ traffic:
 	t.Run("full config with calls and scenarios", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     attributes:
@@ -103,6 +106,7 @@ scenarios:
 	t.Run("mixed simple and rich call forms", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -160,6 +164,7 @@ traffic:
 	t.Run("config with attributes and call_style", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -193,6 +198,7 @@ traffic:
 	t.Run("domain field parsed from YAML", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -216,6 +222,7 @@ traffic:
 	t.Run("domain field optional", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -235,6 +242,39 @@ traffic:
 		_, err := LoadConfig("/nonexistent/path.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "reading config")
+	})
+
+	t.Run("missing version", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+traffic:
+  rate: 100/s
+`)
+		_, err := LoadConfig(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required field: version")
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 99
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+traffic:
+  rate: 100/s
+`)
+		_, err := LoadConfig(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported config version 99")
 	})
 
 	t.Run("invalid YAML", func(t *testing.T) {
@@ -1094,6 +1134,7 @@ func TestLoadConfigCallTimeout(t *testing.T) {
 	t.Parallel()
 
 	path := writeTestConfig(t, `
+version: 1
 services:
   gateway:
     operations:
@@ -1132,6 +1173,7 @@ func TestLoadConfig_NewGenerators(t *testing.T) {
 	t.Run("probability field", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   svc:
     operations:
@@ -1153,6 +1195,7 @@ traffic:
 	t.Run("range field", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   svc:
     operations:
@@ -1173,6 +1216,7 @@ traffic:
 	t.Run("distribution field", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   svc:
     operations:

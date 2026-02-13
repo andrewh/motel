@@ -16,6 +16,7 @@ cat examples/synth/cascading-failure.yaml
 # Cascading failure with timeout, retry, and scenario-driven slowdown
 # When the database degrades, timeouts propagate through the call chain
 
+version: 1
 services:
   gateway:
     operations:
@@ -74,6 +75,7 @@ Misconfigured retry fields are caught. For example, setting retry_backoff withou
 
 ```bash
 cat > /tmp/bad-retry.yaml << 'EOF'
+version: 1
 services:
   svc:
     operations:

@@ -16,6 +16,7 @@ cat examples/synth/basic-topology.yaml
 # Five-service topology demonstrating motel-synth capabilities
 # Generates realistic traces with gateway, two backends, and two datastores
 
+version: 1
 services:
   gateway:
     attributes:

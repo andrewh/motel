@@ -13,8 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CurrentVersion is the supported schema version for synth topology configs.
+const CurrentVersion = 1
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
+	Version   int              `yaml:"version"`
 	Services  []ServiceConfig  `yaml:"-"`
 	Traffic   TrafficConfig    `yaml:"traffic"`
 	Scenarios []ScenarioConfig `yaml:"scenarios,omitempty"`
@@ -22,6 +26,7 @@ type Config struct {
 
 // rawConfig mirrors Config but uses a map for services to match the YAML structure.
 type rawConfig struct {
+	Version   int                         `yaml:"version"`
 	Services  map[string]rawServiceConfig `yaml:"services"`
 	Traffic   TrafficConfig               `yaml:"traffic"`
 	Scenarios []ScenarioConfig            `yaml:"scenarios,omitempty"`
@@ -139,7 +144,15 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
+	if raw.Version == 0 {
+		return nil, fmt.Errorf("missing required field: version")
+	}
+	if raw.Version != CurrentVersion {
+		return nil, fmt.Errorf("unsupported config version %d (supported: %d)", raw.Version, CurrentVersion)
+	}
+
 	cfg := &Config{
+		Version:   raw.Version,
 		Traffic:   raw.Traffic,
 		Scenarios: raw.Scenarios,
 	}

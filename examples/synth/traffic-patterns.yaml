@@ -1,6 +1,8 @@
 # Minimal topology for demonstrating traffic patterns
 # Two services, one call — keeps output easy to read
 
+version: 1
+
 services:
   api:
     operations:

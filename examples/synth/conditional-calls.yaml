@@ -1,6 +1,8 @@
 # Conditional and probabilistic call paths
 # Demonstrates per-call probability, error/success conditions, and fan-out
 
+version: 1
+
 services:
   gateway:
     attributes:

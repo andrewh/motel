@@ -16,6 +16,7 @@ cat examples/synth/traffic-patterns.yaml
 # Minimal topology for demonstrating traffic patterns
 # Two services, one call — keeps output easy to read
 
+version: 1
 services:
   api:
     operations:
@@ -55,6 +56,7 @@ Models a 24-hour day/night cycle using a sine wave. Peak rate is 1.5x the base a
 
 ```bash
 cat > /tmp/diurnal.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:
@@ -84,6 +86,7 @@ Constant mean rate with Poisson-distributed inter-arrival times. Over a full run
 
 ```bash
 cat > /tmp/poisson.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:
@@ -113,6 +116,7 @@ Alternates between the base rate and 5x bursts. Bursts last 30 seconds every 5 m
 
 ```bash
 cat > /tmp/bursty.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:
@@ -143,6 +147,7 @@ Running the same topology with each pattern shows how arrival models affect thro
 ```bash
 for p in uniform diurnal poisson bursty; do
 cat > /tmp/cmp-${p}.yaml << EOF
+version: 1
 services:
   api:
     operations:
