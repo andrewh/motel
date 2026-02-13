@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andrewh/motel/pkg/models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -90,8 +89,22 @@ type OperationConfig struct {
 
 // TrafficConfig describes the traffic generation pattern.
 type TrafficConfig struct {
-	Rate    string `yaml:"rate"`
-	Pattern string `yaml:"pattern,omitempty"`
+	Rate             string          `yaml:"rate"`
+	Pattern          string          `yaml:"pattern,omitempty"`
+	BurstMultiplier  float64         `yaml:"burst_multiplier,omitempty"`
+	BurstInterval    string          `yaml:"burst_interval,omitempty"`
+	BurstDuration    string          `yaml:"burst_duration,omitempty"`
+	PeakMultiplier   float64         `yaml:"peak_multiplier,omitempty"`
+	TroughMultiplier float64         `yaml:"trough_multiplier,omitempty"`
+	Period           string          `yaml:"period,omitempty"`
+	Segments         []SegmentConfig `yaml:"segments,omitempty"`
+	Overlay          *TrafficConfig  `yaml:"overlay,omitempty"`
+}
+
+// SegmentConfig describes a time-bounded rate segment in a custom traffic pattern.
+type SegmentConfig struct {
+	Until string `yaml:"until"`
+	Rate  string `yaml:"rate"`
 }
 
 // ScenarioConfig describes a time-windowed override to operation behaviour.
@@ -223,9 +236,8 @@ func ValidateConfig(cfg *Config) error {
 		}
 	}
 
-	// Validate traffic rate
-	if _, err := models.NewRate(cfg.Traffic.Rate); err != nil {
-		return fmt.Errorf("invalid traffic rate: %w", err)
+	if err := validateTrafficConfig(cfg.Traffic, false); err != nil {
+		return err
 	}
 
 	// Validate scenarios
@@ -250,6 +262,42 @@ func ValidateConfig(cfg *Config) error {
 					return fmt.Errorf("scenario %q: override %q: invalid error_rate: %w", sc.Name, ref, err)
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+func validateTrafficConfig(tc TrafficConfig, isOverlay bool) error {
+	pattern := tc.Pattern
+	if pattern == "" {
+		pattern = "uniform"
+	}
+
+	hasBurstyFields := tc.BurstMultiplier != 0 || tc.BurstInterval != "" || tc.BurstDuration != ""
+	hasDiurnalFields := tc.PeakMultiplier != 0 || tc.TroughMultiplier != 0 || tc.Period != ""
+	hasSegments := len(tc.Segments) > 0
+
+	if hasBurstyFields && pattern != "bursty" {
+		return fmt.Errorf("burst_multiplier, burst_interval, burst_duration are only valid with pattern \"bursty\"")
+	}
+	if hasDiurnalFields && pattern != "diurnal" {
+		return fmt.Errorf("peak_multiplier, trough_multiplier, period are only valid with pattern \"diurnal\"")
+	}
+	if hasSegments && pattern != "custom" {
+		return fmt.Errorf("segments are only valid with pattern \"custom\"")
+	}
+
+	if _, err := newBasePattern(tc); err != nil {
+		return err
+	}
+
+	if tc.Overlay != nil {
+		if isOverlay {
+			return fmt.Errorf("nested overlay is not supported")
+		}
+		if err := validateTrafficConfig(*tc.Overlay, true); err != nil {
+			return fmt.Errorf("overlay: %w", err)
 		}
 	}
 

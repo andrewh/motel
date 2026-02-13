@@ -714,6 +714,188 @@ func TestValidateConfig(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent.op")
 	})
+
+	t.Run("bursty fields valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "bursty"
+		cfg.Traffic.BurstMultiplier = 3
+		cfg.Traffic.BurstInterval = "2m"
+		cfg.Traffic.BurstDuration = "15s"
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("bursty fields with invalid burst_interval", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "bursty"
+		cfg.Traffic.BurstInterval = "bad"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "burst_interval")
+	})
+
+	t.Run("bursty fields with invalid burst_duration", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "bursty"
+		cfg.Traffic.BurstDuration = "bad"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "burst_duration")
+	})
+
+	t.Run("bursty fields rejected on non-bursty pattern", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "uniform"
+		cfg.Traffic.BurstMultiplier = 3
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "burst")
+	})
+
+	t.Run("diurnal fields valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "diurnal"
+		cfg.Traffic.PeakMultiplier = 2.0
+		cfg.Traffic.TroughMultiplier = 0.2
+		cfg.Traffic.Period = "12h"
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("diurnal fields with invalid period", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "diurnal"
+		cfg.Traffic.Period = "bad"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "period")
+	})
+
+	t.Run("diurnal fields rejected on non-diurnal pattern", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "uniform"
+		cfg.Traffic.PeakMultiplier = 2.0
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "peak_multiplier")
+	})
+
+	t.Run("segments valid for custom pattern", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "custom"
+		cfg.Traffic.Segments = []SegmentConfig{
+			{Until: "5m", Rate: "50/s"},
+			{Until: "10m", Rate: "200/s"},
+		}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("segments with invalid until", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "custom"
+		cfg.Traffic.Segments = []SegmentConfig{
+			{Until: "bad", Rate: "50/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "until")
+	})
+
+	t.Run("segments with invalid rate", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "custom"
+		cfg.Traffic.Segments = []SegmentConfig{
+			{Until: "5m", Rate: "bad"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rate")
+	})
+
+	t.Run("segments rejected on non-custom pattern", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "uniform"
+		cfg.Traffic.Segments = []SegmentConfig{
+			{Until: "5m", Rate: "50/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "segments")
+	})
+
+	t.Run("custom pattern requires segments", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "custom"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "segments")
+	})
+
+	t.Run("overlay validated recursively", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Pattern = "diurnal"
+		cfg.Traffic.Overlay = &TrafficConfig{
+			Rate:            "100/s",
+			Pattern:         "bursty",
+			BurstMultiplier: 3,
+			BurstInterval:   "2m",
+			BurstDuration:   "15s",
+		}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("overlay with invalid config", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Overlay = &TrafficConfig{
+			Rate:          "100/s",
+			Pattern:       "bursty",
+			BurstInterval: "bad",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "overlay")
+	})
+
+	t.Run("nested overlay rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Traffic.Overlay = &TrafficConfig{
+			Rate:    "100/s",
+			Pattern: "uniform",
+			Overlay: &TrafficConfig{
+				Rate:    "100/s",
+				Pattern: "bursty",
+			},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nested")
+	})
+}
+
+func validBaseConfig() *Config {
+	return &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "10ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
 }
 
 func TestLoadConfig_NewGenerators(t *testing.T) {
