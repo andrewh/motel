@@ -969,3 +969,255 @@ func TestEngineFanOutParallel(t *testing.T) {
 			"parallel: all children should start at the same time")
 	}
 }
+
+func TestEngineCallTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.slow", Timeout: "50ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "slow",
+					Duration: "200ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent, child tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "entry":
+			parent = s
+		case "slow":
+			child = s
+		}
+	}
+
+	// Child keeps its full duration (200ms)
+	childDuration := child.EndTime.Sub(child.StartTime)
+	assert.Greater(t, childDuration, 100*time.Millisecond)
+
+	// Parent should be capped: pre-call(5ms) + timeout(50ms) + post-call(5ms) = ~60ms
+	parentDuration := parent.EndTime.Sub(parent.StartTime)
+	assert.Less(t, parentDuration, 100*time.Millisecond,
+		"parent duration should be capped by timeout")
+
+	// Parent should be errored (timeout cascades)
+	assert.Equal(t, codes.Error, parent.Status.Code)
+
+	assert.Equal(t, int64(1), stats.Timeouts)
+}
+
+func TestEngineCallNoTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.fast", Timeout: "500ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "fast",
+					Duration: "20ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "entry" {
+			parent = s
+		}
+	}
+
+	// No timeout: parent should not be errored
+	assert.NotEqual(t, codes.Error, parent.Status.Code)
+	assert.Equal(t, int64(0), stats.Timeouts)
+}
+
+func TestEngineCallTimeoutSequential(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+					Calls: []CallConfig{
+						{Target: "child.slow", Timeout: "50ms"},
+						{Target: "child.fast"},
+					},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "slow", Duration: "200ms"},
+					{Name: "fast", Duration: "20ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3)
+
+	var slow, fast tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "slow":
+			slow = s
+		case "fast":
+			fast = s
+		}
+	}
+
+	// In sequential mode, fast should start after the capped timeout of slow
+	preCall := 5 * time.Millisecond // half of 10ms parent own duration
+	expectedSecondStart := now.Add(preCall).Add(50 * time.Millisecond)
+	assert.False(t, fast.StartTime.Before(expectedSecondStart),
+		"sequential: second call should start after timeout of first (expected >= %v, got %v)",
+		expectedSecondStart, fast.StartTime)
+
+	// But slow's actual duration is still 200ms
+	slowDuration := slow.EndTime.Sub(slow.StartTime)
+	assert.Greater(t, slowDuration, 100*time.Millisecond)
+
+	assert.Equal(t, int64(1), stats.Timeouts)
+}
+
+func TestEngineCascadingError(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "20ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "entry" {
+			parent = s
+		}
+	}
+
+	// Parent error_rate is 0%, but child 100% error cascades up
+	assert.Equal(t, codes.Error, parent.Status.Code,
+		"parent should be errored due to cascading child failure")
+	assert.Equal(t, int64(2), stats.Errors, "both parent and child should count as errors")
+}
+
+func TestEngineCascadingErrorPreservesConditions(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "child.failing"},
+						{Target: "child.fallback", Condition: "on-error"},
+					},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "failing", Duration: "20ms", ErrorRate: "100%"},
+					{Name: "fallback", Duration: "5ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// Conditions use the parent's OWN error rate (0%), not cascaded.
+	// So on-error call should NOT fire. Only parent + failing child = 2 spans.
+	assert.Len(t, spans, 2,
+		"on-error condition should use parent's own error rate, not cascaded errors")
+}

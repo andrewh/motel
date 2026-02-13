@@ -32,6 +32,8 @@ type Stats struct {
 	Traces       int64   `json:"traces"`
 	Spans        int64   `json:"spans"`
 	Errors       int64   `json:"errors"`
+	Timeouts     int64   `json:"timeouts"`
+	Retries      int64   `json:"retries"`
 	ElapsedMs    int64   `json:"elapsed_ms"`
 	TracesPerSec float64 `json:"traces_per_second"`
 	SpansPerSec  float64 `json:"spans_per_second"`
@@ -115,8 +117,8 @@ func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
 }
 
 // walkTrace recursively generates spans for an operation and its downstream calls.
-// Synthetic timestamps are computed without sleeping.
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) time.Time {
+// Returns the span end time and whether the span errored (own error rate or cascaded from children).
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
 	tracer := e.Provider.Tracer(op.Service.Name)
 
 	// Determine effective duration, error rate, and attributes (apply overrides if active)
@@ -191,25 +193,32 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 
 	// Walk downstream calls (parallel or sequential) with fan-out
 	latestChildEnd := childStartTime
+	anyChildFailed := false
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				childEnd := e.walkTrace(ctx, call.Operation, nextStart, overrides, stats)
-				if childEnd.After(latestChildEnd) {
-					latestChildEnd = childEnd
+				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, overrides, stats)
+				if failed {
+					anyChildFailed = true
 				}
-				nextStart = childEnd
+				if perceivedEnd.After(latestChildEnd) {
+					latestChildEnd = perceivedEnd
+				}
+				nextStart = perceivedEnd
 			}
 		}
 	} else {
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				childEnd := e.walkTrace(ctx, call.Operation, childStartTime, overrides, stats)
-				if childEnd.After(latestChildEnd) {
-					latestChildEnd = childEnd
+				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, overrides, stats)
+				if failed {
+					anyChildFailed = true
+				}
+				if perceivedEnd.After(latestChildEnd) {
+					latestChildEnd = perceivedEnd
 				}
 			}
 		}
@@ -218,6 +227,9 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	// End time: max(child_end) + post-call overhead (remaining half of own duration)
 	postCallDuration := ownDuration - preCallDuration
 	endTime := latestChildEnd.Add(postCallDuration)
+
+	// Cascade child failures to parent
+	isError = isError || anyChildFailed
 
 	if isError {
 		span.SetStatus(codes.Error, "synthetic error")
@@ -244,7 +256,22 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		}
 	}
 
-	return endTime
+	return endTime, isError
+}
+
+// executeCall runs a single downstream call, applying timeout capping and retries.
+func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
+	childEnd, childErr := e.walkTrace(ctx, call.Operation, callStart, overrides, stats)
+	perceivedEnd := childEnd
+	failed := childErr
+
+	if call.Timeout > 0 && childEnd.Sub(callStart) > call.Timeout {
+		perceivedEnd = callStart.Add(call.Timeout)
+		failed = true
+		stats.Timeouts++
+	}
+
+	return perceivedEnd, failed
 }
 
 // isRoot checks whether an operation is a root (entry point) in the topology.
