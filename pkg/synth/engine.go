@@ -261,17 +261,29 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 
 // executeCall runs a single downstream call, applying timeout capping and retries.
 func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
-	childEnd, childErr := e.walkTrace(ctx, call.Operation, callStart, overrides, stats)
-	perceivedEnd := childEnd
-	failed := childErr
+	maxAttempts := 1 + call.Retries
+	attemptStart := callStart
 
-	if call.Timeout > 0 && childEnd.Sub(callStart) > call.Timeout {
-		perceivedEnd = callStart.Add(call.Timeout)
-		failed = true
-		stats.Timeouts++
+	for attempt := range maxAttempts {
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, overrides, stats)
+		perceivedEnd := childEnd
+		failed := childErr
+
+		if call.Timeout > 0 && childEnd.Sub(attemptStart) > call.Timeout {
+			perceivedEnd = attemptStart.Add(call.Timeout)
+			failed = true
+			stats.Timeouts++
+		}
+
+		if !failed || attempt == maxAttempts-1 {
+			return perceivedEnd, failed
+		}
+
+		stats.Retries++
+		attemptStart = perceivedEnd.Add(call.RetryBackoff)
 	}
 
-	return perceivedEnd, failed
+	return callStart, true
 }
 
 // isRoot checks whether an operation is a root (entry point) in the topology.
