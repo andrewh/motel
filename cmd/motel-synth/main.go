@@ -1,5 +1,5 @@
-// Standalone CLI for topology-driven synthetic OTLP trace generation
-// Reads a YAML topology definition and emits realistic traces via OTel SDK
+// Standalone CLI for topology-driven synthetic OTLP signal generation
+// Reads a YAML topology definition and emits traces, metrics, and logs via OTel SDK
 package main
 
 import (
@@ -9,15 +9,24 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/andrewh/motel/pkg/semconv"
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -48,30 +57,36 @@ func rootCmd() *cobra.Command {
 
 func runCmd() *cobra.Command {
 	var (
-		endpoint string
-		stdout   bool
-		duration time.Duration
-		protocol string
+		endpoint      string
+		stdout        bool
+		duration      time.Duration
+		protocol      string
+		signals       string
+		slowThreshold time.Duration
 	)
 
 	cmd := &cobra.Command{
 		Use:   "run <config.yaml>",
-		Short: "Generate synthetic traces from a topology definition",
+		Short: "Generate synthetic signals from a topology definition",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerate(cmd.Context(), args[0], runOptions{
-				endpoint: endpoint,
-				stdout:   stdout,
-				duration: duration,
-				protocol: protocol,
+				endpoint:      endpoint,
+				stdout:        stdout,
+				duration:      duration,
+				protocol:      protocol,
+				signals:       signals,
+				slowThreshold: slowThreshold,
 			})
 		},
 	}
 
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318)")
-	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit spans to stdout as JSON")
+	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "override simulation duration (0 = from config or 1m default)")
 	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
+	cmd.Flags().StringVar(&signals, "signals", "traces", "comma-separated signals to emit: traces,metrics,logs")
+	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
 
 	return cmd
 }
@@ -111,13 +126,39 @@ func versionCmd() *cobra.Command {
 }
 
 type runOptions struct {
-	endpoint string
-	stdout   bool
-	duration time.Duration
-	protocol string
+	endpoint      string
+	stdout        bool
+	duration      time.Duration
+	protocol      string
+	signals       string
+	slowThreshold time.Duration
 }
 
-const defaultDuration = 1 * time.Minute
+var validSignals = map[string]bool{
+	"traces":  true,
+	"metrics": true,
+	"logs":    true,
+}
+
+func parseSignals(s string) (map[string]bool, error) {
+	set := make(map[string]bool)
+	for _, sig := range strings.Split(s, ",") {
+		sig = strings.TrimSpace(sig)
+		if sig == "" {
+			continue
+		}
+		if !validSignals[sig] {
+			return nil, fmt.Errorf("unknown signal %q, valid signals: traces, metrics, logs", sig)
+		}
+		set[sig] = true
+	}
+	return set, nil
+}
+
+const (
+	defaultDuration = 1 * time.Minute
+	shutdownTimeout = 5 * time.Second
+)
 
 func runGenerate(ctx context.Context, configPath string, opts runOptions) error {
 	cfg, err := synth.LoadConfig(configPath)
@@ -140,18 +181,68 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		return err
 	}
 
-	// Create tracer provider
-	tp, err := createTracerProvider(ctx, opts)
+	if opts.slowThreshold < 0 {
+		return fmt.Errorf("--slow-threshold must not be negative, got %s", opts.slowThreshold)
+	}
+
+	enabledSignals, err := parseSignals(opts.signals)
 	if err != nil {
-		return fmt.Errorf("creating tracer provider: %w", err)
+		return err
+	}
+
+	// Create tracer provider (no-op if traces not requested)
+	var tp *sdktrace.TracerProvider
+	if enabledSignals["traces"] {
+		tp, err = createTracerProvider(ctx, opts)
+		if err != nil {
+			return fmt.Errorf("creating tracer provider: %w", err)
+		}
+	} else {
+		tp = sdktrace.NewTracerProvider()
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := tp.Shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
 		}
 	}()
+
+	var observers []synth.SpanObserver
+
+	if enabledSignals["metrics"] {
+		mp, shutdownMP, mErr := createMeterProvider(ctx, opts)
+		if mErr != nil {
+			return fmt.Errorf("creating meter provider: %w", mErr)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			if err := shutdownMP(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down meter provider: %v\n", err)
+			}
+		}()
+		obs, mErr := synth.NewMetricObserver(mp)
+		if mErr != nil {
+			return fmt.Errorf("creating metric observer: %w", mErr)
+		}
+		observers = append(observers, obs)
+	}
+
+	if enabledSignals["logs"] {
+		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts)
+		if lErr != nil {
+			return fmt.Errorf("creating logger provider: %w", lErr)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			if err := shutdownLP(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down logger provider: %v\n", err)
+			}
+		}()
+		observers = append(observers, synth.NewLogObserver(lp, opts.slowThreshold))
+	}
 
 	duration := opts.duration
 	if duration == 0 {
@@ -165,9 +256,10 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Provider:  tp,
 		Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:  duration,
+		Observers: observers,
 	}
 
-	// Handle signals for graceful shutdown
+	// Handle OS signals for graceful shutdown
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -220,6 +312,100 @@ func createGRPCProvider(ctx context.Context, endpoint string) (*sdktrace.TracerP
 		return nil, err
 	}
 	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+}
+
+type shutdownFunc func(ctx context.Context) error
+
+func createMeterProvider(ctx context.Context, opts runOptions) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+	if opts.stdout {
+		exporter, err := stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
+		if err != nil {
+			return nil, nil, err
+		}
+		mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+		return mp, mp.Shutdown, nil
+	}
+
+	switch opts.protocol {
+	case "grpc":
+		return createGRPCMeterProvider(ctx, opts.endpoint)
+	case "http/protobuf", "":
+		return createHTTPMeterProvider(ctx, opts.endpoint)
+	default:
+		return nil, nil, fmt.Errorf("unsupported protocol %q for metrics", opts.protocol)
+	}
+}
+
+func createHTTPMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+	var httpOpts []otlpmetrichttp.Option
+	if endpoint != "" {
+		httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(endpoint), otlpmetrichttp.WithInsecure())
+	}
+	exporter, err := otlpmetrichttp.New(ctx, httpOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	return mp, mp.Shutdown, nil
+}
+
+func createGRPCMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+	var grpcOpts []otlpmetricgrpc.Option
+	if endpoint != "" {
+		grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(endpoint), otlpmetricgrpc.WithInsecure())
+	}
+	exporter, err := otlpmetricgrpc.New(ctx, grpcOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	return mp, mp.Shutdown, nil
+}
+
+func createLoggerProvider(ctx context.Context, opts runOptions) (*sdklog.LoggerProvider, shutdownFunc, error) {
+	if opts.stdout {
+		exporter, err := stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
+		if err != nil {
+			return nil, nil, err
+		}
+		lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)))
+		return lp, lp.Shutdown, nil
+	}
+
+	switch opts.protocol {
+	case "grpc":
+		return createGRPCLoggerProvider(ctx, opts.endpoint)
+	case "http/protobuf", "":
+		return createHTTPLoggerProvider(ctx, opts.endpoint)
+	default:
+		return nil, nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
+	}
+}
+
+func createHTTPLoggerProvider(ctx context.Context, endpoint string) (*sdklog.LoggerProvider, shutdownFunc, error) {
+	var httpOpts []otlploghttp.Option
+	if endpoint != "" {
+		httpOpts = append(httpOpts, otlploghttp.WithEndpoint(endpoint), otlploghttp.WithInsecure())
+	}
+	exporter, err := otlploghttp.New(ctx, httpOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
+	return lp, lp.Shutdown, nil
+}
+
+func createGRPCLoggerProvider(ctx context.Context, endpoint string) (*sdklog.LoggerProvider, shutdownFunc, error) {
+	var grpcOpts []otlploggrpc.Option
+	if endpoint != "" {
+		grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(endpoint), otlploggrpc.WithInsecure())
+	}
+	exporter, err := otlploggrpc.New(ctx, grpcOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
+	return lp, lp.Shutdown, nil
 }
 
 func buildTopology(cfg *synth.Config) (*synth.Topology, error) {

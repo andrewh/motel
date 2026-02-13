@@ -34,6 +34,7 @@ func newTestEngine(t *testing.T, cfg *Config) (*Engine, *tracetest.InMemoryExpor
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
 	)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	engine := &Engine{
 		Topology:  topo,
@@ -211,6 +212,7 @@ func TestEngineScenarioOverrides(t *testing.T) {
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
 	scenarios := []Scenario{{
 		Name:  "slowdown",

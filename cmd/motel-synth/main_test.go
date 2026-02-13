@@ -129,4 +129,109 @@ func TestRunCommand(t *testing.T) {
 		err := root.Execute()
 		require.Error(t, err)
 	})
+
+	t.Run("all signals with stdout", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+
+		root := rootCmd()
+		root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--signals", "traces,metrics,logs", path})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("metrics only with stdout", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+
+		root := rootCmd()
+		root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--signals", "metrics", path})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("logs only with stdout", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+
+		root := rootCmd()
+		root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--signals", "logs", "--slow-threshold", "1ms", path})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+}
+
+func TestParseSignals(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid signals", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			input    string
+			expected map[string]bool
+		}{
+			{"traces", map[string]bool{"traces": true}},
+			{"traces,metrics,logs", map[string]bool{"traces": true, "metrics": true, "logs": true}},
+			{"metrics", map[string]bool{"metrics": true}},
+			{" traces , logs ", map[string]bool{"traces": true, "logs": true}},
+			{"", map[string]bool{}},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.input, func(t *testing.T) {
+				t.Parallel()
+				result, err := parseSignals(tt.input)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			})
+		}
+	})
+
+	t.Run("unknown signal returns error", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{"typo", "trace"},
+			{"mixed valid and invalid", "traces,metric"},
+			{"completely unknown", "spans"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				_, err := parseSignals(tt.input)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unknown signal")
+			})
+		}
+	})
+}
+
+func TestRunCommandInvalidSignal(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--signals", "trace", path})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown signal")
+}
+
+func TestRunCommandNegativeSlowThreshold(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--slow-threshold", "-1s", path})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slow-threshold")
 }

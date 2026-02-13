@@ -23,6 +23,7 @@ type Engine struct {
 	Provider  *sdktrace.TracerProvider
 	Rng       *rand.Rand
 	Duration  time.Duration
+	Observers []SpanObserver
 }
 
 // Stats holds counters collected during a simulation run.
@@ -140,15 +141,15 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		),
 	)
 
-	// Add service attributes
+	// Collect attributes for both the span and observers
+	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(op.Attributes))
 	for k, v := range op.Service.Attributes {
-		span.SetAttributes(attribute.String(k, v))
+		spanAttrs = append(spanAttrs, attribute.String(k, v))
 	}
-
-	// Add operation attributes
 	for k, gen := range op.Attributes {
-		span.SetAttributes(typedAttribute(k, gen.Generate(e.Rng)))
+		spanAttrs = append(spanAttrs, typedAttribute(k, gen.Generate(e.Rng)))
 	}
+	span.SetAttributes(spanAttrs...)
 
 	// Determine if this span errors
 	isError := e.Rng.Float64() < errorRate
@@ -213,6 +214,23 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 
 	stats.Spans++
 	span.End(trace.WithTimestamp(endTime))
+
+	if len(e.Observers) > 0 {
+		attrsCopy := make([]attribute.KeyValue, len(spanAttrs))
+		copy(attrsCopy, spanAttrs)
+		info := SpanInfo{
+			Service:   op.Service.Name,
+			Operation: op.Name,
+			Duration:  endTime.Sub(startTime),
+			IsError:   isError,
+			Kind:      kind,
+			Attrs:     attrsCopy,
+		}
+		for _, obs := range e.Observers {
+			obs.Observe(info)
+		}
+	}
+
 	return endTime
 }
 
