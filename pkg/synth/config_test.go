@@ -260,6 +260,23 @@ traffic:
 		assert.Contains(t, err.Error(), "missing required field: version")
 	})
 
+	t.Run("explicit version zero", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 0
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+traffic:
+  rate: 100/s
+`)
+		_, err := LoadConfig(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported config version 0")
+	})
+
 	t.Run("unsupported version", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
