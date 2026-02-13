@@ -369,6 +369,66 @@ func TestEngineScenarioTrafficOverride(t *testing.T) {
 		"scenario traffic override should produce significantly more traces than base rate")
 }
 
+func TestEngineScenarioCombinedOverrideAndTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	basePattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	fastPattern, err := NewTrafficPattern(TrafficConfig{Rate: "1000/s"})
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:    "combined",
+		Start:   0,
+		End:     time.Hour,
+		Traffic: fastPattern,
+		Overrides: map[string]Override{
+			"svc.op": {
+				ErrorRate:    1.0,
+				HasErrorRate: true,
+			},
+		},
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   basePattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+		Duration:  200 * time.Millisecond,
+	}
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// Traffic override should produce many traces (fast rate)
+	assert.Greater(t, stats.Traces, int64(20),
+		"traffic override should produce many traces")
+	// Error rate override should make all spans errors
+	assert.InDelta(t, 1.0, stats.ErrorRate, 0.01,
+		"error rate override should apply alongside traffic override")
+}
+
 func TestEngineMultiRootDistribution(t *testing.T) {
 	t.Parallel()
 

@@ -130,6 +130,8 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 		for ref, ov := range sc.Overrides {
 			existing, ok := merged[ref]
 			if !ok {
+				// Struct copy; Attributes map is shared with the source scenario.
+				// Safe because callers only read the returned overrides.
 				merged[ref] = ov
 				continue
 			}
@@ -141,10 +143,10 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 				existing.HasErrorRate = true
 			}
 			if len(ov.Attributes) > 0 {
-				if existing.Attributes == nil {
-					existing.Attributes = make(map[string]AttributeGenerator, len(ov.Attributes))
-				}
-				maps.Copy(existing.Attributes, ov.Attributes)
+				newAttrs := make(map[string]AttributeGenerator, len(existing.Attributes)+len(ov.Attributes))
+				maps.Copy(newAttrs, existing.Attributes)
+				maps.Copy(newAttrs, ov.Attributes)
+				existing.Attributes = newAttrs
 			}
 			merged[ref] = existing
 		}
@@ -153,7 +155,8 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 }
 
 // ResolveTraffic returns the traffic pattern from the highest-priority active scenario
-// that has a traffic override, or nil if none do.
+// that has a traffic override, or nil if none do. Expects active to be sorted ascending
+// by priority (as returned by ActiveScenarios).
 func ResolveTraffic(active []Scenario) TrafficPattern {
 	var result TrafficPattern
 	for _, sc := range active {

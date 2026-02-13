@@ -328,6 +328,34 @@ func TestResolveOverridesMergesAttributes(t *testing.T) {
 	assert.Equal(t, gen3, attrs["new"], "new attribute added")
 }
 
+func TestResolveOverridesDoesNotMutateOriginal(t *testing.T) {
+	t.Parallel()
+
+	original := &StaticValue{Value: "original"}
+	override := &StaticValue{Value: "override"}
+
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"a": original}},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"b": override}},
+			},
+		},
+	}
+
+	_ = ResolveOverrides(scenarios)
+
+	// Original scenario's attribute map must not be modified
+	assert.Len(t, scenarios[0].Overrides["svc.op"].Attributes, 1,
+		"original scenario attributes should not be mutated")
+	assert.NotContains(t, scenarios[0].Overrides["svc.op"].Attributes, "b",
+		"original scenario should not contain merged attributes")
+}
+
 func TestResolveOverridesNoAttributesIsNoop(t *testing.T) {
 	t.Parallel()
 
