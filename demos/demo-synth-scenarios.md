@@ -16,6 +16,7 @@ cat examples/synth/scenario-override.yaml
 # Topology for demonstrating scenario overrides
 # Short scenario windows so the demo runs quickly
 
+version: 1
 services:
   api:
     operations:
@@ -60,6 +61,7 @@ Invalid scenario references are caught. For example, overriding a non-existent o
 
 ```bash
 cat > /tmp/bad-scenario.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:
@@ -88,6 +90,7 @@ First, a 1-second run without scenarios. With combined error rates of 0.5% (api)
 
 ```bash
 cat > /tmp/no-scenario.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:

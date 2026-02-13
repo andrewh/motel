@@ -21,6 +21,7 @@ func writeTestConfig(t *testing.T, content string) string {
 }
 
 const validConfig = `
+version: 1
 services:
   gateway:
     operations:
@@ -59,6 +60,7 @@ func TestValidateCommand(t *testing.T) {
 	t.Run("invalid config", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, `
+version: 1
 services:
   svc:
     operations:

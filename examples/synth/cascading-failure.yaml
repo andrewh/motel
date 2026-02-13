@@ -1,6 +1,8 @@
 # Cascading failure with timeout, retry, and scenario-driven slowdown
 # When the database degrades, timeouts propagate through the call chain
 
+version: 1
+
 services:
   gateway:
     operations:

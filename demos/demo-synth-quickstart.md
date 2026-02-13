@@ -28,6 +28,7 @@ cat examples/synth/traffic-patterns.yaml
 # Minimal topology for demonstrating traffic patterns
 # Two services, one call — keeps output easy to read
 
+version: 1
 services:
   api:
     operations:
@@ -64,6 +65,7 @@ The validator catches common mistakes. For example, a broken call reference:
 
 ```bash
 cat > /tmp/bad-topology.yaml << 'EOF'
+version: 1
 services:
   api:
     operations:

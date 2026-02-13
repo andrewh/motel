@@ -1,6 +1,8 @@
 # Topology for demonstrating scenario overrides
 # Shows priority stacking, attribute overrides, and traffic rate overrides
 
+version: 1
+
 services:
   api:
     operations:
