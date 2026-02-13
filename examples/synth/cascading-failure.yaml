@@ -1,0 +1,41 @@
+# Cascading failure with timeout, retry, and scenario-driven slowdown
+# When the database degrades, timeouts propagate through the call chain
+
+services:
+  gateway:
+    operations:
+      request:
+        duration: 5ms +/- 2ms
+        calls:
+          - target: api.process
+            timeout: 150ms
+            retries: 1
+            retry_backoff: 20ms
+
+  api:
+    operations:
+      process:
+        duration: 10ms +/- 3ms
+        calls:
+          - target: database.query
+            timeout: 100ms
+            retries: 2
+            retry_backoff: 30ms
+
+  database:
+    operations:
+      query:
+        duration: 20ms +/- 5ms
+        error_rate: 1%
+
+traffic:
+  rate: 50/s
+
+scenarios:
+  - name: database degradation
+    at: +5s
+    duration: 10s
+    override:
+      database.query:
+        duration: 200ms +/- 50ms
+        error_rate: 25%

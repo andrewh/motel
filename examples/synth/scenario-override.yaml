@@ -1,5 +1,5 @@
 # Topology for demonstrating scenario overrides
-# Short scenario windows so the demo runs quickly
+# Shows priority stacking, attribute overrides, and traffic rate overrides
 
 services:
   api:
@@ -7,6 +7,11 @@ services:
       request:
         duration: 10ms +/- 3ms
         error_rate: 0.5%
+        attributes:
+          http.response.status_code:
+            values:
+              "200": 95
+              "500": 5
         calls:
           - database.query
 
@@ -20,10 +25,34 @@ traffic:
   rate: 50/s
 
 scenarios:
+  # Database degradation: slow queries with high error rate
   - name: database degradation
     at: +2s
     duration: 3s
+    priority: 1
     override:
       database.query:
         duration: 200ms +/- 50ms
         error_rate: 25%
+
+  # Error spike: shift API status codes to mostly 503s
+  - name: error spike
+    at: +3s
+    duration: 2s
+    priority: 2
+    override:
+      api.request:
+        error_rate: 50%
+        attributes:
+          http.response.status_code:
+            values:
+              "503": 80
+              "200": 20
+
+  # Load spike: increase traffic rate during incident
+  - name: load spike
+    at: +2s
+    duration: 4s
+    priority: 1
+    traffic:
+      rate: 200/s

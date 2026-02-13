@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"time"
@@ -27,10 +28,14 @@ type Engine struct {
 }
 
 // Stats holds counters collected during a simulation run.
+// Errors counts all spans in an error state, including those errored by cascading
+// (a child failure marks its parent as errored too). ErrorRate is Errors/Spans.
 type Stats struct {
 	Traces       int64   `json:"traces"`
 	Spans        int64   `json:"spans"`
 	Errors       int64   `json:"errors"`
+	Timeouts     int64   `json:"timeouts"`
+	Retries      int64   `json:"retries"`
 	ElapsedMs    int64   `json:"elapsed_ms"`
 	TracesPerSec float64 `json:"traces_per_second"`
 	SpansPerSec  float64 `json:"spans_per_second"`
@@ -62,19 +67,24 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		}
 
 		elapsed := now.Sub(startTime)
-		rate := e.Traffic.Rate(elapsed)
-		if rate <= 0 {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
 
-		// Resolve active scenario overrides
+		// Resolve active scenario overrides (including traffic)
 		var overrides map[string]Override
+		trafficPattern := e.Traffic
 		if len(e.Scenarios) > 0 {
 			active := ActiveScenarios(e.Scenarios, elapsed)
 			if len(active) > 0 {
 				overrides = ResolveOverrides(active)
+				if tp := ResolveTraffic(active); tp != nil {
+					trafficPattern = tp
+				}
 			}
+		}
+
+		rate := trafficPattern.Rate(elapsed)
+		if rate <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
 		// Pick a random root operation
@@ -109,13 +119,14 @@ func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
 }
 
 // walkTrace recursively generates spans for an operation and its downstream calls.
-// Synthetic timestamps are computed without sleeping.
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) time.Time {
+// Returns the span end time and whether the span errored (own error rate or cascaded from children).
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
 	tracer := e.Provider.Tracer(op.Service.Name)
 
-	// Determine effective duration and error rate (apply overrides if active)
+	// Determine effective duration, error rate, and attributes (apply overrides if active)
 	duration := op.Duration
 	errorRate := op.ErrorRate
+	opAttrs := op.Attributes
 	ref := op.Service.Name + "." + op.Name
 	if ov, ok := overrides[ref]; ok {
 		if ov.Duration.Mean > 0 {
@@ -123,6 +134,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		}
 		if ov.HasErrorRate {
 			errorRate = ov.ErrorRate
+		}
+		if len(ov.Attributes) > 0 {
+			merged := make(map[string]AttributeGenerator, len(op.Attributes)+len(ov.Attributes))
+			maps.Copy(merged, op.Attributes)
+			maps.Copy(merged, ov.Attributes)
+			opAttrs = merged
 		}
 	}
 
@@ -142,17 +159,17 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	)
 
 	// Collect attributes for both the span and observers
-	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(op.Attributes))
+	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(opAttrs))
 	for k, v := range op.Service.Attributes {
 		spanAttrs = append(spanAttrs, attribute.String(k, v))
 	}
-	for k, gen := range op.Attributes {
+	for k, gen := range opAttrs {
 		spanAttrs = append(spanAttrs, typedAttribute(k, gen.Generate(e.Rng)))
 	}
 	span.SetAttributes(spanAttrs...)
 
-	// Determine if this span errors
-	isError := e.Rng.Float64() < errorRate
+	// Determine if this span errors from its own error rate (before cascading)
+	ownError := e.Rng.Float64() < errorRate
 
 	// Sample own processing duration
 	ownDuration := duration.Sample(e.Rng)
@@ -161,13 +178,13 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	// Filter calls by condition and probability
+	// Filter calls by condition and probability (uses own error state, not cascaded)
 	activeCalls := make([]Call, 0, len(op.Calls))
 	for _, call := range op.Calls {
-		if call.Condition == "on-error" && !isError {
+		if call.Condition == "on-error" && !ownError {
 			continue
 		}
-		if call.Condition == "on-success" && isError {
+		if call.Condition == "on-success" && ownError {
 			continue
 		}
 		if call.Probability > 0 && e.Rng.Float64() >= call.Probability {
@@ -178,25 +195,32 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 
 	// Walk downstream calls (parallel or sequential) with fan-out
 	latestChildEnd := childStartTime
+	anyChildFailed := false
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				childEnd := e.walkTrace(ctx, call.Operation, nextStart, overrides, stats)
-				if childEnd.After(latestChildEnd) {
-					latestChildEnd = childEnd
+				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, overrides, stats)
+				if failed {
+					anyChildFailed = true
 				}
-				nextStart = childEnd
+				if perceivedEnd.After(latestChildEnd) {
+					latestChildEnd = perceivedEnd
+				}
+				nextStart = perceivedEnd
 			}
 		}
 	} else {
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				childEnd := e.walkTrace(ctx, call.Operation, childStartTime, overrides, stats)
-				if childEnd.After(latestChildEnd) {
-					latestChildEnd = childEnd
+				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, overrides, stats)
+				if failed {
+					anyChildFailed = true
+				}
+				if perceivedEnd.After(latestChildEnd) {
+					latestChildEnd = perceivedEnd
 				}
 			}
 		}
@@ -205,6 +229,9 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	// End time: max(child_end) + post-call overhead (remaining half of own duration)
 	postCallDuration := ownDuration - preCallDuration
 	endTime := latestChildEnd.Add(postCallDuration)
+
+	// Cascade child failures to parent
+	isError := ownError || anyChildFailed
 
 	if isError {
 		span.SetStatus(codes.Error, "synthetic error")
@@ -231,7 +258,34 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		}
 	}
 
-	return endTime
+	return endTime, isError
+}
+
+// executeCall runs a single downstream call, applying timeout capping and retries.
+func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
+	maxAttempts := 1 + call.Retries
+	attemptStart := callStart
+
+	for attempt := range maxAttempts {
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, overrides, stats)
+		perceivedEnd := childEnd
+		failed := childErr
+
+		if call.Timeout > 0 && childEnd.Sub(attemptStart) > call.Timeout {
+			perceivedEnd = attemptStart.Add(call.Timeout)
+			failed = true
+			stats.Timeouts++
+		}
+
+		if !failed || attempt == maxAttempts-1 {
+			return perceivedEnd, failed
+		}
+
+		stats.Retries++
+		attemptStart = perceivedEnd.Add(call.RetryBackoff)
+	}
+
+	return callStart, true // unreachable: loop always returns on final iteration
 }
 
 // isRoot checks whether an operation is a root (entry point) in the topology.

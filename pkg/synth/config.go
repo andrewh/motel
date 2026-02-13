@@ -36,10 +36,13 @@ type rawServiceConfig struct {
 // CallConfig describes a downstream call in the YAML DSL.
 // Supports both simple string form ("service.op") and rich mapping form.
 type CallConfig struct {
-	Target      string  `yaml:"target"`
-	Probability float64 `yaml:"probability,omitempty"`
-	Condition   string  `yaml:"condition,omitempty"`
-	Count       int     `yaml:"count,omitempty"`
+	Target       string  `yaml:"target"`
+	Probability  float64 `yaml:"probability,omitempty"`
+	Condition    string  `yaml:"condition,omitempty"`
+	Count        int     `yaml:"count,omitempty"`
+	Timeout      string  `yaml:"timeout,omitempty"`
+	Retries      int     `yaml:"retries,omitempty"`
+	RetryBackoff string  `yaml:"retry_backoff,omitempty"`
 }
 
 // UnmarshalYAML handles both scalar string and mapping forms for call config.
@@ -112,13 +115,16 @@ type ScenarioConfig struct {
 	Name     string                    `yaml:"name"`
 	At       string                    `yaml:"at"`
 	Duration string                    `yaml:"duration"`
-	Override map[string]OverrideConfig `yaml:"override"`
+	Priority int                       `yaml:"priority,omitempty"`
+	Override map[string]OverrideConfig `yaml:"override,omitempty"`
+	Traffic  *TrafficConfig            `yaml:"traffic,omitempty"`
 }
 
 // OverrideConfig holds per-operation overrides within a scenario.
 type OverrideConfig struct {
-	Duration  string `yaml:"duration,omitempty"`
-	ErrorRate string `yaml:"error_rate,omitempty"`
+	Duration   string                          `yaml:"duration,omitempty"`
+	ErrorRate  string                          `yaml:"error_rate,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
 // LoadConfig reads and parses a YAML configuration file.
@@ -232,6 +238,30 @@ func ValidateConfig(cfg *Config) error {
 				if call.Count < 0 {
 					return fmt.Errorf("service %q operation %q: call %q count must not be negative", svc.Name, op.Name, call.Target)
 				}
+				if call.Timeout != "" {
+					d, err := time.ParseDuration(call.Timeout)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: call %q invalid timeout: %w", svc.Name, op.Name, call.Target, err)
+					}
+					if d <= 0 {
+						return fmt.Errorf("service %q operation %q: call %q timeout must be positive", svc.Name, op.Name, call.Target)
+					}
+				}
+				if call.Retries < 0 {
+					return fmt.Errorf("service %q operation %q: call %q retries must not be negative", svc.Name, op.Name, call.Target)
+				}
+				if call.RetryBackoff != "" {
+					d, err := time.ParseDuration(call.RetryBackoff)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: call %q invalid retry_backoff: %w", svc.Name, op.Name, call.Target, err)
+					}
+					if d < 0 {
+						return fmt.Errorf("service %q operation %q: call %q retry_backoff must not be negative", svc.Name, op.Name, call.Target)
+					}
+				}
+				if call.RetryBackoff != "" && call.Retries == 0 {
+					return fmt.Errorf("service %q operation %q: call %q retry_backoff requires retries > 0", svc.Name, op.Name, call.Target)
+				}
 			}
 		}
 	}
@@ -261,6 +291,16 @@ func ValidateConfig(cfg *Config) error {
 				if _, err := parseErrorRate(override.ErrorRate); err != nil {
 					return fmt.Errorf("scenario %q: override %q: invalid error_rate: %w", sc.Name, ref, err)
 				}
+			}
+			for attrName, attrCfg := range override.Attributes {
+				if _, err := NewAttributeGenerator(attrCfg); err != nil {
+					return fmt.Errorf("scenario %q: override %q: attribute %q: %w", sc.Name, ref, attrName, err)
+				}
+			}
+		}
+		if sc.Traffic != nil {
+			if err := validateTrafficConfig(*sc.Traffic, false); err != nil {
+				return fmt.Errorf("scenario %q: traffic: %w", sc.Name, err)
 			}
 		}
 	}

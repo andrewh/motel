@@ -136,6 +136,249 @@ func TestActiveScenarios(t *testing.T) {
 	})
 }
 
+func TestActiveScenariosOrderedByPriority(t *testing.T) {
+	t.Parallel()
+
+	scenarios := []Scenario{
+		{
+			Name:     "low",
+			Start:    0,
+			End:      10 * time.Minute,
+			Priority: 1,
+			Overrides: map[string]Override{
+				"svc.op": {Duration: Distribution{Mean: 100 * time.Millisecond}},
+			},
+		},
+		{
+			Name:     "high",
+			Start:    0,
+			End:      10 * time.Minute,
+			Priority: 10,
+			Overrides: map[string]Override{
+				"svc.op": {Duration: Distribution{Mean: 500 * time.Millisecond}},
+			},
+		},
+		{
+			Name:     "medium",
+			Start:    0,
+			End:      10 * time.Minute,
+			Priority: 5,
+			Overrides: map[string]Override{
+				"svc.op": {Duration: Distribution{Mean: 200 * time.Millisecond}},
+			},
+		},
+	}
+
+	active := ActiveScenarios(scenarios, 5*time.Minute)
+	require.Len(t, active, 3)
+	assert.Equal(t, "low", active[0].Name)
+	assert.Equal(t, "medium", active[1].Name)
+	assert.Equal(t, "high", active[2].Name)
+}
+
+func TestActiveScenariosEqualPriorityPreservesOrder(t *testing.T) {
+	t.Parallel()
+
+	scenarios := []Scenario{
+		{Name: "first", Start: 0, End: 10 * time.Minute, Priority: 0},
+		{Name: "second", Start: 0, End: 10 * time.Minute, Priority: 0},
+		{Name: "third", Start: 0, End: 10 * time.Minute, Priority: 0},
+	}
+
+	active := ActiveScenarios(scenarios, 5*time.Minute)
+	require.Len(t, active, 3)
+	assert.Equal(t, "first", active[0].Name)
+	assert.Equal(t, "second", active[1].Name)
+	assert.Equal(t, "third", active[2].Name)
+}
+
+func TestBuildScenariosPreservesPriority(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "important",
+		At:       "+1m",
+		Duration: "5m",
+		Priority: 42,
+		Override: map[string]OverrideConfig{
+			"svc.op": {Duration: "100ms"},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	assert.Equal(t, 42, scenarios[0].Priority)
+}
+
+func TestResolveOverridesWithPriority(t *testing.T) {
+	t.Parallel()
+
+	// Scenarios are already sorted by priority (as ActiveScenarios would return)
+	scenarios := []Scenario{
+		{
+			Priority: 1,
+			Overrides: map[string]Override{
+				"svc.op": {
+					Duration:     Distribution{Mean: 100 * time.Millisecond},
+					ErrorRate:    0.1,
+					HasErrorRate: true,
+				},
+			},
+		},
+		{
+			Priority: 10,
+			Overrides: map[string]Override{
+				"svc.op": {
+					Duration: Distribution{Mean: 999 * time.Millisecond},
+				},
+			},
+		},
+	}
+
+	overrides := ResolveOverrides(scenarios)
+	require.Contains(t, overrides, "svc.op")
+	// Higher priority scenario's duration wins
+	assert.Equal(t, 999*time.Millisecond, overrides["svc.op"].Duration.Mean)
+	// Lower priority scenario's error rate preserved (higher didn't set it)
+	assert.InDelta(t, 0.1, overrides["svc.op"].ErrorRate, 0.001)
+}
+
+func TestBuildScenariosWithAttributes(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "error-spike",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {
+				Attributes: map[string]AttributeValueConfig{
+					"http.status": {Values: map[string]int{"503": 80, "200": 20}},
+				},
+			},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	require.Contains(t, scenarios[0].Overrides, "svc.op")
+	require.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes)
+	assert.Contains(t, scenarios[0].Overrides["svc.op"].Attributes, "http.status")
+}
+
+func TestBuildScenariosInvalidAttribute(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "bad",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {
+				Attributes: map[string]AttributeValueConfig{
+					"bad": {Range: []int64{5, 3, 1}}, // invalid: range needs exactly 2 elements
+				},
+			},
+		},
+	}}
+
+	_, err := BuildScenarios(cfgs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attribute")
+}
+
+func TestResolveOverridesMergesAttributes(t *testing.T) {
+	t.Parallel()
+
+	gen1 := &StaticValue{Value: "original"}
+	gen2 := &StaticValue{Value: "override"}
+	gen3 := &StaticValue{Value: "extra"}
+
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {
+					Attributes: map[string]AttributeGenerator{
+						"keep":    gen1,
+						"replace": gen1,
+					},
+				},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {
+					Attributes: map[string]AttributeGenerator{
+						"replace": gen2,
+						"new":     gen3,
+					},
+				},
+			},
+		},
+	}
+
+	overrides := ResolveOverrides(scenarios)
+	require.Contains(t, overrides, "svc.op")
+	attrs := overrides["svc.op"].Attributes
+	require.Len(t, attrs, 3)
+	assert.Equal(t, gen1, attrs["keep"], "untouched attribute preserved")
+	assert.Equal(t, gen2, attrs["replace"], "overridden attribute replaced")
+	assert.Equal(t, gen3, attrs["new"], "new attribute added")
+}
+
+func TestResolveOverridesDoesNotMutateOriginal(t *testing.T) {
+	t.Parallel()
+
+	original := &StaticValue{Value: "original"}
+	override := &StaticValue{Value: "override"}
+
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"a": original}},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"b": override}},
+			},
+		},
+	}
+
+	_ = ResolveOverrides(scenarios)
+
+	// Original scenario's attribute map must not be modified
+	assert.Len(t, scenarios[0].Overrides["svc.op"].Attributes, 1,
+		"original scenario attributes should not be mutated")
+	assert.NotContains(t, scenarios[0].Overrides["svc.op"].Attributes, "b",
+		"original scenario should not contain merged attributes")
+}
+
+func TestResolveOverridesNoAttributesIsNoop(t *testing.T) {
+	t.Parallel()
+
+	gen := &StaticValue{Value: "v"}
+	scenarios := []Scenario{
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Attributes: map[string]AttributeGenerator{"a": gen}},
+			},
+		},
+		{
+			Overrides: map[string]Override{
+				"svc.op": {Duration: Distribution{Mean: 100 * time.Millisecond}},
+			},
+		},
+	}
+
+	overrides := ResolveOverrides(scenarios)
+	attrs := overrides["svc.op"].Attributes
+	require.Len(t, attrs, 1)
+	assert.Equal(t, gen, attrs["a"], "earlier attributes preserved when later has none")
+}
+
 func TestResolveOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -195,5 +438,81 @@ func TestResolveOverrides(t *testing.T) {
 		assert.Equal(t, 500*time.Millisecond, overrides["svc.op"].Duration.Mean)
 		// Error rate should be from the first (since second doesn't override it)
 		assert.InDelta(t, 0.1, overrides["svc.op"].ErrorRate, 0.001)
+	})
+}
+
+func TestBuildScenariosWithTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "spike",
+		At:       "+1m",
+		Duration: "5m",
+		Traffic:  &TrafficConfig{Rate: "500/s"},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	require.NotNil(t, scenarios[0].Traffic)
+	assert.InDelta(t, 500.0, scenarios[0].Traffic.Rate(0), 0.1)
+}
+
+func TestBuildScenariosWithoutTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "slow",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {Duration: "100ms"},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	assert.Nil(t, scenarios[0].Traffic)
+}
+
+func TestResolveTraffic(t *testing.T) {
+	t.Parallel()
+
+	lowPattern, err := NewTrafficPattern(TrafficConfig{Rate: "100/s"})
+	require.NoError(t, err)
+	highPattern, err := NewTrafficPattern(TrafficConfig{Rate: "500/s"})
+	require.NoError(t, err)
+
+	t.Run("highest priority with traffic wins", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1, Traffic: lowPattern},
+			{Priority: 10, Traffic: highPattern},
+		}
+		tp := ResolveTraffic(active)
+		require.NotNil(t, tp)
+		assert.InDelta(t, 500.0, tp.Rate(0), 0.1)
+	})
+
+	t.Run("nil when no scenarios have traffic", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1},
+			{Priority: 10},
+		}
+		tp := ResolveTraffic(active)
+		assert.Nil(t, tp)
+	})
+
+	t.Run("skips scenarios without traffic", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1, Traffic: lowPattern},
+			{Priority: 10}, // no traffic
+		}
+		tp := ResolveTraffic(active)
+		require.NotNil(t, tp)
+		assert.InDelta(t, 100.0, tp.Rate(0), 0.1)
 	})
 }

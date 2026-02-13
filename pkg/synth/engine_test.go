@@ -251,6 +251,184 @@ func TestEngineScenarioOverrides(t *testing.T) {
 	assert.Greater(t, spanDuration, 500*time.Millisecond, "should use overridden duration")
 }
 
+func TestEngineScenarioAttributeOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "10ms",
+				Attributes: map[string]AttributeValueConfig{
+					"status": {Values: map[string]int{"200": 1}},
+					"keep":   {Value: "preserved"},
+				},
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+	pattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:  "error-spike",
+		Start: 0,
+		End:   time.Hour,
+		Overrides: map[string]Override{
+			"svc.op": {
+				Attributes: map[string]AttributeGenerator{
+					"status": &StaticValue{Value: "503"},
+					"extra":  &StaticValue{Value: "added"},
+				},
+			},
+		},
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   pattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+	}
+
+	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{})
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+
+	attrMap := make(map[string]string)
+	for _, attr := range spans[0].Attributes {
+		attrMap[string(attr.Key)] = attr.Value.AsString()
+	}
+
+	assert.Equal(t, "503", attrMap["status"], "overridden attribute should use scenario value")
+	assert.Equal(t, "preserved", attrMap["keep"], "non-overridden attribute should be preserved")
+	assert.Equal(t, "added", attrMap["extra"], "new attribute from scenario should be present")
+}
+
+func TestEngineScenarioTrafficOverride(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "10/s"}, // slow base rate
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	basePattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	fastPattern, err := NewTrafficPattern(TrafficConfig{Rate: "1000/s"})
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:    "load-spike",
+		Start:   0,
+		End:     time.Hour,
+		Traffic: fastPattern,
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   basePattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+		Duration:  200 * time.Millisecond,
+	}
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// At 1000/s for 200ms we'd expect ~200 traces; at 10/s only ~2
+	// The threshold of 20 confirms the fast pattern was used
+	assert.Greater(t, stats.Traces, int64(20),
+		"scenario traffic override should produce significantly more traces than base rate")
+}
+
+func TestEngineScenarioCombinedOverrideAndTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	basePattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	fastPattern, err := NewTrafficPattern(TrafficConfig{Rate: "1000/s"})
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:    "combined",
+		Start:   0,
+		End:     time.Hour,
+		Traffic: fastPattern,
+		Overrides: map[string]Override{
+			"svc.op": {
+				ErrorRate:    1.0,
+				HasErrorRate: true,
+			},
+		},
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   basePattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+		Duration:  200 * time.Millisecond,
+	}
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// Traffic override should produce many traces (fast rate)
+	assert.Greater(t, stats.Traces, int64(20),
+		"traffic override should produce many traces")
+	// Error rate override should make all spans errors
+	assert.InDelta(t, 1.0, stats.ErrorRate, 0.01,
+		"error rate override should apply alongside traffic override")
+}
+
 func TestEngineMultiRootDistribution(t *testing.T) {
 	t.Parallel()
 
@@ -790,4 +968,512 @@ func TestEngineFanOutParallel(t *testing.T) {
 		assert.Equal(t, children[0].StartTime, children[i].StartTime,
 			"parallel: all children should start at the same time")
 	}
+}
+
+func TestEngineCallTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.slow", Timeout: "50ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "slow",
+					Duration: "200ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent, child tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "entry":
+			parent = s
+		case "slow":
+			child = s
+		}
+	}
+
+	// Child keeps its full duration (200ms)
+	childDuration := child.EndTime.Sub(child.StartTime)
+	assert.Greater(t, childDuration, 100*time.Millisecond)
+
+	// Parent should be capped: pre-call(5ms) + timeout(50ms) + post-call(5ms) = ~60ms
+	parentDuration := parent.EndTime.Sub(parent.StartTime)
+	assert.Less(t, parentDuration, 100*time.Millisecond,
+		"parent duration should be capped by timeout")
+
+	// Parent should be errored (timeout cascades)
+	assert.Equal(t, codes.Error, parent.Status.Code)
+
+	assert.Equal(t, int64(1), stats.Timeouts)
+}
+
+func TestEngineCallNoTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.fast", Timeout: "500ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "fast",
+					Duration: "20ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "entry" {
+			parent = s
+		}
+	}
+
+	// No timeout: parent should not be errored
+	assert.NotEqual(t, codes.Error, parent.Status.Code)
+	assert.Equal(t, int64(0), stats.Timeouts)
+}
+
+func TestEngineCallTimeoutSequential(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:      "entry",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+					Calls: []CallConfig{
+						{Target: "child.slow", Timeout: "50ms"},
+						{Target: "child.fast"},
+					},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "slow", Duration: "200ms"},
+					{Name: "fast", Duration: "20ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3)
+
+	var slow, fast tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "slow":
+			slow = s
+		case "fast":
+			fast = s
+		}
+	}
+
+	// In sequential mode, fast should start after the capped timeout of slow
+	preCall := 5 * time.Millisecond // half of 10ms parent own duration
+	expectedSecondStart := now.Add(preCall).Add(50 * time.Millisecond)
+	assert.False(t, fast.StartTime.Before(expectedSecondStart),
+		"sequential: second call should start after timeout of first (expected >= %v, got %v)",
+		expectedSecondStart, fast.StartTime)
+
+	// But slow's actual duration is still 200ms
+	slowDuration := slow.EndTime.Sub(slow.StartTime)
+	assert.Greater(t, slowDuration, 100*time.Millisecond)
+
+	assert.Equal(t, int64(1), stats.Timeouts)
+}
+
+func TestEngineCascadingError(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "20ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parent tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "entry" {
+			parent = s
+		}
+	}
+
+	// Parent error_rate is 0%, but child 100% error cascades up
+	assert.Equal(t, codes.Error, parent.Status.Code,
+		"parent should be errored due to cascading child failure")
+	assert.Equal(t, int64(2), stats.Errors, "both parent and child should count as errors")
+}
+
+func TestEngineCascadingErrorPreservesConditions(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "child.failing"},
+						{Target: "child.fallback", Condition: "on-error"},
+					},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{
+					{Name: "failing", Duration: "20ms", ErrorRate: "100%"},
+					{Name: "fallback", Duration: "5ms"},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// Conditions use the parent's OWN error rate (0%), not cascaded.
+	// So on-error call should NOT fire. Only parent + failing child = 2 spans.
+	assert.Len(t, spans, 2,
+		"on-error condition should use parent's own error rate, not cascaded errors")
+}
+
+func TestEngineRetryOnError(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing", Retries: 2, RetryBackoff: "10ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "20ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// 1 parent + 3 child attempts (1 initial + 2 retries) = 4
+	assert.Len(t, spans, 4, "should have 1 parent + 3 child attempts")
+
+	childCount := 0
+	for _, s := range spans {
+		if s.Name == "failing" {
+			childCount++
+		}
+	}
+	assert.Equal(t, 3, childCount)
+	assert.Equal(t, int64(2), stats.Retries)
+}
+
+func TestEngineRetrySuccess(t *testing.T) {
+	t.Parallel()
+
+	// Use a child with 50% error rate and many retries so at least one succeeds
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.flaky", Retries: 10, RetryBackoff: "1ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "flaky",
+					Duration:  "5ms",
+					ErrorRate: "50%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// With 50% error rate and 10 retries, it's nearly certain at least one succeeds
+	// The first success stops retrying, so we should have fewer than 12 spans total
+
+	var parent tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "entry" {
+			parent = s
+		}
+	}
+
+	// Parent should not be errored (retry eventually succeeds)
+	assert.NotEqual(t, codes.Error, parent.Status.Code,
+		"parent should succeed after retry recovers")
+}
+
+func TestEngineRetryBackoff(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing", Retries: 1, RetryBackoff: "30ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "20ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3) // parent + 2 child attempts
+
+	var children []tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "failing" {
+			children = append(children, s)
+		}
+	}
+	require.Len(t, children, 2)
+
+	slices.SortFunc(children, func(a, b tracetest.SpanStub) int {
+		return a.StartTime.Compare(b.StartTime)
+	})
+
+	// Second attempt should start at first end + 30ms backoff
+	gap := children[1].StartTime.Sub(children[0].EndTime)
+	assert.GreaterOrEqual(t, gap, 30*time.Millisecond,
+		"retry should respect backoff (gap=%v)", gap)
+}
+
+func TestEngineRetryWithTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.slow", Timeout: "50ms", Retries: 1, RetryBackoff: "10ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "slow",
+					Duration: "200ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// parent + 2 child attempts (both time out)
+	assert.Len(t, spans, 3)
+
+	assert.Equal(t, int64(2), stats.Timeouts, "each attempt should time out")
+	assert.Equal(t, int64(1), stats.Retries, "should retry once")
+}
+
+func TestEngineRetryStats(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing", Retries: 3, RetryBackoff: "1ms"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "5ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+
+	assert.Equal(t, int64(3), stats.Retries, "should retry 3 times")
+	// 1 parent + 4 child = 5 spans, all errored (child 100%, parent cascaded)
+	assert.Equal(t, int64(5), stats.Spans)
+	assert.Equal(t, int64(5), stats.Errors)
+}
+
+func TestEngineNoRetryWithoutConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "child.failing"}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "5ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+	var stats Stats
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	// No retries configured: 1 parent + 1 child = 2
+	assert.Len(t, spans, 2)
+	assert.Equal(t, int64(0), stats.Retries)
 }
