@@ -18,6 +18,7 @@ type Scenario struct {
 	End       time.Duration
 	Priority  int
 	Overrides map[string]Override
+	Traffic   TrafficPattern
 }
 
 // Override holds resolved per-operation overrides within a scenario.
@@ -84,12 +85,21 @@ func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
 			overrides[ref] = o
 		}
 
+		var traffic TrafficPattern
+		if cfg.Traffic != nil {
+			traffic, err = NewTrafficPattern(*cfg.Traffic)
+			if err != nil {
+				return nil, fmt.Errorf("scenario %q: traffic: %w", cfg.Name, err)
+			}
+		}
+
 		scenarios = append(scenarios, Scenario{
 			Name:      cfg.Name,
 			Start:     start,
 			End:       start + dur,
 			Priority:  cfg.Priority,
 			Overrides: overrides,
+			Traffic:   traffic,
 		})
 	}
 	return scenarios, nil
@@ -140,4 +150,16 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 		}
 	}
 	return merged
+}
+
+// ResolveTraffic returns the traffic pattern from the highest-priority active scenario
+// that has a traffic override, or nil if none do.
+func ResolveTraffic(active []Scenario) TrafficPattern {
+	var result TrafficPattern
+	for _, sc := range active {
+		if sc.Traffic != nil {
+			result = sc.Traffic
+		}
+	}
+	return result
 }

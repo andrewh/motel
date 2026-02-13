@@ -412,3 +412,79 @@ func TestResolveOverrides(t *testing.T) {
 		assert.InDelta(t, 0.1, overrides["svc.op"].ErrorRate, 0.001)
 	})
 }
+
+func TestBuildScenariosWithTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "spike",
+		At:       "+1m",
+		Duration: "5m",
+		Traffic:  &TrafficConfig{Rate: "500/s"},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	require.NotNil(t, scenarios[0].Traffic)
+	assert.InDelta(t, 500.0, scenarios[0].Traffic.Rate(0), 0.1)
+}
+
+func TestBuildScenariosWithoutTraffic(t *testing.T) {
+	t.Parallel()
+
+	cfgs := []ScenarioConfig{{
+		Name:     "slow",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc.op": {Duration: "100ms"},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+	assert.Nil(t, scenarios[0].Traffic)
+}
+
+func TestResolveTraffic(t *testing.T) {
+	t.Parallel()
+
+	lowPattern, err := NewTrafficPattern(TrafficConfig{Rate: "100/s"})
+	require.NoError(t, err)
+	highPattern, err := NewTrafficPattern(TrafficConfig{Rate: "500/s"})
+	require.NoError(t, err)
+
+	t.Run("highest priority with traffic wins", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1, Traffic: lowPattern},
+			{Priority: 10, Traffic: highPattern},
+		}
+		tp := ResolveTraffic(active)
+		require.NotNil(t, tp)
+		assert.InDelta(t, 500.0, tp.Rate(0), 0.1)
+	})
+
+	t.Run("nil when no scenarios have traffic", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1},
+			{Priority: 10},
+		}
+		tp := ResolveTraffic(active)
+		assert.Nil(t, tp)
+	})
+
+	t.Run("skips scenarios without traffic", func(t *testing.T) {
+		t.Parallel()
+		active := []Scenario{
+			{Priority: 1, Traffic: lowPattern},
+			{Priority: 10}, // no traffic
+		}
+		tp := ResolveTraffic(active)
+		require.NotNil(t, tp)
+		assert.InDelta(t, 100.0, tp.Rate(0), 0.1)
+	})
+}

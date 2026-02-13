@@ -317,6 +317,58 @@ func TestEngineScenarioAttributeOverrides(t *testing.T) {
 	assert.Equal(t, "added", attrMap["extra"], "new attribute from scenario should be present")
 }
 
+func TestEngineScenarioTrafficOverride(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "10/s"}, // slow base rate
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	basePattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	fastPattern, err := NewTrafficPattern(TrafficConfig{Rate: "1000/s"})
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	scenarios := []Scenario{{
+		Name:    "load-spike",
+		Start:   0,
+		End:     time.Hour,
+		Traffic: fastPattern,
+	}}
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   basePattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+		Duration:  200 * time.Millisecond,
+	}
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// At 1000/s for 200ms we'd expect ~200 traces; at 10/s only ~2
+	// The threshold of 20 confirms the fast pattern was used
+	assert.Greater(t, stats.Traces, int64(20),
+		"scenario traffic override should produce significantly more traces than base rate")
+}
+
 func TestEngineMultiRootDistribution(t *testing.T) {
 	t.Parallel()
 

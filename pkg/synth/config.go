@@ -113,7 +113,8 @@ type ScenarioConfig struct {
 	At       string                    `yaml:"at"`
 	Duration string                    `yaml:"duration"`
 	Priority int                       `yaml:"priority,omitempty"`
-	Override map[string]OverrideConfig `yaml:"override"`
+	Override map[string]OverrideConfig `yaml:"override,omitempty"`
+	Traffic  *TrafficConfig            `yaml:"traffic,omitempty"`
 }
 
 // OverrideConfig holds per-operation overrides within a scenario.
@@ -268,6 +269,11 @@ func ValidateConfig(cfg *Config) error {
 				if _, err := NewAttributeGenerator(attrCfg); err != nil {
 					return fmt.Errorf("scenario %q: override %q: attribute %q: %w", sc.Name, ref, attrName, err)
 				}
+			}
+		}
+		if sc.Traffic != nil {
+			if err := validateTrafficConfig(*sc.Traffic, false); err != nil {
+				return fmt.Errorf("scenario %q: traffic: %w", sc.Name, err)
 			}
 		}
 	}

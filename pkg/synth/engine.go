@@ -63,19 +63,24 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		}
 
 		elapsed := now.Sub(startTime)
-		rate := e.Traffic.Rate(elapsed)
-		if rate <= 0 {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
 
-		// Resolve active scenario overrides
+		// Resolve active scenario overrides (including traffic)
 		var overrides map[string]Override
+		trafficPattern := e.Traffic
 		if len(e.Scenarios) > 0 {
 			active := ActiveScenarios(e.Scenarios, elapsed)
 			if len(active) > 0 {
 				overrides = ResolveOverrides(active)
+				if tp := ResolveTraffic(active); tp != nil {
+					trafficPattern = tp
+				}
 			}
+		}
+
+		rate := trafficPattern.Rate(elapsed)
+		if rate <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
 		// Pick a random root operation

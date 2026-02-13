@@ -753,6 +753,44 @@ func TestValidateConfig(t *testing.T) {
 		assert.Contains(t, err.Error(), "attribute")
 	})
 
+	t.Run("scenario with valid traffic override", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "spike",
+			At:       "+1m",
+			Duration: "5m",
+			Traffic:  &TrafficConfig{Rate: "500/s"},
+		}}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("scenario with invalid traffic override", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "bad",
+			At:       "+1m",
+			Duration: "5m",
+			Traffic:  &TrafficConfig{Rate: "not-a-rate"},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "traffic")
+	})
+
+	t.Run("scenario with traffic only and no overrides", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "rate-only",
+			At:       "+1m",
+			Duration: "5m",
+			Traffic:  &TrafficConfig{Rate: "200/s"},
+		}}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
 	t.Run("bursty fields valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()
