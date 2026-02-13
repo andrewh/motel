@@ -5,6 +5,7 @@ package synth
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Topology is the resolved service graph ready for simulation.
@@ -33,10 +34,13 @@ type Operation struct {
 
 // Call represents a resolved downstream call with optional modifiers.
 type Call struct {
-	Operation   *Operation
-	Probability float64
-	Condition   string
-	Count       int
+	Operation    *Operation
+	Probability  float64
+	Condition    string
+	Count        int
+	Timeout      time.Duration
+	Retries      int
+	RetryBackoff time.Duration
 }
 
 // DomainResolver maps a domain identifier to attribute generators.
@@ -118,12 +122,26 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					return nil, fmt.Errorf("service %q operation %q: %w", svcCfg.Name, opCfg.Name, err)
 				}
 				_ = targetSvc
-				op.Calls = append(op.Calls, Call{
+				call := Call{
 					Operation:   targetOp,
 					Probability: callCfg.Probability,
 					Condition:   callCfg.Condition,
 					Count:       callCfg.Count,
-				})
+					Retries:     callCfg.Retries,
+				}
+				if callCfg.Timeout != "" {
+					call.Timeout, err = time.ParseDuration(callCfg.Timeout)
+					if err != nil {
+						return nil, fmt.Errorf("service %q operation %q: call %q: invalid timeout: %w", svcCfg.Name, opCfg.Name, callCfg.Target, err)
+					}
+				}
+				if callCfg.RetryBackoff != "" {
+					call.RetryBackoff, err = time.ParseDuration(callCfg.RetryBackoff)
+					if err != nil {
+						return nil, fmt.Errorf("service %q operation %q: call %q: invalid retry_backoff: %w", svcCfg.Name, opCfg.Name, callCfg.Target, err)
+					}
+				}
+				op.Calls = append(op.Calls, call)
 			}
 		}
 	}

@@ -36,10 +36,13 @@ type rawServiceConfig struct {
 // CallConfig describes a downstream call in the YAML DSL.
 // Supports both simple string form ("service.op") and rich mapping form.
 type CallConfig struct {
-	Target      string  `yaml:"target"`
-	Probability float64 `yaml:"probability,omitempty"`
-	Condition   string  `yaml:"condition,omitempty"`
-	Count       int     `yaml:"count,omitempty"`
+	Target       string  `yaml:"target"`
+	Probability  float64 `yaml:"probability,omitempty"`
+	Condition    string  `yaml:"condition,omitempty"`
+	Count        int     `yaml:"count,omitempty"`
+	Timeout      string  `yaml:"timeout,omitempty"`
+	Retries      int     `yaml:"retries,omitempty"`
+	RetryBackoff string  `yaml:"retry_backoff,omitempty"`
 }
 
 // UnmarshalYAML handles both scalar string and mapping forms for call config.
@@ -234,6 +237,30 @@ func ValidateConfig(cfg *Config) error {
 				}
 				if call.Count < 0 {
 					return fmt.Errorf("service %q operation %q: call %q count must not be negative", svc.Name, op.Name, call.Target)
+				}
+				if call.Timeout != "" {
+					d, err := time.ParseDuration(call.Timeout)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: call %q invalid timeout: %w", svc.Name, op.Name, call.Target, err)
+					}
+					if d <= 0 {
+						return fmt.Errorf("service %q operation %q: call %q timeout must be positive", svc.Name, op.Name, call.Target)
+					}
+				}
+				if call.Retries < 0 {
+					return fmt.Errorf("service %q operation %q: call %q retries must not be negative", svc.Name, op.Name, call.Target)
+				}
+				if call.RetryBackoff != "" {
+					d, err := time.ParseDuration(call.RetryBackoff)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: call %q invalid retry_backoff: %w", svc.Name, op.Name, call.Target, err)
+					}
+					if d < 0 {
+						return fmt.Errorf("service %q operation %q: call %q retry_backoff must not be negative", svc.Name, op.Name, call.Target)
+					}
+				}
+				if call.RetryBackoff != "" && call.Retries == 0 {
+					return fmt.Errorf("service %q operation %q: call %q retry_backoff requires retries > 0", svc.Name, op.Name, call.Target)
 				}
 			}
 		}

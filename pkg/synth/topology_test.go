@@ -4,6 +4,7 @@ package synth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -378,5 +379,72 @@ func TestBuildTopology(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, called)
 		assert.Nil(t, topo.Services["svc"].Operations["op"].Attributes)
+	})
+
+	t.Run("resolves call timeout and retry", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls: []CallConfig{{
+							Target:       "other.op",
+							Timeout:      "100ms",
+							Retries:      2,
+							RetryBackoff: "50ms",
+						}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "5ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+		call := topo.Services["svc"].Operations["op"].Calls[0]
+		assert.Equal(t, 100*time.Millisecond, call.Timeout)
+		assert.Equal(t, 2, call.Retries)
+		assert.Equal(t, 50*time.Millisecond, call.RetryBackoff)
+	})
+
+	t.Run("call without timeout or retry has zero values", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "other.op"}},
+					}},
+				},
+				{
+					Name: "other",
+					Operations: []OperationConfig{{
+						Name:     "op",
+						Duration: "5ms",
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+		call := topo.Services["svc"].Operations["op"].Calls[0]
+		assert.Zero(t, call.Timeout)
+		assert.Zero(t, call.Retries)
+		assert.Zero(t, call.RetryBackoff)
 	})
 }

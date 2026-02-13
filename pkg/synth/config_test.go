@@ -959,6 +959,122 @@ func TestValidateConfig(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nested")
 	})
+
+	t.Run("valid call timeout", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Timeout = "100ms"
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("invalid call timeout", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Timeout = "not-a-duration"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout")
+	})
+
+	t.Run("zero call timeout rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Timeout = "0s"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout must be positive")
+	})
+
+	t.Run("negative call timeout rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Timeout = "-5ms"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout must be positive")
+	})
+
+	t.Run("valid retries", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Retries = 2
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("negative retries rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Retries = -1
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "retries")
+	})
+
+	t.Run("valid retry_backoff with retries", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Retries = 2
+		cfg.Services[0].Operations[0].Calls[0].RetryBackoff = "50ms"
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("invalid retry_backoff", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Retries = 2
+		cfg.Services[0].Operations[0].Calls[0].RetryBackoff = "bad"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "retry_backoff")
+	})
+
+	t.Run("negative retry_backoff rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].Retries = 2
+		cfg.Services[0].Operations[0].Calls[0].RetryBackoff = "-10ms"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "retry_backoff must not be negative")
+	})
+
+	t.Run("retry_backoff without retries rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Services[0].Operations[0].Calls[0].RetryBackoff = "50ms"
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "retry_backoff requires retries > 0")
+	})
+
+	t.Run("call without timeout or retries unchanged", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		require.NoError(t, ValidateConfig(cfg))
+	})
+}
+
+func twoServiceConfig() *Config {
+	return &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "other.op"}},
+				}},
+			},
+			{
+				Name: "other",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
 }
 
 func validBaseConfig() *Config {
@@ -972,6 +1088,42 @@ func validBaseConfig() *Config {
 		}},
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
+}
+
+func TestLoadConfigCallTimeout(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, `
+services:
+  gateway:
+    operations:
+      request:
+        duration: 10ms
+        calls:
+          - target: backend.query
+            timeout: 100ms
+            retries: 2
+            retry_backoff: 50ms
+  backend:
+    operations:
+      query:
+        duration: 20ms
+traffic:
+  rate: 100/s
+`)
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	calls := cfg.Services[0].Operations[0].Calls
+	if cfg.Services[0].Name != "gateway" {
+		calls = cfg.Services[1].Operations[0].Calls
+	}
+	require.Len(t, calls, 1)
+	assert.Equal(t, "100ms", calls[0].Timeout)
+	assert.Equal(t, 2, calls[0].Retries)
+	assert.Equal(t, "50ms", calls[0].RetryBackoff)
+
+	require.NoError(t, ValidateConfig(cfg))
 }
 
 func TestLoadConfig_NewGenerators(t *testing.T) {
