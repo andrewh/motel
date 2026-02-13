@@ -3,7 +3,9 @@
 package synth
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -13,6 +15,7 @@ type Scenario struct {
 	Name      string
 	Start     time.Duration
 	End       time.Duration
+	Priority  int
 	Overrides map[string]Override
 }
 
@@ -73,6 +76,7 @@ func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
 			Name:      cfg.Name,
 			Start:     start,
 			End:       start + dur,
+			Priority:  cfg.Priority,
 			Overrides: overrides,
 		})
 	}
@@ -80,6 +84,8 @@ func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
 }
 
 // ActiveScenarios returns scenarios whose activation window contains the given elapsed time.
+// Results are stable-sorted by priority (ascending) so higher-priority scenarios are
+// processed last in ResolveOverrides and their values win.
 func ActiveScenarios(scenarios []Scenario, elapsed time.Duration) []Scenario {
 	var active []Scenario
 	for i := range scenarios {
@@ -87,6 +93,9 @@ func ActiveScenarios(scenarios []Scenario, elapsed time.Duration) []Scenario {
 			active = append(active, scenarios[i])
 		}
 	}
+	slices.SortStableFunc(active, func(a, b Scenario) int {
+		return cmp.Compare(a.Priority, b.Priority)
+	})
 	return active
 }
 

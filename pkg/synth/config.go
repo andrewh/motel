@@ -112,6 +112,7 @@ type ScenarioConfig struct {
 	Name     string                    `yaml:"name"`
 	At       string                    `yaml:"at"`
 	Duration string                    `yaml:"duration"`
+	Priority int                       `yaml:"priority,omitempty"`
 	Override map[string]OverrideConfig `yaml:"override"`
 }
 
