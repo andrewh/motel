@@ -29,6 +29,7 @@ type Engine struct {
 	Duration         time.Duration
 	Observers        []SpanObserver
 	MaxSpansPerTrace int
+	State            *SimulationState
 }
 
 // Stats holds counters collected during a simulation run.
@@ -36,18 +37,20 @@ type Engine struct {
 // (a child failure marks its parent as errored too). ErrorRate is Errors/Spans.
 // TraceErrorRate counts only traces where the root span errored.
 type Stats struct {
-	Traces         int64   `json:"traces"`
-	Spans          int64   `json:"spans"`
-	Errors         int64   `json:"errors"`
-	FailedTraces   int64   `json:"failed_traces"`
-	Timeouts       int64   `json:"timeouts"`
-	Retries        int64   `json:"retries"`
-	SpansBounded   int64   `json:"spans_bounded"`
-	ElapsedMs      int64   `json:"elapsed_ms"`
-	TracesPerSec   float64 `json:"traces_per_second"`
-	SpansPerSec    float64 `json:"spans_per_second"`
-	ErrorRate      float64 `json:"error_rate"`
-	TraceErrorRate float64 `json:"trace_error_rate"`
+	Traces              int64   `json:"traces"`
+	Spans               int64   `json:"spans"`
+	Errors              int64   `json:"errors"`
+	FailedTraces        int64   `json:"failed_traces"`
+	Timeouts            int64   `json:"timeouts"`
+	Retries             int64   `json:"retries"`
+	SpansBounded        int64   `json:"spans_bounded"`
+	QueueRejections     int64   `json:"queue_rejections"`
+	CircuitBreakerTrips int64   `json:"circuit_breaker_trips"`
+	ElapsedMs           int64   `json:"elapsed_ms"`
+	TracesPerSec        float64 `json:"traces_per_second"`
+	SpansPerSec         float64 `json:"spans_per_second"`
+	ErrorRate           float64 `json:"error_rate"`
+	TraceErrorRate      float64 `json:"trace_error_rate"`
 }
 
 // Run executes the main simulation loop with rate-controlled trace generation.
@@ -101,7 +104,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		// Walk the trace tree with a per-trace span counter
 		spanLimit := e.maxSpansPerTrace()
 		spanCount := 0
-		_, rootErr := e.walkTrace(ctx, root, now, overrides, &stats, &spanCount, spanLimit)
+		_, rootErr := e.walkTrace(ctx, root, now, elapsed, overrides, &stats, &spanCount, spanLimit)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -147,7 +150,8 @@ func (e *Engine) maxSpansPerTrace() int {
 // walkTrace recursively generates spans for an operation and its downstream calls.
 // Returns the span end time and whether the span errored (own error rate or cascaded from children).
 // spanCount tracks the number of spans generated in this trace; no new spans are created once it reaches spanLimit.
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+// elapsed is the simulation wall-clock time since engine start, used for state tracking.
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, elapsed time.Duration, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
 	if *spanCount >= spanLimit {
 		return startTime, false
 	}
@@ -172,6 +176,29 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 			maps.Copy(merged, ov.Attributes)
 			opAttrs = merged
 		}
+	}
+
+	// Consult simulation state for queue depth, circuit breaker, backpressure
+	var opState *OperationState
+	if e.State != nil {
+		opState = e.State.Get(ref)
+	}
+	if opState != nil {
+		durationMult, errAdd, rejected, reason := opState.Evaluate(elapsed, e.Rng)
+		if rejected {
+			switch reason {
+			case ReasonQueueFull:
+				stats.QueueRejections++
+			case ReasonCircuitOpen:
+				stats.CircuitBreakerTrips++
+			}
+			return e.emitRejectionSpan(ctx, op, startTime, reason, stats, spanCount)
+		}
+		if durationMult > 1.0 {
+			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
+		}
+		errorRate = min(errorRate+errAdd, 1.0)
+		opState.Enter()
 	}
 
 	// Determine span kind: SERVER for roots, CLIENT for downstream calls
@@ -232,7 +259,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, overrides, stats, spanCount, spanLimit)
+				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, elapsed, overrides, stats, spanCount, spanLimit)
 				if failed {
 					anyChildFailed = true
 				}
@@ -246,7 +273,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, overrides, stats, spanCount, spanLimit)
+				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, elapsed, overrides, stats, spanCount, spanLimit)
 				if failed {
 					anyChildFailed = true
 				}
@@ -273,6 +300,10 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	stats.Spans++
 	span.End(trace.WithTimestamp(endTime))
 
+	if opState != nil {
+		opState.Exit(elapsed, endTime.Sub(startTime), isError)
+	}
+
 	if len(e.Observers) > 0 {
 		attrsCopy := make([]attribute.KeyValue, len(spanAttrs))
 		copy(attrsCopy, spanAttrs)
@@ -292,13 +323,44 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	return endTime, isError
 }
 
+// emitRejectionSpan creates a short error span for a rejected request.
+func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime time.Time, reason string, stats *Stats, spanCount *int) (time.Time, bool) {
+	*spanCount++
+	tracer := e.Provider.Tracer(op.Service.Name)
+	endTime := startTime.Add(rejectionDuration)
+
+	kind := trace.SpanKindClient
+	if isRoot(e.Topology, op) {
+		kind = trace.SpanKindServer
+	}
+
+	_, span := tracer.Start(ctx, op.Name,
+		trace.WithTimestamp(startTime),
+		trace.WithSpanKind(kind),
+		trace.WithAttributes(
+			attribute.String("synth.service", op.Service.Name),
+			attribute.String("synth.operation", op.Name),
+			attribute.Bool("synth.rejected", true),
+			attribute.String("synth.rejection_reason", reason),
+		),
+	)
+	span.SetStatus(codes.Error, reason)
+	span.RecordError(fmt.Errorf("rejected: %s", reason), trace.WithTimestamp(endTime))
+	span.End(trace.WithTimestamp(endTime))
+
+	stats.Spans++
+	stats.Errors++
+
+	return endTime, true
+}
+
 // executeCall runs a single downstream call, applying timeout capping and retries.
-func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, elapsed time.Duration, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
 	maxAttempts := 1 + call.Retries
 	attemptStart := callStart
 
 	for attempt := range maxAttempts {
-		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, overrides, stats, spanCount, spanLimit)
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, elapsed, overrides, stats, spanCount, spanLimit)
 		perceivedEnd := childEnd
 		failed := childErr
 

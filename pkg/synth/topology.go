@@ -21,15 +21,32 @@ type Service struct {
 	Attributes map[string]string
 }
 
+// ResolvedBackpressure holds parsed backpressure settings for an operation.
+type ResolvedBackpressure struct {
+	LatencyThreshold   time.Duration
+	DurationMultiplier float64
+	ErrorRateAdd       float64
+}
+
+// ResolvedCircuitBreaker holds parsed circuit breaker settings for an operation.
+type ResolvedCircuitBreaker struct {
+	FailureThreshold int
+	Window           time.Duration
+	Cooldown         time.Duration
+}
+
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
-	Service    *Service
-	Name       string
-	Duration   Distribution
-	ErrorRate  float64
-	Calls      []Call
-	CallStyle  string
-	Attributes map[string]AttributeGenerator
+	Service        *Service
+	Name           string
+	Duration       Distribution
+	ErrorRate      float64
+	Calls          []Call
+	CallStyle      string
+	Attributes     map[string]AttributeGenerator
+	QueueDepth     int
+	Backpressure   *ResolvedBackpressure
+	CircuitBreaker *ResolvedCircuitBreaker
 }
 
 // Call represents a resolved downstream call with optional modifiers.
@@ -100,14 +117,37 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					attrs[name] = gen
 				}
 			}
-			svc.Operations[opCfg.Name] = &Operation{
+			op := &Operation{
 				Service:    svc,
 				Name:       opCfg.Name,
 				Duration:   dist,
 				ErrorRate:  errorRate,
 				CallStyle:  opCfg.CallStyle,
 				Attributes: attrs,
+				QueueDepth: opCfg.QueueDepth,
 			}
+			if opCfg.Backpressure != nil {
+				lt, _ := time.ParseDuration(opCfg.Backpressure.LatencyThreshold)
+				var errAdd float64
+				if opCfg.Backpressure.ErrorRateAdd != "" {
+					errAdd, _ = parseErrorRate(opCfg.Backpressure.ErrorRateAdd)
+				}
+				op.Backpressure = &ResolvedBackpressure{
+					LatencyThreshold:   lt,
+					DurationMultiplier: opCfg.Backpressure.DurationMultiplier,
+					ErrorRateAdd:       errAdd,
+				}
+			}
+			if opCfg.CircuitBreaker != nil {
+				w, _ := time.ParseDuration(opCfg.CircuitBreaker.Window)
+				cd, _ := time.ParseDuration(opCfg.CircuitBreaker.Cooldown)
+				op.CircuitBreaker = &ResolvedCircuitBreaker{
+					FailureThreshold: opCfg.CircuitBreaker.FailureThreshold,
+					Window:           w,
+					Cooldown:         cd,
+				}
+			}
+			svc.Operations[opCfg.Name] = op
 		}
 		topo.Services[svcCfg.Name] = svc
 	}
