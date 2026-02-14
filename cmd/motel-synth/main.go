@@ -57,12 +57,13 @@ func rootCmd() *cobra.Command {
 
 func runCmd() *cobra.Command {
 	var (
-		endpoint      string
-		stdout        bool
-		duration      time.Duration
-		protocol      string
-		signals       string
-		slowThreshold time.Duration
+		endpoint         string
+		stdout           bool
+		duration         time.Duration
+		protocol         string
+		signals          string
+		slowThreshold    time.Duration
+		maxSpansPerTrace int
 	)
 
 	cmd := &cobra.Command{
@@ -71,12 +72,13 @@ func runCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerate(cmd.Context(), args[0], runOptions{
-				endpoint:      endpoint,
-				stdout:        stdout,
-				duration:      duration,
-				protocol:      protocol,
-				signals:       signals,
-				slowThreshold: slowThreshold,
+				endpoint:         endpoint,
+				stdout:           stdout,
+				duration:         duration,
+				protocol:         protocol,
+				signals:          signals,
+				slowThreshold:    slowThreshold,
+				maxSpansPerTrace: maxSpansPerTrace,
 			})
 		},
 	}
@@ -87,6 +89,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
 	cmd.Flags().StringVar(&signals, "signals", "traces", "comma-separated signals to emit: traces,metrics,logs")
 	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
+	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, "maximum spans per trace (0 = default 10000)")
 
 	return cmd
 }
@@ -126,12 +129,13 @@ func versionCmd() *cobra.Command {
 }
 
 type runOptions struct {
-	endpoint      string
-	stdout        bool
-	duration      time.Duration
-	protocol      string
-	signals       string
-	slowThreshold time.Duration
+	endpoint         string
+	stdout           bool
+	duration         time.Duration
+	protocol         string
+	signals          string
+	slowThreshold    time.Duration
+	maxSpansPerTrace int
 }
 
 var validSignals = map[string]bool{
@@ -250,13 +254,14 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	engine := &synth.Engine{
-		Topology:  topo,
-		Traffic:   traffic,
-		Scenarios: scenarios,
-		Provider:  tp,
-		Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
-		Duration:  duration,
-		Observers: observers,
+		Topology:         topo,
+		Traffic:          traffic,
+		Scenarios:        scenarios,
+		Provider:         tp,
+		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
+		Duration:         duration,
+		Observers:        observers,
+		MaxSpansPerTrace: opts.maxSpansPerTrace,
 	}
 
 	// Handle OS signals for graceful shutdown

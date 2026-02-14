@@ -78,7 +78,7 @@ func TestObserverCalledPerSpan(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -126,7 +126,7 @@ func TestObserverReceivesCorrectMetadata(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -188,7 +188,7 @@ func TestObserverDurationIsWallClock(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -224,7 +224,7 @@ func TestObserverNotCalledWhenNone(t *testing.T) {
 	}
 
 	engine, exporter := newTestEngine(t, cfg)
-	engine.walkTrace(context.Background(), engine.Topology.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), engine.Topology.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -264,7 +264,7 @@ func TestMultipleObservers(t *testing.T) {
 		Observers: []SpanObserver{obs1, obs2},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	assert.Len(t, obs1.get(), 1)
@@ -304,7 +304,7 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -317,7 +317,7 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 
 	// Generate another span and verify attrs are not corrupted
 	exporter.Reset()
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records2 := obs.get()

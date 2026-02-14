@@ -16,30 +16,38 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// DefaultMaxSpansPerTrace is the safety bound for span generation per trace.
+const DefaultMaxSpansPerTrace = 10_000
+
 // Engine drives the trace generation simulation.
 type Engine struct {
-	Topology  *Topology
-	Traffic   TrafficPattern
-	Scenarios []Scenario
-	Provider  *sdktrace.TracerProvider
-	Rng       *rand.Rand
-	Duration  time.Duration
-	Observers []SpanObserver
+	Topology         *Topology
+	Traffic          TrafficPattern
+	Scenarios        []Scenario
+	Provider         *sdktrace.TracerProvider
+	Rng              *rand.Rand
+	Duration         time.Duration
+	Observers        []SpanObserver
+	MaxSpansPerTrace int
 }
 
 // Stats holds counters collected during a simulation run.
 // Errors counts all spans in an error state, including those errored by cascading
 // (a child failure marks its parent as errored too). ErrorRate is Errors/Spans.
+// TraceErrorRate counts only traces where the root span errored.
 type Stats struct {
-	Traces       int64   `json:"traces"`
-	Spans        int64   `json:"spans"`
-	Errors       int64   `json:"errors"`
-	Timeouts     int64   `json:"timeouts"`
-	Retries      int64   `json:"retries"`
-	ElapsedMs    int64   `json:"elapsed_ms"`
-	TracesPerSec float64 `json:"traces_per_second"`
-	SpansPerSec  float64 `json:"spans_per_second"`
-	ErrorRate    float64 `json:"error_rate"`
+	Traces         int64   `json:"traces"`
+	Spans          int64   `json:"spans"`
+	Errors         int64   `json:"errors"`
+	FailedTraces   int64   `json:"failed_traces"`
+	Timeouts       int64   `json:"timeouts"`
+	Retries        int64   `json:"retries"`
+	SpansBounded   int64   `json:"spans_bounded"`
+	ElapsedMs      int64   `json:"elapsed_ms"`
+	TracesPerSec   float64 `json:"traces_per_second"`
+	SpansPerSec    float64 `json:"spans_per_second"`
+	ErrorRate      float64 `json:"error_rate"`
+	TraceErrorRate float64 `json:"trace_error_rate"`
 }
 
 // Run executes the main simulation loop with rate-controlled trace generation.
@@ -90,9 +98,17 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		// Pick a random root operation
 		root := e.Topology.Roots[e.Rng.IntN(len(e.Topology.Roots))]
 
-		// Walk the trace tree
-		e.walkTrace(ctx, root, now, overrides, &stats)
+		// Walk the trace tree with a per-trace span counter
+		spanLimit := e.maxSpansPerTrace()
+		spanCount := 0
+		_, rootErr := e.walkTrace(ctx, root, now, overrides, &stats, &spanCount, spanLimit)
 		stats.Traces++
+		if rootErr {
+			stats.FailedTraces++
+		}
+		if spanCount >= spanLimit {
+			stats.SpansBounded++
+		}
 
 		// Sleep for the inter-arrival interval
 		interval := time.Duration(float64(time.Second) / rate)
@@ -116,11 +132,26 @@ func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
 	if stats.Spans > 0 {
 		stats.ErrorRate = float64(stats.Errors) / float64(stats.Spans)
 	}
+	if stats.Traces > 0 {
+		stats.TraceErrorRate = float64(stats.FailedTraces) / float64(stats.Traces)
+	}
+}
+
+func (e *Engine) maxSpansPerTrace() int {
+	if e.MaxSpansPerTrace > 0 {
+		return e.MaxSpansPerTrace
+	}
+	return DefaultMaxSpansPerTrace
 }
 
 // walkTrace recursively generates spans for an operation and its downstream calls.
 // Returns the span end time and whether the span errored (own error rate or cascaded from children).
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
+// spanCount tracks the number of spans generated in this trace; no new spans are created once it reaches spanLimit.
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+	if *spanCount >= spanLimit {
+		return startTime, false
+	}
+	*spanCount++
 	tracer := e.Provider.Tracer(op.Service.Name)
 
 	// Determine effective duration, error rate, and attributes (apply overrides if active)
@@ -201,7 +232,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, overrides, stats)
+				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, overrides, stats, spanCount, spanLimit)
 				if failed {
 					anyChildFailed = true
 				}
@@ -215,7 +246,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		for _, call := range activeCalls {
 			count := max(call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, overrides, stats)
+				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, overrides, stats, spanCount, spanLimit)
 				if failed {
 					anyChildFailed = true
 				}
@@ -262,12 +293,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 }
 
 // executeCall runs a single downstream call, applying timeout capping and retries.
-func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats) (time.Time, bool) {
+func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time, overrides map[string]Override, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
 	maxAttempts := 1 + call.Retries
 	attemptStart := callStart
 
 	for attempt := range maxAttempts {
-		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, overrides, stats)
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, overrides, stats, spanCount, spanLimit)
 		perceivedEnd := childEnd
 		failed := childErr
 
