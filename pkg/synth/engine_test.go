@@ -27,7 +27,7 @@ func newTestEngine(t *testing.T, cfg *Config) (*Engine, *tracetest.InMemoryExpor
 	pattern, err := NewTrafficPattern(cfg.Traffic)
 	require.NoError(t, err)
 
-	scenarios, err := BuildScenarios(cfg.Scenarios)
+	scenarios, err := BuildScenarios(cfg.Scenarios, topo)
 	require.NoError(t, err)
 
 	exporter := tracetest.NewInMemoryExporter()
@@ -1663,4 +1663,271 @@ func TestEngineTraceErrorRateZero(t *testing.T) {
 
 	assert.Equal(t, int64(0), stats.FailedTraces)
 	assert.Equal(t, float64(0), stats.TraceErrorRate)
+}
+
+func TestEffectiveCalls(t *testing.T) {
+	t.Parallel()
+
+	svcA := &Service{Name: "a", Operations: make(map[string]*Operation)}
+	svcB := &Service{Name: "b", Operations: make(map[string]*Operation)}
+	svcC := &Service{Name: "c", Operations: make(map[string]*Operation)}
+
+	opA := &Operation{Service: svcA, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opB := &Operation{Service: svcB, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opC := &Operation{Service: svcC, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+
+	svcA.Operations["op"] = opA
+	svcB.Operations["op"] = opB
+	svcC.Operations["op"] = opC
+
+	opA.Calls = []Call{{Operation: opB}}
+
+	t.Run("no overrides returns base calls", func(t *testing.T) {
+		t.Parallel()
+		calls := effectiveCalls(opA, nil)
+		require.Len(t, calls, 1)
+		assert.Equal(t, opB, calls[0].Operation)
+	})
+
+	t.Run("no call changes returns base calls", func(t *testing.T) {
+		t.Parallel()
+		overrides := map[string]Override{
+			"a.op": {Duration: Distribution{Mean: 999 * time.Millisecond}},
+		}
+		calls := effectiveCalls(opA, overrides)
+		require.Len(t, calls, 1)
+		assert.Equal(t, opB, calls[0].Operation)
+	})
+
+	t.Run("add_calls appends to base", func(t *testing.T) {
+		t.Parallel()
+		overrides := map[string]Override{
+			"a.op": {AddCalls: []Call{{Operation: opC}}},
+		}
+		calls := effectiveCalls(opA, overrides)
+		require.Len(t, calls, 2)
+		assert.Equal(t, opB, calls[0].Operation)
+		assert.Equal(t, opC, calls[1].Operation)
+	})
+
+	t.Run("remove_calls filters base", func(t *testing.T) {
+		t.Parallel()
+		overrides := map[string]Override{
+			"a.op": {RemoveCalls: map[string]bool{"b.op": true}},
+		}
+		calls := effectiveCalls(opA, overrides)
+		assert.Empty(t, calls)
+	})
+
+	t.Run("add and remove together", func(t *testing.T) {
+		t.Parallel()
+		overrides := map[string]Override{
+			"a.op": {
+				AddCalls:    []Call{{Operation: opC}},
+				RemoveCalls: map[string]bool{"b.op": true},
+			},
+		}
+		calls := effectiveCalls(opA, overrides)
+		require.Len(t, calls, 1)
+		assert.Equal(t, opC, calls[0].Operation)
+	})
+}
+
+func TestEngineWalkTraceWithAddCalls(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "request",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "backend.query"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "query",
+					Duration: "5ms",
+				}},
+			},
+			{
+				Name: "cache",
+				Operations: []OperationConfig{{
+					Name:     "get",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	engine := &Engine{
+		Topology: topo,
+		Provider: tp,
+		Rng:      rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+	}
+
+	cacheOp := topo.Services["cache"].Operations["get"]
+	overrides := map[string]Override{
+		"gateway.request": {
+			AddCalls: []Call{{Operation: cacheOp}},
+		},
+	}
+
+	var stats Stats
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &stats, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3, "should have gateway + backend + cache spans")
+
+	names := make(map[string]bool)
+	for _, s := range spans {
+		names[s.Name] = true
+	}
+	assert.True(t, names["get"], "added cache.get call should produce a span")
+}
+
+func TestEngineWalkTraceWithRemoveCalls(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "request",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "backend.query"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "query",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	engine := &Engine{
+		Topology: topo,
+		Provider: tp,
+		Rng:      rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+	}
+
+	overrides := map[string]Override{
+		"gateway.request": {
+			RemoveCalls: map[string]bool{"backend.query": true},
+		},
+	}
+
+	var stats Stats
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &stats, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1, "should only have gateway span, backend removed")
+	assert.Equal(t, "request", spans[0].Name)
+}
+
+func TestEngineRunWithScenarioCallChanges(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "request",
+					Duration: "1ms",
+					Calls:    []CallConfig{{Target: "backend.query"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "query",
+					Duration: "1ms",
+				}},
+			},
+			{
+				Name: "cache",
+				Operations: []OperationConfig{{
+					Name:     "get",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	pattern, err := NewTrafficPattern(cfg.Traffic)
+	require.NoError(t, err)
+
+	cacheOp := topo.Services["cache"].Operations["get"]
+
+	scenarios := []Scenario{{
+		Name:  "add-cache-remove-backend",
+		Start: 0,
+		End:   time.Hour,
+		Overrides: map[string]Override{
+			"gateway.request": {
+				AddCalls:    []Call{{Operation: cacheOp}},
+				RemoveCalls: map[string]bool{"backend.query": true},
+			},
+		},
+	}}
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	engine := &Engine{
+		Topology:  topo,
+		Traffic:   pattern,
+		Scenarios: scenarios,
+		Provider:  tp,
+		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+		Duration:  200 * time.Millisecond,
+	}
+
+	_, err = engine.Run(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	assert.Greater(t, len(spans), 0)
+
+	// Verify call topology changes were applied
+	names := make(map[string]int)
+	for _, s := range spans {
+		names[s.Name]++
+	}
+
+	assert.Equal(t, 0, names["query"], "backend.query should not appear (removed)")
+	assert.Greater(t, names["get"], 0, "cache.get should appear (added)")
+	assert.Greater(t, names["request"], 0, "gateway.request should appear")
 }

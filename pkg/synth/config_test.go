@@ -1147,6 +1147,199 @@ func validBaseConfig() *Config {
 	}
 }
 
+func TestLoadConfigScenarioCallChanges(t *testing.T) {
+	t.Parallel()
+
+	t.Run("add_calls and remove_calls parsed from YAML", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  gateway:
+    operations:
+      request:
+        duration: 10ms
+        calls:
+          - backend.query
+  backend:
+    operations:
+      query:
+        duration: 20ms
+  cache:
+    operations:
+      get:
+        duration: 1ms
+traffic:
+  rate: 100/s
+scenarios:
+  - name: fallback cache
+    at: "+5m"
+    duration: "10m"
+    override:
+      gateway.request:
+        add_calls:
+          - target: cache.get
+            condition: on-error
+        remove_calls:
+          - backend.query
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		require.Len(t, cfg.Scenarios, 1)
+
+		ov := cfg.Scenarios[0].Override["gateway.request"]
+		require.Len(t, ov.AddCalls, 1)
+		assert.Equal(t, "cache.get", ov.AddCalls[0].Target)
+		assert.Equal(t, "on-error", ov.AddCalls[0].Condition)
+
+		require.Len(t, ov.RemoveCalls, 1)
+		assert.Equal(t, "backend.query", ov.RemoveCalls[0].Target)
+	})
+
+	t.Run("remove_calls mapping form", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        calls:
+          - other.op
+  other:
+    operations:
+      op:
+        duration: 5ms
+traffic:
+  rate: 100/s
+scenarios:
+  - name: test
+    at: "+1m"
+    duration: "5m"
+    override:
+      svc.op:
+        remove_calls:
+          - target: other.op
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		ov := cfg.Scenarios[0].Override["svc.op"]
+		require.Len(t, ov.RemoveCalls, 1)
+		assert.Equal(t, "other.op", ov.RemoveCalls[0].Target)
+	})
+}
+
+func TestValidateConfigCallChanges(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid add_calls passes", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					AddCalls: []CallConfig{{Target: "other.op", Condition: "on-error"}},
+				},
+			},
+		}}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("add_calls unknown target rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					AddCalls: []CallConfig{{Target: "nonexistent.op"}},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "add_calls")
+		assert.Contains(t, err.Error(), "nonexistent.op")
+	})
+
+	t.Run("add_calls bad format rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					AddCalls: []CallConfig{{Target: "no-dot"}},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "service.operation")
+	})
+
+	t.Run("remove_calls unknown target rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					RemoveCalls: []RemoveCallConfig{{Target: "nonexistent.op"}},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "remove_calls")
+		assert.Contains(t, err.Error(), "nonexistent.op")
+	})
+
+	t.Run("remove_calls bad format rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					RemoveCalls: []RemoveCallConfig{{Target: "no-dot"}},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "service.operation")
+	})
+
+	t.Run("valid remove_calls passes", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"svc.op": {
+					RemoveCalls: []RemoveCallConfig{{Target: "other.op"}},
+				},
+			},
+		}}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+}
+
 func TestLoadConfigCallTimeout(t *testing.T) {
 	t.Parallel()
 

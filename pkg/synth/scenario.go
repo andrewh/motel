@@ -27,6 +27,8 @@ type Override struct {
 	ErrorRate    float64
 	HasErrorRate bool
 	Attributes   map[string]AttributeGenerator
+	AddCalls     []Call
+	RemoveCalls  map[string]bool
 }
 
 // ParseOffset parses a time offset string like "+5m" or "30s" into a duration.
@@ -44,7 +46,8 @@ func ParseOffset(s string) (time.Duration, error) {
 }
 
 // BuildScenarios converts scenario configs into resolved Scenarios.
-func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
+// The topology is required to resolve add_calls targets to *Operation pointers.
+func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 	scenarios := make([]Scenario, 0, len(cfgs))
 	for _, cfg := range cfgs {
 		start, err := ParseOffset(cfg.At)
@@ -82,27 +85,149 @@ func BuildScenarios(cfgs []ScenarioConfig) ([]Scenario, error) {
 					o.Attributes[attrName] = gen
 				}
 			}
+			for _, callCfg := range ov.AddCalls {
+				_, targetOp, resolveErr := resolveRef(topo, callCfg.Target)
+				if resolveErr != nil {
+					return nil, fmt.Errorf("scenario %q override %q: add_calls: %w", cfg.Name, ref, resolveErr)
+				}
+				call := Call{
+					Operation:   targetOp,
+					Probability: callCfg.Probability,
+					Condition:   callCfg.Condition,
+					Count:       callCfg.Count,
+					Retries:     callCfg.Retries,
+				}
+				if callCfg.Timeout != "" {
+					call.Timeout, err = time.ParseDuration(callCfg.Timeout)
+					if err != nil {
+						return nil, fmt.Errorf("scenario %q override %q: add_calls: target %q: invalid timeout: %w", cfg.Name, ref, callCfg.Target, err)
+					}
+				}
+				if callCfg.RetryBackoff != "" {
+					call.RetryBackoff, err = time.ParseDuration(callCfg.RetryBackoff)
+					if err != nil {
+						return nil, fmt.Errorf("scenario %q override %q: add_calls: target %q: invalid retry_backoff: %w", cfg.Name, ref, callCfg.Target, err)
+					}
+				}
+				o.AddCalls = append(o.AddCalls, call)
+			}
+			if len(ov.RemoveCalls) > 0 {
+				o.RemoveCalls = make(map[string]bool, len(ov.RemoveCalls))
+				for _, rc := range ov.RemoveCalls {
+					o.RemoveCalls[rc.Target] = true
+				}
+			}
 			overrides[ref] = o
 		}
 
-		var traffic TrafficPattern
-		if cfg.Traffic != nil {
-			traffic, err = NewTrafficPattern(*cfg.Traffic)
-			if err != nil {
-				return nil, fmt.Errorf("scenario %q: traffic: %w", cfg.Name, err)
-			}
-		}
-
-		scenarios = append(scenarios, Scenario{
+		scenario := Scenario{
 			Name:      cfg.Name,
 			Start:     start,
 			End:       start + dur,
 			Priority:  cfg.Priority,
 			Overrides: overrides,
-			Traffic:   traffic,
-		})
+		}
+
+		if cfg.Traffic != nil {
+			scenario.Traffic, err = NewTrafficPattern(*cfg.Traffic)
+			if err != nil {
+				return nil, fmt.Errorf("scenario %q: traffic: %w", cfg.Name, err)
+			}
+		}
+
+		if err := validateScenarioCycles(scenario, topo); err != nil {
+			return nil, err
+		}
+
+		scenarios = append(scenarios, scenario)
 	}
 	return scenarios, nil
+}
+
+// HasCallChanges returns true if the override modifies the call graph.
+func (o Override) HasCallChanges() bool {
+	return len(o.AddCalls) > 0 || len(o.RemoveCalls) > 0
+}
+
+// validateScenarioCycles checks that a scenario's call changes do not create cycles.
+func validateScenarioCycles(sc Scenario, topo *Topology) error {
+	// Build effective adjacency list: base graph + adds - removes
+	adj := make(map[string][]string)
+
+	// Start with base topology edges
+	for _, svc := range topo.Services {
+		for _, op := range svc.Operations {
+			ref := svc.Name + "." + op.Name
+			for _, call := range op.Calls {
+				targetRef := call.Operation.Service.Name + "." + call.Operation.Name
+				adj[ref] = append(adj[ref], targetRef)
+			}
+		}
+	}
+
+	hasChanges := false
+	for ref, ov := range sc.Overrides {
+		if !ov.HasCallChanges() {
+			continue
+		}
+		hasChanges = true
+
+		// Remove calls
+		if len(ov.RemoveCalls) > 0 {
+			filtered := make([]string, 0, len(adj[ref]))
+			for _, target := range adj[ref] {
+				if !ov.RemoveCalls[target] {
+					filtered = append(filtered, target)
+				}
+			}
+			adj[ref] = filtered
+		}
+
+		// Add calls
+		for _, call := range ov.AddCalls {
+			targetRef := call.Operation.Service.Name + "." + call.Operation.Name
+			adj[ref] = append(adj[ref], targetRef)
+		}
+	}
+
+	if !hasChanges {
+		return nil
+	}
+
+	// DFS cycle detection on the modified graph
+	const (
+		unvisited = iota
+		visiting
+		visited
+	)
+	state := make(map[string]int)
+
+	var visit func(ref string) error
+	visit = func(ref string) error {
+		switch state[ref] {
+		case visiting:
+			return fmt.Errorf("scenario %q: adding calls would create cycle involving %s", sc.Name, ref)
+		case visited:
+			return nil
+		}
+		state[ref] = visiting
+		for _, target := range adj[ref] {
+			if err := visit(target); err != nil {
+				return err
+			}
+		}
+		state[ref] = visited
+		return nil
+	}
+
+	for ref := range adj {
+		if state[ref] == unvisited {
+			if err := visit(ref); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ActiveScenarios returns scenarios whose activation window contains the given elapsed time.
@@ -147,6 +272,18 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 				maps.Copy(newAttrs, existing.Attributes)
 				maps.Copy(newAttrs, ov.Attributes)
 				existing.Attributes = newAttrs
+			}
+			if len(ov.AddCalls) > 0 {
+				merged := make([]Call, len(existing.AddCalls)+len(ov.AddCalls))
+				copy(merged, existing.AddCalls)
+				copy(merged[len(existing.AddCalls):], ov.AddCalls)
+				existing.AddCalls = merged
+			}
+			if len(ov.RemoveCalls) > 0 {
+				if existing.RemoveCalls == nil {
+					existing.RemoveCalls = make(map[string]bool, len(ov.RemoveCalls))
+				}
+				maps.Copy(existing.RemoveCalls, ov.RemoveCalls)
 			}
 			merged[ref] = existing
 		}

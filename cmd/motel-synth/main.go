@@ -180,7 +180,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	if err != nil {
 		return err
 	}
-	scenarios, err := synth.BuildScenarios(cfg.Scenarios)
+	scenarios, err := synth.BuildScenarios(cfg.Scenarios, topo)
 	if err != nil {
 		return err
 	}
