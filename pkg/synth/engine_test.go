@@ -75,7 +75,7 @@ func TestEngineWalkTrace(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 
 	// Force flush
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
@@ -124,7 +124,7 @@ func TestEngineErrorInjection(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -237,7 +237,7 @@ func TestEngineScenarioOverrides(t *testing.T) {
 
 	// Walk trace with overrides active at elapsed=0
 	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -301,7 +301,7 @@ func TestEngineScenarioAttributeOverrides(t *testing.T) {
 	}
 
 	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{})
+	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), overrides, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -484,7 +484,7 @@ func TestEngineOperationAttributes(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -528,7 +528,7 @@ func TestEngineSequentialCallStyle(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -579,7 +579,7 @@ func TestEngineParallelCallStyle(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -664,7 +664,7 @@ func TestEngineSpanAttributes(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -716,7 +716,7 @@ func TestEngineProbabilisticCall(t *testing.T) {
 
 	for range trials {
 		exporter.Reset()
-		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 		spans := exporter.GetSpans()
@@ -761,7 +761,7 @@ func TestEngineOnErrorCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter := newTestEngine(t, makeConfig("100%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 2, "on-error child should be present when parent errors")
@@ -771,7 +771,7 @@ func TestEngineOnErrorCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter := newTestEngine(t, makeConfig("0%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 1, "on-error child should be absent when parent succeeds")
@@ -809,7 +809,7 @@ func TestEngineOnSuccessCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter := newTestEngine(t, makeConfig("0%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 2, "on-success child should be present when parent succeeds")
@@ -819,7 +819,7 @@ func TestEngineOnSuccessCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter := newTestEngine(t, makeConfig("100%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+		engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 		require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 1, "on-success child should be absent when parent errors")
@@ -852,7 +852,7 @@ func TestEngineFanOutCount(t *testing.T) {
 
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -894,7 +894,7 @@ func TestEngineFanOutSequential(t *testing.T) {
 
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -949,7 +949,7 @@ func TestEngineFanOutParallel(t *testing.T) {
 
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -998,7 +998,7 @@ func TestEngineCallTimeout(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1056,7 +1056,7 @@ func TestEngineCallNoTimeout(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1106,7 +1106,7 @@ func TestEngineCallTimeoutSequential(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, now, nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, now, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1164,7 +1164,7 @@ func TestEngineCascadingError(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1212,7 +1212,7 @@ func TestEngineCascadingErrorPreservesConditions(t *testing.T) {
 
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1250,7 +1250,7 @@ func TestEngineRetryOnError(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1296,7 +1296,7 @@ func TestEngineRetrySuccess(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1343,7 +1343,7 @@ func TestEngineRetryBackoff(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{})
+	engine.walkTrace(context.Background(), rootOp, now, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1394,7 +1394,7 @@ func TestEngineRetryWithTimeout(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1433,7 +1433,7 @@ func TestEngineRetryStats(t *testing.T) {
 	engine, _ := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 
 	assert.Equal(t, int64(3), stats.Retries, "should retry 3 times")
 	// 1 parent + 4 child = 5 spans, all errored (child 100%, parent cascaded)
@@ -1469,11 +1469,198 @@ func TestEngineNoRetryWithoutConfig(t *testing.T) {
 	engine, exporter := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
 	// No retries configured: 1 parent + 1 child = 2
 	assert.Len(t, spans, 2)
 	assert.Equal(t, int64(0), stats.Retries)
+}
+
+func TestEngineSpanBound(t *testing.T) {
+	t.Parallel()
+
+	// Deep topology: parent calls child, child calls grandchild, each with count=5
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "1ms",
+					Calls:    []CallConfig{{Target: "child.work", Count: 5}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "1ms",
+					Calls:    []CallConfig{{Target: "grandchild.leaf", Count: 5}},
+				}},
+			},
+			{
+				Name: "grandchild",
+				Operations: []OperationConfig{{
+					Name:     "leaf",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter := newTestEngine(t, cfg)
+	rootOp := engine.Topology.Roots[0]
+
+	// Without bound: 1 + 5 + 25 = 31 spans
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	assert.Equal(t, 31, len(exporter.GetSpans()))
+
+	// With bound of 10 spans
+	exporter.Reset()
+	spanCount := 0
+	engine.walkTrace(context.Background(), rootOp, time.Now(), nil, &Stats{}, &spanCount, 10)
+	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	assert.LessOrEqual(t, len(exporter.GetSpans()), 10, "span count should be bounded")
+	assert.Greater(t, len(exporter.GetSpans()), 0, "should produce at least some spans")
+}
+
+func TestEngineSpanBoundInRun(t *testing.T) {
+	t.Parallel()
+
+	// Same deep topology, run via Engine.Run with a low bound
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "parent",
+				Operations: []OperationConfig{{
+					Name:     "entry",
+					Duration: "1ms",
+					Calls:    []CallConfig{{Target: "child.work", Count: 10}},
+				}},
+			},
+			{
+				Name: "child",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	engine.Duration = 200 * time.Millisecond
+	engine.MaxSpansPerTrace = 5
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+	assert.Greater(t, stats.SpansBounded, int64(0), "some traces should hit the span bound")
+}
+
+func TestEngineTraceErrorRate(t *testing.T) {
+	t.Parallel()
+
+	// Root has 100% error rate, child does not
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:      "op",
+					Duration:  "1ms",
+					ErrorRate: "100%",
+					Calls:     []CallConfig{{Target: "backend.work"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "work",
+					Duration: "1ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	engine.Duration = 200 * time.Millisecond
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// All root spans error (100% error rate), so TraceErrorRate should be ~1.0
+	assert.InDelta(t, 1.0, stats.TraceErrorRate, 0.01)
+	assert.Equal(t, stats.Traces, stats.FailedTraces)
+
+	// ErrorRate is per-span: gateway errors (100%), backend does not
+	// Each trace has 2 spans, only gateway errored, so ErrorRate ~ 0.5
+	assert.InDelta(t, 0.5, stats.ErrorRate, 0.05)
+}
+
+func TestEngineTraceErrorRateWithCascading(t *testing.T) {
+	t.Parallel()
+
+	// Root has 0% error rate, child has 100%. Cascading makes root errored.
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "1ms",
+					Calls:    []CallConfig{{Target: "backend.failing"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:      "failing",
+					Duration:  "1ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	engine.Duration = 200 * time.Millisecond
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	// Root errored via cascading, so TraceErrorRate ~ 1.0
+	assert.InDelta(t, 1.0, stats.TraceErrorRate, 0.01)
+	// ErrorRate is also ~1.0 since both spans are errored
+	assert.InDelta(t, 1.0, stats.ErrorRate, 0.01)
+}
+
+func TestEngineTraceErrorRateZero(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, _ := newTestEngine(t, cfg)
+	engine.Duration = 200 * time.Millisecond
+
+	stats, err := engine.Run(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(0), stats.FailedTraces)
+	assert.Equal(t, float64(0), stats.TraceErrorRate)
 }
