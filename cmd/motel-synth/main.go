@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/andrewh/motel/pkg/semconv"
 	"github.com/andrewh/motel/pkg/synth"
+	"github.com/andrewh/motel/pkg/synth/traceimport"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -50,6 +52,7 @@ func rootCmd() *cobra.Command {
 
 	root.AddCommand(runCmd())
 	root.AddCommand(validateCmd())
+	root.AddCommand(importCmd())
 	root.AddCommand(versionCmd())
 
 	return root
@@ -116,6 +119,48 @@ func validateCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func importCmd() *cobra.Command {
+	var (
+		format    string
+		minTraces int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "import [file]",
+		Short: "Import a topology config from trace data",
+		Long:  "Reads trace spans (stdouttrace or OTLP JSON) and generates a synth YAML topology config.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var r io.Reader = os.Stdin
+			if len(args) == 1 {
+				f, err := os.Open(args[0]) //nolint:gosec // user-supplied file path is expected
+				if err != nil {
+					return fmt.Errorf("opening input: %w", err)
+				}
+				defer f.Close() //nolint:errcheck // best-effort close on read-only file
+				r = f
+			}
+
+			yamlBytes, err := traceimport.Import(r, traceimport.Options{
+				Format:    traceimport.Format(format),
+				MinTraces: minTraces,
+				Warnings:  cmd.ErrOrStderr(),
+			})
+			if err != nil {
+				return err
+			}
+
+			_, err = cmd.OutOrStdout().Write(yamlBytes)
+			return err
+		},
+	}
+
+	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, or otlp")
+	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
+
+	return cmd
 }
 
 func versionCmd() *cobra.Command {
