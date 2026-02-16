@@ -1,0 +1,54 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "api-gateway"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "api-gateway"},
+          "spans": [
+            {
+              "traceId": "AQIDBAUGBwgJCgsMDQ4PEA==",
+              "spanId": "AQIDBAUGBwg=",
+              "parentSpanId": "",
+              "name": "GET /users",
+              "startTimeUnixNano": "1700000000000000000",
+              "endTimeUnixNano": "1700000000030000000",
+              "status": {},
+              "attributes": [
+                {"key": "http.method", "value": {"stringValue": "GET"}}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "user-service"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "user-service"},
+          "spans": [
+            {
+              "traceId": "AQIDBAUGBwgJCgsMDQ4PEA==",
+              "spanId": "CQoLDA0ODxA=",
+              "parentSpanId": "AQIDBAUGBwg=",
+              "name": "list",
+              "startTimeUnixNano": "1700000000005000000",
+              "endTimeUnixNano": "1700000000020000000",
+              "status": {},
+              "attributes": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
