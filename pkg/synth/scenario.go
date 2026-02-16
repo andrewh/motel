@@ -255,7 +255,8 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 		for ref, ov := range sc.Overrides {
 			existing, ok := merged[ref]
 			if !ok {
-				// Struct copy; Attributes map is shared with the source scenario.
+				// Struct copy; reference types (Attributes map, AddCalls slice,
+				// RemoveCalls map) are shared with the source scenario.
 				// Safe because callers only read the returned overrides.
 				merged[ref] = ov
 				continue
@@ -274,10 +275,7 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 				existing.Attributes = newAttrs
 			}
 			if len(ov.AddCalls) > 0 {
-				merged := make([]Call, len(existing.AddCalls)+len(ov.AddCalls))
-				copy(merged, existing.AddCalls)
-				copy(merged[len(existing.AddCalls):], ov.AddCalls)
-				existing.AddCalls = merged
+				existing.AddCalls = append(slices.Clone(existing.AddCalls), ov.AddCalls...)
 			}
 			if len(ov.RemoveCalls) > 0 {
 				if existing.RemoveCalls == nil {
