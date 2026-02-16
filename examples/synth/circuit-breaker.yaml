@@ -1,0 +1,39 @@
+# Topology for demonstrating scenario call topology changes
+# Shows add_calls and remove_calls for circuit-breaker and fallback patterns
+
+version: 1
+
+services:
+  api:
+    operations:
+      request:
+        duration: 10ms +/- 3ms
+        error_rate: 0.5%
+        calls:
+          - database.query
+
+  database:
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+
+  cache:
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+
+traffic:
+  rate: 50/s
+
+scenarios:
+  # Circuit breaker: remove database call, add cache fallback
+  - name: circuit breaker
+    at: +3s
+    duration: 4s
+    override:
+      api.request:
+        remove_calls:
+          - database.query
+        add_calls:
+          - target: cache.get

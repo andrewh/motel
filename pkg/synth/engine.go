@@ -209,9 +209,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
+	// Build effective call list (base calls + scenario adds - removes)
+	baseCalls := effectiveCalls(op, overrides)
+
 	// Filter calls by condition and probability (uses own error state, not cascaded)
-	activeCalls := make([]Call, 0, len(op.Calls))
-	for _, call := range op.Calls {
+	activeCalls := make([]Call, 0, len(baseCalls))
+	for _, call := range baseCalls {
 		if call.Condition == "on-error" && !ownError {
 			continue
 		}
@@ -322,6 +325,31 @@ func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time
 // isRoot checks whether an operation is a root (entry point) in the topology.
 func isRoot(topo *Topology, op *Operation) bool {
 	return slices.Contains(topo.Roots, op)
+}
+
+// effectiveCalls returns the call list for an operation, applying scenario add/remove overrides.
+// Returns the base call list directly when no call changes are active (zero allocation fast path).
+func effectiveCalls(op *Operation, overrides map[string]Override) []Call {
+	if len(overrides) == 0 {
+		return op.Calls
+	}
+	ref := op.Service.Name + "." + op.Name
+	ov, ok := overrides[ref]
+	if !ok || !ov.HasCallChanges() {
+		return op.Calls
+	}
+
+	calls := make([]Call, 0, len(op.Calls)+len(ov.AddCalls))
+
+	for _, c := range op.Calls {
+		targetRef := c.Operation.Service.Name + "." + c.Operation.Name
+		if !ov.RemoveCalls[targetRef] {
+			calls = append(calls, c)
+		}
+	}
+
+	calls = append(calls, ov.AddCalls...)
+	return calls
 }
 
 // typedAttribute creates a KeyValue with the appropriate OTel type for the value.
