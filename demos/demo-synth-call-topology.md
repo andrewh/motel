@@ -2,7 +2,9 @@
 
 *2026-02-14T12:54:57Z*
 
-Scenarios can modify which downstream services an operation calls during a time window. The `add_calls` and `remove_calls` directives let you model circuit breakers, fallback caches, and dependency changes without separate topology files. This demo walks through a circuit-breaker pattern where database calls are replaced by cache lookups during a degradation window.
+In production, services don't always call the same backends. Circuit breakers trip and redirect traffic to caches. Feature flags route requests to new dependencies. Failover logic swaps a primary database for a replica. These changes to the call graph are some of the most interesting things to observe in traces — and some of the hardest to reproduce synthetically.
+
+The `add_calls` and `remove_calls` scenario directives let you model these patterns. During a scenario window, you can add new downstream calls and remove existing ones, changing the shape of the trace tree without needing separate topology files. This demo walks through a circuit-breaker pattern where database calls are replaced by cache lookups during a degradation window.
 
 ## The circuit-breaker topology
 
