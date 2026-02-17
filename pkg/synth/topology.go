@@ -65,6 +65,9 @@ type Call struct {
 type DomainResolver func(domain string) map[string]AttributeGenerator
 
 // BuildTopology resolves a validated Config into a traversable Topology graph.
+// cfg must have passed ValidateConfig first. Duration strings in backpressure
+// and circuit breaker config are parsed without error checks here because
+// validation has already rejected malformed values.
 // An optional DomainResolver enables the domain field on operations.
 func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) {
 	var resolve DomainResolver

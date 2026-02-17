@@ -22,7 +22,7 @@ func TestQueueDepthRejectsAtCapacity(t *testing.T) {
 	os.Enter()
 	os.Enter()
 
-	_, _, rejected, reason := os.Evaluate(0, rng)
+	_, _, rejected, reason := os.Admit(0, rng)
 	assert.True(t, rejected)
 	assert.Equal(t, ReasonQueueFull, reason)
 }
@@ -35,7 +35,7 @@ func TestQueueDepthAllowsBelowCapacity(t *testing.T) {
 
 	os.Enter()
 
-	_, _, rejected, _ := os.Evaluate(0, rng)
+	_, _, rejected, _ := os.Admit(0, rng)
 	assert.False(t, rejected)
 }
 
@@ -47,12 +47,12 @@ func TestQueueDepthExitDecrementsCount(t *testing.T) {
 
 	os.Enter()
 
-	_, _, rejected, _ := os.Evaluate(0, rng)
+	_, _, rejected, _ := os.Admit(0, rng)
 	assert.True(t, rejected, "should reject when at capacity")
 
 	os.Exit(0, 10*time.Millisecond, false)
 
-	_, _, rejected, _ = os.Evaluate(0, rng)
+	_, _, rejected, _ = os.Admit(0, rng)
 	assert.False(t, rejected, "should allow after exit frees a slot")
 }
 
@@ -76,13 +76,13 @@ func TestCircuitBreakerOpensOnThreshold(t *testing.T) {
 
 	assert.Equal(t, CircuitClosed, os.Circuit)
 
-	for i := range 3 {
+	for i := range os.FailureThreshold {
 		os.Exit(time.Duration(i)*100*time.Millisecond, 10*time.Millisecond, true)
 	}
 
 	assert.Equal(t, CircuitOpen, os.Circuit)
 
-	_, _, rejected, reason := os.Evaluate(200*time.Millisecond, rng)
+	_, _, rejected, reason := os.Admit(200*time.Millisecond, rng)
 	assert.True(t, rejected)
 	assert.Equal(t, ReasonCircuitOpen, reason)
 }
@@ -100,7 +100,7 @@ func TestCircuitBreakerHalfOpenAfterCooldown(t *testing.T) {
 	os.Exit(0, time.Millisecond, true)
 	assert.Equal(t, CircuitOpen, os.Circuit)
 
-	_, _, rejected, _ := os.Evaluate(200*time.Millisecond, rng)
+	_, _, rejected, _ := os.Admit(200*time.Millisecond, rng)
 	assert.False(t, rejected, "should allow probe after cooldown")
 	assert.Equal(t, CircuitHalfOpen, os.Circuit)
 }
@@ -166,7 +166,7 @@ func TestBackpressureActivatesOnHighLatency(t *testing.T) {
 	os.Exit(0, 100*time.Millisecond, false)
 	assert.True(t, os.BackpressureActive)
 
-	mult, errAdd, rejected, _ := os.Evaluate(0, rng)
+	mult, errAdd, rejected, _ := os.Admit(0, rng)
 	assert.False(t, rejected)
 	assert.Equal(t, 3.0, mult)
 	assert.Equal(t, 0.1, errAdd)
@@ -185,7 +185,7 @@ func TestBackpressureInactiveOnLowLatency(t *testing.T) {
 	os.Exit(0, 10*time.Millisecond, false)
 	assert.False(t, os.BackpressureActive)
 
-	mult, errAdd, rejected, _ := os.Evaluate(0, rng)
+	mult, errAdd, rejected, _ := os.Admit(0, rng)
 	assert.False(t, rejected)
 	assert.Equal(t, 1.0, mult)
 	assert.Equal(t, float64(0), errAdd)
@@ -220,7 +220,7 @@ func TestBackpressureMultiplierCapped(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(1, 0)) //nolint:gosec // deterministic seed for testing
 
-	mult, _, _, _ := os.Evaluate(0, rng)
+	mult, _, _, _ := os.Admit(0, rng)
 	assert.Equal(t, maxBackpressureMultiplier, mult)
 }
 
@@ -234,7 +234,7 @@ func TestBackpressureZeroMultiplierDefaultsToOne(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(1, 0)) //nolint:gosec // deterministic seed for testing
 
-	mult, _, _, _ := os.Evaluate(0, rng)
+	mult, _, _, _ := os.Admit(0, rng)
 	assert.Equal(t, 1.0, mult)
 }
 
@@ -347,9 +347,14 @@ func TestEngineCircuitBreakerIntegration(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 
 	// First two calls should succeed (and fail, triggering circuit)
+	opState := engine.State.Get("svc.op")
+	require.NotNil(t, opState)
+
 	for range 2 {
 		engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	}
+
+	assert.Equal(t, CircuitOpen, opState.Circuit, "circuit should be open after threshold failures")
 
 	// Third call should be rejected (circuit is open)
 	var stats Stats
@@ -457,7 +462,7 @@ func TestCircuitBreakerPriorityOverQueueDepth(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(1, 0)) //nolint:gosec // deterministic seed for testing
 
-	_, _, rejected, reason := os.Evaluate(100*time.Millisecond, rng)
+	_, _, rejected, reason := os.Admit(100*time.Millisecond, rng)
 	assert.True(t, rejected)
 	assert.Equal(t, ReasonCircuitOpen, reason, "circuit breaker should take priority over queue depth")
 }

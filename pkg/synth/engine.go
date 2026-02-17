@@ -184,7 +184,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		opState = e.State.Get(ref)
 	}
 	if opState != nil {
-		durationMult, errAdd, rejected, reason := opState.Evaluate(elapsed, e.Rng)
+		durationMult, errAdd, rejected, reason := opState.Admit(elapsed, e.Rng)
 		if rejected {
 			switch reason {
 			case ReasonQueueFull:
@@ -350,6 +350,23 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 
 	stats.Spans++
 	stats.Errors++
+
+	if len(e.Observers) > 0 {
+		info := SpanInfo{
+			Service:   op.Service.Name,
+			Operation: op.Name,
+			Duration:  rejectionDuration,
+			IsError:   true,
+			Kind:      kind,
+			Attrs: []attribute.KeyValue{
+				attribute.Bool("synth.rejected", true),
+				attribute.String("synth.rejection_reason", reason),
+			},
+		}
+		for _, obs := range e.Observers {
+			obs.Observe(info)
+		}
+	}
 
 	return endTime, true
 }

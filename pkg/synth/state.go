@@ -30,11 +30,18 @@ const (
 // SimulationState tracks cross-trace state for operations during a run.
 // Only operations with queue_depth, backpressure, or circuit_breaker config
 // get an entry — unconfigured operations are unaffected.
+//
+// State persists for the entire simulation, including across scenario boundaries.
+// After a scenario ends, effects like open circuit breakers and backpressure
+// remain until the system naturally recovers (e.g. cooldown expires, latency drops).
+// This matches real-world behaviour where removing the cause of degradation
+// does not instantly reset the symptoms.
 type SimulationState struct {
 	operations map[string]*OperationState
 }
 
 // OperationState holds runtime state for a single operation across traces.
+// Not safe for concurrent use. The engine calls all methods from a single goroutine.
 type OperationState struct {
 	ActiveRequests int
 	MaxQueueDepth  int
@@ -96,10 +103,11 @@ func (s *SimulationState) Get(ref string) *OperationState {
 	return s.operations[ref]
 }
 
-// Evaluate checks operation state and returns adjustments for the current request.
+// Admit checks operation state and returns adjustments for the current request.
+// Mutates circuit breaker state (e.g. Open→HalfOpen transition on cooldown expiry).
 // Returns the adjusted duration multiplier, additional error rate, and whether
 // the request should be rejected outright.
-func (os *OperationState) Evaluate(elapsed time.Duration, rng *rand.Rand) (durationMult float64, errorRateAdd float64, rejected bool, reason string) {
+func (os *OperationState) Admit(elapsed time.Duration, rng *rand.Rand) (durationMult float64, errorRateAdd float64, rejected bool, reason string) {
 	durationMult = 1.0
 
 	if os.Circuit == CircuitOpen {
@@ -152,9 +160,6 @@ func (os *OperationState) Exit(elapsed time.Duration, latency time.Duration, fai
 		os.BackpressureActive = os.RecentLatency > os.BackpressureThreshold
 	}
 
-	if os.FailureThreshold > 0 && failed {
-		os.FailureWindow = append(os.FailureWindow, failureRecord{At: elapsed})
-	}
 	if os.WindowDuration > 0 {
 		cutoff := elapsed - os.WindowDuration
 		pruned := os.FailureWindow[:0]
@@ -164,6 +169,11 @@ func (os *OperationState) Exit(elapsed time.Duration, latency time.Duration, fai
 			}
 		}
 		os.FailureWindow = pruned
+	}
+	// Append after pruning, and only up to threshold — we only need to know
+	// whether the count reaches the threshold, not track every failure.
+	if os.FailureThreshold > 0 && failed && len(os.FailureWindow) < os.FailureThreshold {
+		os.FailureWindow = append(os.FailureWindow, failureRecord{At: elapsed})
 	}
 
 	if os.FailureThreshold > 0 && len(os.FailureWindow) >= os.FailureThreshold && os.Circuit == CircuitClosed {
