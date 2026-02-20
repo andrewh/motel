@@ -1,10 +1,10 @@
-# Getting Started with motel-synth
+# Getting Started with motel
 
 This tutorial walks you through generating realistic distributed traces from a YAML topology definition. By the end, you'll have a working topology file and understand how to validate, generate, and inspect synthetic traces.
 
 ## What you'll learn
 
-- What motel-synth does and when to use it
+- What motel does and when to use it
 - How to write a simple topology file
 - How to validate a topology
 - How to generate traces and read the output
@@ -13,13 +13,13 @@ This tutorial walks you through generating realistic distributed traces from a Y
 ## Prerequisites
 
 - Go toolchain installed
-- motel-synth built: `make build-synth`
+- motel built: `go install github.com/andrewh/motel/cmd/motel@latest`
 
-No server or external services required — motel-synth is completely standalone.
+No server or external services required — motel is completely standalone.
 
-## What is motel-synth?
+## What is motel?
 
-motel-synth generates OTLP traces that look like they came from a real distributed system. You describe your system's structure in YAML — services, operations, call patterns, latency distributions — and motel-synth produces traces matching that description.
+motel generates OTLP traces that look like they came from a real distributed system. You describe your system's structure in YAML — services, operations, call patterns, latency distributions — and motel produces traces matching that description.
 
 This is useful for:
 
@@ -66,7 +66,7 @@ Three concepts compose the entire topology DSL:
 Check the topology for errors before generating traces:
 
 ```sh
-./build/motel-synth validate my-topology.yaml
+motel validate my-topology.yaml
 ```
 
 You should see:
@@ -86,12 +86,12 @@ Error: service "gateway" operation "GET /users": invalid duration: ...
 Generate traces for 2 seconds, printing them to stdout:
 
 ```sh
-./build/motel-synth run --stdout --duration 2s my-topology.yaml
+motel run --stdout --duration 2s my-topology.yaml
 ```
 
 Each line of stdout is one span in JSON format. A two-service trace produces two spans: one for the gateway, one for the users service. The gateway span is the parent; the users span is a child linked by trace ID and parent span ID.
 
-At the end, motel-synth prints a statistics summary to stderr:
+At the end, motel prints a statistics summary to stderr:
 
 ```json
 {"traces":20,"spans":40,"errors":0,"failed_traces":0,...}
@@ -101,10 +101,10 @@ The stats go to stderr so you can capture spans and stats separately:
 
 ```sh
 # Spans to a file, stats to the terminal
-./build/motel-synth run --stdout --duration 2s my-topology.yaml > spans.jsonl
+motel run --stdout --duration 2s my-topology.yaml > spans.jsonl
 
 # Stats to a file, spans to the terminal
-./build/motel-synth run --stdout --duration 2s my-topology.yaml 2> stats.json
+motel run --stdout --duration 2s my-topology.yaml 2> stats.json
 ```
 
 ## Step 4: Inspect the output
@@ -122,11 +122,11 @@ You can pipe the output through `jq` to explore:
 
 ```sh
 # Count spans per operation
-./build/motel-synth run --stdout --duration 2s my-topology.yaml 2>/dev/null | \
+motel run --stdout --duration 2s my-topology.yaml 2>/dev/null | \
   jq -r .Name | sort | uniq -c | sort -rn
 
 # Show trace IDs and their operation names
-./build/motel-synth run --stdout --duration 1s my-topology.yaml 2>/dev/null | \
+motel run --stdout --duration 1s my-topology.yaml 2>/dev/null | \
   jq -r '[.SpanContext.TraceID[:8], .Name] | @tsv'
 ```
 
@@ -135,14 +135,13 @@ You can pipe the output through `jq` to explore:
 To send traces to an OTLP-compatible collector instead of stdout, use `--endpoint`:
 
 ```sh
-./build/motel-synth run --endpoint localhost:4318 --duration 10s my-topology.yaml
+motel run --endpoint localhost:4318 --duration 10s my-topology.yaml
 ```
 
 This sends traces over HTTP to the OTLP endpoint. The collector receives them as if they came from real instrumented services.
 
 ## Next steps
 
-- **[Example topologies](../../examples/synth/)** — ready-to-use YAML files covering error cascading, traffic patterns, scenarios, and more
-- **[motel-synth reference](../../cmd/motel-synth/README.md)** — full DSL reference for all topology fields
-- **[Worked example: importing from traces](../explanation/synth/worked-example/README.md)** — reverse the workflow by inferring a topology from real trace data
-- **[Showboat demos](../../demos/INDEX.md)** (demos 17–24) — executable walkthroughs of every feature
+- **[Example topologies](../examples/)** — ready-to-use YAML files covering error cascading, traffic patterns, scenarios, and more
+- **[motel reference](../reference/synth.md)** — CLI reference for all commands and flags
+- **[DSL reference](../../cmd/motel/README.md)** — full topology DSL reference

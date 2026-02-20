@@ -1,9 +1,9 @@
-# motel-synth: Queue Depth, Circuit Breaker, and Backpressure
+# motel: Queue Depth, Circuit Breaker, and Backpressure
 
 *2026-02-17T15:13:42Z by Showboat 0.6.0*
 <!-- showboat-id: a1cf8797-c9f0-40fb-b71a-9b1b2c5439a0 -->
 
-Real systems develop emergent behaviour under load: queues fill up, circuit breakers trip, and backpressure slows everything down. motel-synth models these cross-trace effects with three operation-level features. This demo walks through the configuration, shows the baseline, and then observes what happens when traffic spikes and a database degrades.
+Real systems develop emergent behaviour under load: queues fill up, circuit breakers trip, and backpressure slows everything down. motel models these cross-trace effects with three operation-level features. This demo walks through the configuration, shows the baseline, and then observes what happens when traffic spikes and a database degrades.
 
 ## The topology
 
@@ -15,7 +15,7 @@ A three-tier topology: gateway calls api, api calls database. The interesting co
 Two scenarios inject stress: a 10x traffic spike at +5s and database degradation at +8s.
 
 ```bash
-cat examples/synth/backpressure-queue.yaml
+cat docs/examples/backpressure-queue.yaml
 ```
 
 ```output
@@ -83,7 +83,7 @@ scenarios:
 The validator checks the new fields: queue_depth must be non-negative, backpressure requires a valid latency_threshold and non-negative multiplier, and circuit breaker needs all three of failure_threshold, window, and cooldown.
 
 ```bash
-./build/motel-synth validate examples/synth/backpressure-queue.yaml
+motel validate docs/examples/backpressure-queue.yaml
 ```
 
 ```output
@@ -106,7 +106,7 @@ services:
 traffic:
   rate: 10/s
 EOF
-./build/motel-synth validate /tmp/bad-cb.yaml 2>&1 | head -1
+motel validate /tmp/bad-cb.yaml 2>&1 | head -1
 ```
 
 ```output
@@ -118,7 +118,7 @@ Error: service "svc" operation "op": circuit_breaker requires cooldown
 Running for 2 seconds stays within the pre-scenario window (load spike starts at +5s). At 50 req/s with a 1% base error rate, there are no circuit breaker trips or queue rejections.
 
 ```bash
-./build/motel-synth run --stdout --duration 2s examples/synth/backpressure-queue.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 2s docs/examples/backpressure-queue.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "queue_rejections: \(.queue_rejections)",
   "circuit_breaker_trips: \(.circuit_breaker_trips)",
   "error_rate < 5%: \(.error_rate < 0.05)"'
@@ -135,7 +135,7 @@ error_rate < 5%: true
 Running for 12 seconds covers both scenarios. The load spike (500 req/s from +5s) and database degradation (150ms latency, 30% errors from +8s) push database.query past the circuit breaker threshold: 5 failures within the 30s window trips it open, rejecting subsequent requests until the 10s cooldown expires.
 
 ```bash
-./build/motel-synth run --stdout --duration 12s examples/synth/backpressure-queue.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 12s docs/examples/backpressure-queue.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "circuit_breaker_trips > 0: \(.circuit_breaker_trips > 0)",
   "error_rate > 10%: \(.error_rate > 0.10)",
   "traces > 1000: \(.traces > 1000)"'
@@ -154,7 +154,7 @@ The traffic jumps from 50/s to 500/s (over 1000 traces in 12s), and the combined
 When the circuit breaker rejects a request, the engine emits a short error span with `synth.rejected=true` and `synth.rejection_reason` attributes. These are visible in the trace output alongside normal spans.
 
 ```bash
-./build/motel-synth run --stdout --duration 12s examples/synth/backpressure-queue.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 12s docs/examples/backpressure-queue.yaml 2>/dev/null | jq -rs '
   [.[] | select(any(.Attributes[]?; .Key == "synth.rejected"))] as $rejected |
   ($rejected | length > 0) as $has_rejected |
   ($rejected | [.[].Attributes[] | select(.Key == "synth.rejection_reason") | .Value.Value] | unique | sort) as $reasons |
@@ -177,7 +177,7 @@ Rejection spans have Error status and carry the reason as an attribute. A monito
 Backpressure tracks an EWMA of recent latency for api.process. When latency exceeds the 50ms threshold (caused by slow database calls during degradation), the engine amplifies subsequent durations by the configured 3x multiplier. We can observe this by comparing api.process span durations before and during the degradation window.
 
 ```bash
-./build/motel-synth run --stdout --duration 12s examples/synth/backpressure-queue.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 12s docs/examples/backpressure-queue.yaml 2>/dev/null | jq -rs '
   def ms: (.EndTime | split("T")[1] | rtrimstr("Z") | split(":") |
     ((.[0] | tonumber) * 3600 + (.[1] | tonumber) * 60 + (.[2] | tonumber)) * 1000) -
     (.StartTime | split("T")[1] | rtrimstr("Z") | split(":") |

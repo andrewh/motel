@@ -1,4 +1,4 @@
-# motel-synth: Scenario Call Topology Changes
+# motel: Scenario Call Topology Changes
 
 *2026-02-14T12:54:57Z*
 
@@ -11,7 +11,7 @@ The `add_calls` and `remove_calls` scenario directives let you model these patte
 This config defines three services. Normally, `api.request` calls `database.query`. At the 3-second mark, a circuit-breaker scenario activates for 4 seconds: it removes the database call and adds a cache fallback.
 
 ```bash
-cat examples/synth/circuit-breaker.yaml
+cat docs/examples/circuit-breaker.yaml
 ```
 
 ```output
@@ -61,7 +61,7 @@ scenarios:
 The validator checks that `add_calls` targets and `remove_calls` references exist in the topology.
 
 ```bash
-./build/motel-synth validate examples/synth/circuit-breaker.yaml
+motel validate docs/examples/circuit-breaker.yaml
 ```
 
 ```output
@@ -95,7 +95,7 @@ scenarios:
         add_calls:
           - target: ghost.lookup
 EOF
-./build/motel-synth validate /tmp/bad-add-calls.yaml 2>&1 | head -1
+motel validate /tmp/bad-add-calls.yaml 2>&1 | head -1
 ```
 
 ```output
@@ -107,7 +107,7 @@ Error: scenario "bad target": override "api.request": add_calls: target "ghost.l
 A short 2-second run stays within the pre-scenario window. All `api.request` spans call `database.query` as their downstream dependency.
 
 ```bash
-./build/motel-synth run --stdout --duration 2s examples/synth/circuit-breaker.yaml 2>/dev/null | jq -r "select(.Parent.SpanID | test(\"^0+$\") | not) | .Name" | sort -u
+motel run --stdout --duration 2s docs/examples/circuit-breaker.yaml 2>/dev/null | jq -r "select(.Parent.SpanID | test(\"^0+$\") | not) | .Name" | sort -u
 ```
 
 ```output
@@ -119,7 +119,7 @@ query
 Running for 8 seconds covers all three phases: before (0-3s), during (3-7s), and after (7-8s) the circuit-breaker window. During the scenario, `api.request` stops calling `database.query` and calls `cache.get` instead. We can observe this by examining which child span names appear under `request` spans in each time window.
 
 ```bash
-./build/motel-synth run --stdout --duration 8s examples/synth/circuit-breaker.yaml 2>/dev/null | python3 -c '
+motel run --stdout --duration 8s docs/examples/circuit-breaker.yaml 2>/dev/null | python3 -c '
 import json, sys
 
 spans = [json.loads(line) for line in sys.stdin]
@@ -168,7 +168,7 @@ Before the scenario window, `api.request` calls `database.query` as configured i
 The stats output confirms traces were generated across the full duration with spans from all three services.
 
 ```bash
-./build/motel-synth run --stdout --duration 8s examples/synth/circuit-breaker.yaml 2>&1 >/dev/null | tail -1 | jq -r "\"has traces: \(.traces > 0)\",\"spans per trace > 1: \(.spans > .traces)\",\"rate ~50/s: \(.traces_per_second > 40)\""
+motel run --stdout --duration 8s docs/examples/circuit-breaker.yaml 2>&1 >/dev/null | tail -1 | jq -r "\"has traces: \(.traces > 0)\",\"spans per trace > 1: \(.spans > .traces)\",\"rate ~50/s: \(.traces_per_second > 40)\""
 ```
 
 ```output

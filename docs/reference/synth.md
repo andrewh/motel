@@ -1,4 +1,4 @@
-# motel-synth Reference
+# motel Reference
 
 Standalone CLI that generates realistic distributed traces from a YAML topology definition.
 
@@ -9,7 +9,7 @@ Standalone CLI that generates realistic distributed traces from a YAML topology 
 Check a topology file for errors without generating any output.
 
 ```sh
-motel-synth validate <config.yaml>
+motel validate <config.yaml>
 ```
 
 Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root operations`) or a precise error on failure including the service name, operation name, and field.
@@ -19,7 +19,7 @@ Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root opera
 Generate synthetic signals from a topology definition.
 
 ```sh
-motel-synth run <config.yaml> [flags]
+motel run <config.yaml> [flags]
 ```
 
 | Flag | Type | Default | Description |
@@ -34,7 +34,7 @@ motel-synth run <config.yaml> [flags]
 
 #### Output format
 
-When `--stdout` is used, motel-synth writes to two streams:
+When `--stdout` is used, motel writes to two streams:
 
 - **stdout** — one JSON object per line, one span per line (stdouttrace format from the OpenTelemetry Go SDK). This is newline-delimited JSON, not the OTLP wire format.
 - **stderr** — a single JSON statistics object on the final line, containing `traces`, `spans`, `errors`, `failed_traces`, `error_rate`, and other run metrics.
@@ -43,23 +43,23 @@ To capture them separately:
 
 ```sh
 # Spans to file, stats to terminal
-motel-synth run --stdout --duration 5s topology.yaml > spans.jsonl
+motel run --stdout --duration 5s topology.yaml > spans.jsonl
 
 # Stats to file, spans to terminal
-motel-synth run --stdout --duration 5s topology.yaml 2> stats.json
+motel run --stdout --duration 5s topology.yaml 2> stats.json
 
 # Both to separate files
-motel-synth run --stdout --duration 5s topology.yaml > spans.jsonl 2> stats.json
+motel run --stdout --duration 5s topology.yaml > spans.jsonl 2> stats.json
 ```
 
-The stdout format is the same format accepted by `motel-synth import`, so you can round-trip: generate traces, then infer a topology from them.
+The stdout format is the same format accepted by `motel import`, so you can round-trip: generate traces, then infer a topology from them.
 
 ### import
 
 Infer a topology from existing trace data.
 
 ```sh
-motel-synth import [file] [flags]
+motel import [file] [flags]
 ```
 
 Reads trace spans and generates a YAML topology. If no file is given, reads from stdin.
@@ -75,11 +75,9 @@ Output is written to stdout as a YAML topology with a commented header noting ho
 
 ## Topology DSL
 
-The full DSL reference — services, operations, calls, attributes, traffic, and scenarios — is documented in the [motel-synth README](../../cmd/motel-synth/README.md).
+The full DSL reference — services, operations, calls, attributes, traffic, and scenarios — is documented in the [motel README](../../cmd/motel/README.md).
 
 ## Further reading
 
 - [Getting started tutorial](../tutorials/synth-getting-started.md)
-- [Example topologies](../../examples/synth/)
-- [Worked example: importing from traces](../explanation/synth/worked-example/README.md)
-- [Showboat demos](../../demos/INDEX.md) (demos 17–24)
+- [Example topologies](../examples/)

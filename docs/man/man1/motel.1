@@ -1,235 +1,131 @@
-.TH MOTEL 1 "2025-12-14" "Motel" "User Commands"
+.TH MOTEL 1 "2026-02-20" "Motel" "User Commands"
 .SH NAME
-motel \- Motel server for synthetic OpenTelemetry generation and plan execution
+motel \- topology\-driven synthetic OTLP trace generator
 .SH SYNOPSIS
-.B motel
-[\fB\-\-config\fR \fIpath\fR]
-[\fB\-\-listen\-addr\fR \fIip:port\fR | \fB\-\-port\fR \fIport\fR]
-[\fB\-\-database\-url\fR \fIurl\fR]
+.B motel validate
+\fIconfig.yaml\fR
 .PP
-.B motel
-\fB\-\-health\-check\fR
-[\fB\-\-port\fR \fIport\fR]
+.B motel run
+[\fIflags\fR]
+\fIconfig.yaml\fR
 .PP
-.B motel
-\fB\-\-validate\-config\fR
-[\fB\-\-config\fR \fIpath\fR]
+.B motel import
+[\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR]
+[\fB\-\-min\-traces\fR \fIN\fR]
+[\fIfile\fR]
 .PP
-.B motel
-\fB\-\-print\-config\fR \fByaml\fR|\fBjson\fR|\fBenv\fR
-[\fB\-\-config\fR \fIpath\fR]
-.PP
-.B motel
-\fB\-\-generate\-config\fR \fIpath\fR
-.PP
-.B motel
-\fB\-\-version\fR
+.B motel version
 .SH DESCRIPTION
 .B motel
-is the Motel HTTP API server. It runs a REST API for managing and executing
-plans and jobs and can emit or forward OpenTelemetry signals.
+generates realistic distributed traces from a YAML topology definition. No
+server or live services are required \(em describe the behaviour of your system
+and motel derives telemetry from it.
 .PP
-For quick, standalone use, Motel runs with an in\-memory SQLite database by
-default. For persistence and authentication token management, configure a
-database backend (PostgreSQL or SQLite).
-.SH OPTIONS
+The topology DSL has three concepts: \fBservices\fR contain \fBoperations\fR
+which call other operations, and \fBscenarios\fR apply time\-windowed overrides.
+The engine walks the topology tree once per trace, sampling durations and
+errors from the configured distributions.
+.SH COMMANDS
+.SS validate
+Check a topology file for errors. Prints a summary on success or a precise
+error message on failure.
+.SS run
+Generate synthetic signals from a topology.
 .TP
-.B \-\-config
-\fIpath\fR
-Path to a server configuration file (YAML or JSON). If not set, Motel searches
-standard locations (see
-.B FILES
-).
+.B \-\-duration
+\fIduration\fR
+Override simulation duration (default: from config, or 1m).
 .TP
-.B \-\-port
-\fIport\fR
-HTTP server port (default: 8080). This overrides
-.B server.port
-from configuration when explicitly set.
+.B \-\-endpoint
+\fIhost:port\fR
+OTLP endpoint (e.g. localhost:4318). Required unless \fB\-\-stdout\fR is set.
 .TP
-.B \-\-listen\-addr
-\fIip:port\fR
-Explicit listen address (for example,
-.IR 127.0.0.1:8080 ).
-If set, this takes precedence over
-.B server.host
-and
-.B server.port
-and clears the configured host.
+.B \-\-protocol
+\fIhttp/protobuf\fR|\fIgrpc\fR
+OTLP protocol (default: http/protobuf).
 .TP
-.B \-\-database\-url
-\fIurl\fR
-Database connection string. If set, Motel uses persistent storage. If the
-configured
-.B database.driver
-is still
-.BR memory ,
-Motel infers the driver from the URL:
-.BR postgres:// " or " postgresql:// " selects PostgreSQL; everything else selects SQLite."
+.B \-\-signals
+\fIsignals\fR
+Comma\-separated signals to emit: traces, metrics, logs (default: traces).
 .TP
-.B \-\-health\-check
-Perform a health check against
-.B /api/v1/health
-on localhost and exit. Intended for container health checks.
+.B \-\-slow\-threshold
+\fIduration\fR
+Spans exceeding this duration emit a slow\-span log record (default: 1s).
+Only has an effect when \fBlogs\fR is included in \fB\-\-signals\fR.
 .TP
-.B \-\-version
-Print build/version information and exit.
+.B \-\-max\-spans\-per\-trace
+\fIN\fR
+Safety limit for deep topologies (default: 10000).
 .TP
-.B \-\-generate\-config
-\fIpath\fR
-Write a sample configuration file and exit. The format is inferred from the
-file extension (YAML by default; JSON if the filename ends in
-.BR .json ).
+.B \-\-stdout
+Emit signals to stdout as JSON instead of sending to an endpoint.
+.SS import
+Infer a topology from existing trace data. Reads from \fIfile\fR or stdin if
+no file is given. Output is a YAML topology written to stdout.
 .TP
-.B \-\-print\-config
-\fByaml\fR|\fBjson\fR|\fBenv\fR
-Print the effective configuration (after file/env processing) and exit.
+.B \-\-format
+\fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR
+Input format (default: auto). The auto detector examines the first line.
 .TP
-.B \-\-validate\-config
-Validate configuration, print a summary, and exit.
-.SH ADMIN SEEDING
-When
-.B MOTEL_ADMIN_EMAIL
-is set and the database contains no users, the server creates an admin user and
-prints the API token to stdout on startup. Use
-.B MOTEL_ADMIN_NAME
-to set the admin name (default:
-.BR admin ).
-Seeding is skipped if any users already exist.
+.B \-\-min\-traces
+\fIN\fR
+Minimum traces for statistical accuracy; warns if fewer (default: 1).
+.SS version
+Print the build version and exit.
+.SH OUTPUT FORMAT
+When \fB\-\-stdout\fR is used with \fBrun\fR:
+.IP \(bu 2
+\fBstdout\fR \(em one JSON object per line (stdouttrace format), one span per line.
+.IP \(bu 2
+\fBstderr\fR \(em a single JSON statistics object on the final line, containing
+trace count, span count, error rate, and other run metrics.
 .PP
-User and token management after initial setup is handled by the
-.BR motelier (1)
-CLI client.
-.SH CONFIGURATION
-Motel uses configuration in this precedence order:
+This split allows capturing spans and stats separately:
 .PP
-command\-line flags \-> environment variables \-> configuration file \->
-defaults.
+.RS
+.nf
+motel run \-\-stdout config.yaml > spans.jsonl 2> stats.json
+.fi
+.RE
 .PP
-Environment variables are read with the
-.B MOTEL_
-prefix and use underscores for nesting (for example,
-.BR MOTEL_SERVER_PORT ).
-For backward compatibility,
-.B DATABASE_URL
-and common OpenTelemetry variables (for example
-.BR OTEL_EXPORTER_OTLP_ENDPOINT )
-are also supported.
+The stdout format is the same format accepted by \fBmotel import\fR.
+.SH TOPOLOGY DSL
+The topology file requires \fBversion: 1\fR and defines services, operations,
+traffic, and optional scenarios. See the full DSL reference in the project
+README.
+.SH EXAMPLES
+Validate a topology:
+.PP
+.RS
+.nf
+motel validate docs/examples/basic\-topology.yaml
+.fi
+.RE
+.PP
+Generate traces to stdout for 5 seconds:
+.PP
+.RS
+.nf
+motel run \-\-stdout \-\-duration 5s docs/examples/basic\-topology.yaml
+.fi
+.RE
+.PP
+Send traces to a collector:
+.PP
+.RS
+.nf
+motel run \-\-endpoint localhost:4318 \-\-duration 30s topology.yaml
+.fi
+.RE
+.PP
+Import a topology from trace data:
+.PP
+.RS
+.nf
+motel import traces.jsonl > inferred\-topology.yaml
+.fi
+.RE
 .SH FILES
 .TP
-.B ./config.yaml
-Preferred config filename in the working directory.
-.TP
-.B ./motel.yaml
-Legacy config filename in the working directory.
-.TP
-.B ~/.motel/config.yaml
-Preferred config filename in the user config directory.
-.TP
-.B ~/.motel/motel.yaml
-Legacy config filename in the user config directory.
-.TP
-.B /etc/motel/config.yaml
-Preferred system config filename.
-.TP
-.B /etc/motel/motel.yaml
-Legacy system config filename.
-.TP
-.B $MOTEL_CONFIG_DIR/config.yaml
-Preferred config filename in an explicit config directory.
-.TP
-.B $MOTEL_CONFIG_DIR/motel.yaml
-Legacy config filename in an explicit config directory.
-.SH ENVIRONMENT
-.TP
-.B MOTEL_LISTEN_ADDR
-Fallback listen address when
-.B \-\-listen\-addr
-is not set.
-.TP
-.B DATABASE_URL
-Legacy database URL (maps to
-.BR database.url ).
-.TP
-.B MOTEL_SERVER_PORT
-Server port (maps to
-.BR server.port ).
-.TP
-.B MOTEL_DATABASE_URL
-Database URL (maps to
-.BR database.url ).
-.TP
-.B OTEL_EXPORTER_OTLP_ENDPOINT
-OpenTelemetry endpoint (maps to
-.BR telemetry.endpoint ).
-.TP
-.B OTEL_EXPORTER_OTLP_HEADERS
-OpenTelemetry OTLP headers (maps to
-.BR telemetry.headers ).
-.TP
-.B MOTEL_ADMIN_EMAIL
-Admin user email for automatic seeding on startup (maps to
-.BR admin.email ).
-.TP
-.B MOTEL_ADMIN_NAME
-Admin user name for automatic seeding (default:
-.BR admin ;
-maps to
-.BR admin.name ).
-.SH EXAMPLES
-Start the server with defaults (in\-memory storage, console telemetry
-exporters):
-.PP
-.nf
-motel
-.fi
-.PP
-Bind to localhost only:
-.PP
-.nf
-motel \-\-listen\-addr 127.0.0.1:8080
-.fi
-.PP
-Run with PostgreSQL persistence:
-.PP
-.nf
-export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"
-motel
-.fi
-.PP
-Run with SQLite persistence:
-.PP
-.nf
-motel \-\-database\-url ./motel.sqlite
-.fi
-.PP
-Generate a sample config file and validate it:
-.PP
-.nf
-motel \-\-generate\-config motel.yaml
-motel \-\-config motel.yaml \-\-validate\-config
-.fi
-.PP
-Seed an admin user on first startup:
-.PP
-.nf
-export DATABASE_URL="postgres://localhost:5432/motel?sslmode=disable"
-export MOTEL_ADMIN_EMAIL=admin@example.com
-motel serve
-# Token is printed to stdout on first start only
-.fi
-.SH EXIT STATUS
-.TP
-.B 0
-Success.
-.TP
-.B 1
-Configuration error, startup failure, or command failure.
-.SH SEE ALSO
-.BR motelier (1)
-.PP
-Run
-.B motel \-\-help
-for a complete, version\-specific list of flags, and use
-.B motel \-\-generate\-config
-to generate a sample configuration file.
+.I docs/examples/*.yaml
+Example topology files included with the project.

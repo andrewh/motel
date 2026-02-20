@@ -1,15 +1,15 @@
-# motel-synth: Cascading Failure with Timeout and Retry
+# motel: Cascading Failure with Timeout and Retry
 
 *2026-02-13T18:40:27Z*
 
-When a downstream service slows down, the effects should propagate through the call chain: callers time out, retry, and eventually cascade errors upward. motel-synth now models this with per-call timeout, retry, and error cascading. This demo walks through the configuration, validates it, and shows the observable impact during a scenario-driven database degradation.
+When a downstream service slows down, the effects should propagate through the call chain: callers time out, retry, and eventually cascade errors upward. motel now models this with per-call timeout, retry, and error cascading. This demo walks through the configuration, validates it, and shows the observable impact during a scenario-driven database degradation.
 
 ## The topology
 
 A three-tier topology: gateway calls api, api calls database. Each call has a timeout and retries. At the 5-second mark, a scenario degrades database.query from 20ms to 200ms with 25% errors.
 
 ```bash
-cat examples/synth/cascading-failure.yaml
+cat docs/examples/cascading-failure.yaml
 ```
 
 ```output
@@ -64,7 +64,7 @@ The key fields are on each call: `timeout` caps how long the caller waits, `retr
 The validator checks timeout, retries, and retry_backoff fields alongside the usual topology structure.
 
 ```bash
-./build/motel-synth validate examples/synth/cascading-failure.yaml
+motel validate docs/examples/cascading-failure.yaml
 ```
 
 ```output
@@ -91,7 +91,7 @@ services:
 traffic:
   rate: 10/s
 EOF
-./build/motel-synth validate /tmp/bad-retry.yaml 2>&1 | head -1
+motel validate /tmp/bad-retry.yaml 2>&1 | head -1
 ```
 
 ```output
@@ -103,7 +103,7 @@ Error: service "svc" operation "op": call "other.op" retry_backoff requires retr
 Running for 2 seconds stays within the pre-scenario window (scenario starts at +5s). With only a 1% base error rate, timeouts are zero and retries are rare.
 
 ```bash
-./build/motel-synth run --stdout --duration 2s examples/synth/cascading-failure.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 2s docs/examples/cascading-failure.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "timeouts: \(.timeouts)",
   "error_rate < 5%: \(.error_rate < 0.05)"'
 ```
@@ -118,7 +118,7 @@ error_rate < 5%: true
 Running for 10 seconds covers the full degradation window (5s-15s). Database latency jumps to 200ms, exceeding the 100ms timeout. Each failed call retries, and failures cascade upward through api to gateway.
 
 ```bash
-./build/motel-synth run --stdout --duration 10s examples/synth/cascading-failure.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 10s docs/examples/cascading-failure.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "timeouts > 0: \(.timeouts > 0)",
   "retries > 0: \(.retries > 0)",
   "error_rate > 10%: \(.error_rate > 0.10)"'
@@ -137,7 +137,7 @@ The timeouts and retries counters confirm that cascading failure mechanics are a
 During degradation, traces contain multiple query spans from retry attempts. A trace with retries has more than the usual 3 spans (gateway, api, database). With 2 retries on the api-to-database call and 1 retry on gateway-to-api, a maximally-retried trace produces up to 9 spans.
 
 ```bash
-./build/motel-synth run --stdout --duration 8s examples/synth/cascading-failure.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 8s docs/examples/cascading-failure.yaml 2>/dev/null | jq -rs '
   group_by(.SpanContext.TraceID) |
   map({
     span_count: length,
@@ -165,7 +165,7 @@ The max of 6 query spans comes from api retrying twice (3 attempts), and gateway
 Timeout capping limits how long a caller perceives a child call to take. The child span keeps its full duration (the downstream service does not know the caller gave up), but the parent advances time based on the capped timeout. This keeps parent span durations realistic — a gateway with a 150ms timeout never shows a 500ms span.
 
 ```bash
-./build/motel-synth run --stdout --duration 8s examples/synth/cascading-failure.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 8s docs/examples/cascading-failure.yaml 2>/dev/null | jq -rs '
   def ms: split("T")[1] | rtrimstr("Z") | split(":") |
     ((.[0] | tonumber) * 3600 + (.[1] | tonumber) * 60 + (.[2] | tonumber)) * 1000;
   group_by(.SpanContext.TraceID) |

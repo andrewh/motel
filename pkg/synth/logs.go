@@ -20,7 +20,7 @@ type LogObserver struct {
 // A slowThreshold of 0 disables slow span detection.
 func NewLogObserver(lp log.LoggerProvider, slowThreshold time.Duration) *LogObserver {
 	return &LogObserver{
-		logger:        lp.Logger("motel-synth"),
+		logger:        lp.Logger("motel"),
 		slowThreshold: slowThreshold,
 	}
 }
