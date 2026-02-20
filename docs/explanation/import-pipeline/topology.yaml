@@ -1,0 +1,30 @@
+# Purpose-built topology for the worked example.
+# 3 services, 1 probabilistic call, 1 service attribute, ~10% error rate.
+# Small enough that every span can be examined individually.
+
+version: 1
+services:
+  api:
+    attributes:
+      deployment.environment: staging
+    operations:
+      handle:
+        duration: 20ms +/- 5ms
+        error_rate: 10%
+        calls:
+          - database.query
+          - target: cache.lookup
+            probability: 0.5
+
+  database:
+    operations:
+      query:
+        duration: 8ms +/- 2ms
+
+  cache:
+    operations:
+      lookup:
+        duration: 2ms +/- 1ms
+
+traffic:
+  rate: 10/s
