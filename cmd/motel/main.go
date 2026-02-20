@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -250,10 +252,14 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		return err
 	}
 
+	res := resource.NewSchemaless(
+		attribute.String("motel.version", version),
+	)
+
 	// Create tracer provider (no-op if traces not requested)
 	var tp *sdktrace.TracerProvider
 	if enabledSignals["traces"] {
-		tp, err = createTracerProvider(ctx, opts)
+		tp, err = createTracerProvider(ctx, opts, res)
 		if err != nil {
 			return fmt.Errorf("creating tracer provider: %w", err)
 		}
@@ -271,7 +277,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
-		mp, shutdownMP, mErr := createMeterProvider(ctx, opts)
+		mp, shutdownMP, mErr := createMeterProvider(ctx, opts, res)
 		if mErr != nil {
 			return fmt.Errorf("creating meter provider: %w", mErr)
 		}
@@ -290,7 +296,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	if enabledSignals["logs"] {
-		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts)
+		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts, res)
 		if lErr != nil {
 			return fmt.Errorf("creating logger provider: %w", lErr)
 		}
@@ -333,26 +339,26 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	return json.NewEncoder(os.Stderr).Encode(stats)
 }
 
-func createTracerProvider(ctx context.Context, opts runOptions) (*sdktrace.TracerProvider, error) {
+func createTracerProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdktrace.TracerProvider, error) {
 	if opts.stdout {
 		exporter, err := stdouttrace.New(stdouttrace.WithWriter(os.Stdout))
 		if err != nil {
 			return nil, err
 		}
-		return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter)), nil
+		return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter), sdktrace.WithResource(res)), nil
 	}
 
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCProvider(ctx, opts.endpoint)
+		return createGRPCProvider(ctx, opts.endpoint, res)
 	case "http/protobuf", "":
-		return createHTTPProvider(ctx, opts.endpoint)
+		return createHTTPProvider(ctx, opts.endpoint, res)
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", opts.protocol)
 	}
 }
 
-func createHTTPProvider(ctx context.Context, endpoint string) (*sdktrace.TracerProvider, error) {
+func createHTTPProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdktrace.TracerProvider, error) {
 	var httpOpts []otlptracehttp.Option
 	if endpoint != "" {
 		httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(endpoint), otlptracehttp.WithInsecure())
@@ -361,10 +367,10 @@ func createHTTPProvider(ctx context.Context, endpoint string) (*sdktrace.TracerP
 	if err != nil {
 		return nil, err
 	}
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res)), nil
 }
 
-func createGRPCProvider(ctx context.Context, endpoint string) (*sdktrace.TracerProvider, error) {
+func createGRPCProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdktrace.TracerProvider, error) {
 	var grpcOpts []otlptracegrpc.Option
 	if endpoint != "" {
 		grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
@@ -373,32 +379,32 @@ func createGRPCProvider(ctx context.Context, endpoint string) (*sdktrace.TracerP
 	if err != nil {
 		return nil, err
 	}
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res)), nil
 }
 
 type shutdownFunc func(ctx context.Context) error
 
-func createMeterProvider(ctx context.Context, opts runOptions) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+func createMeterProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
 	if opts.stdout {
 		exporter, err := stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
 		if err != nil {
 			return nil, nil, err
 		}
-		mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+		mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
 		return mp, mp.Shutdown, nil
 	}
 
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCMeterProvider(ctx, opts.endpoint)
+		return createGRPCMeterProvider(ctx, opts.endpoint, res)
 	case "http/protobuf", "":
-		return createHTTPMeterProvider(ctx, opts.endpoint)
+		return createHTTPMeterProvider(ctx, opts.endpoint, res)
 	default:
 		return nil, nil, fmt.Errorf("unsupported protocol %q for metrics", opts.protocol)
 	}
 }
 
-func createHTTPMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+func createHTTPMeterProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
 	var httpOpts []otlpmetrichttp.Option
 	if endpoint != "" {
 		httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(endpoint), otlpmetrichttp.WithInsecure())
@@ -407,11 +413,11 @@ func createHTTPMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.M
 	if err != nil {
 		return nil, nil, err
 	}
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
 	return mp, mp.Shutdown, nil
 }
 
-func createGRPCMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.MeterProvider, shutdownFunc, error) {
+func createGRPCMeterProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
 	var grpcOpts []otlpmetricgrpc.Option
 	if endpoint != "" {
 		grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(endpoint), otlpmetricgrpc.WithInsecure())
@@ -420,31 +426,31 @@ func createGRPCMeterProvider(ctx context.Context, endpoint string) (*sdkmetric.M
 	if err != nil {
 		return nil, nil, err
 	}
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
 	return mp, mp.Shutdown, nil
 }
 
-func createLoggerProvider(ctx context.Context, opts runOptions) (*sdklog.LoggerProvider, shutdownFunc, error) {
+func createLoggerProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
 	if opts.stdout {
 		exporter, err := stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
 		if err != nil {
 			return nil, nil, err
 		}
-		lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)))
+		lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)), sdklog.WithResource(res))
 		return lp, lp.Shutdown, nil
 	}
 
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCLoggerProvider(ctx, opts.endpoint)
+		return createGRPCLoggerProvider(ctx, opts.endpoint, res)
 	case "http/protobuf", "":
-		return createHTTPLoggerProvider(ctx, opts.endpoint)
+		return createHTTPLoggerProvider(ctx, opts.endpoint, res)
 	default:
 		return nil, nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
 	}
 }
 
-func createHTTPLoggerProvider(ctx context.Context, endpoint string) (*sdklog.LoggerProvider, shutdownFunc, error) {
+func createHTTPLoggerProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
 	var httpOpts []otlploghttp.Option
 	if endpoint != "" {
 		httpOpts = append(httpOpts, otlploghttp.WithEndpoint(endpoint), otlploghttp.WithInsecure())
@@ -453,11 +459,11 @@ func createHTTPLoggerProvider(ctx context.Context, endpoint string) (*sdklog.Log
 	if err != nil {
 		return nil, nil, err
 	}
-	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)), sdklog.WithResource(res))
 	return lp, lp.Shutdown, nil
 }
 
-func createGRPCLoggerProvider(ctx context.Context, endpoint string) (*sdklog.LoggerProvider, shutdownFunc, error) {
+func createGRPCLoggerProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
 	var grpcOpts []otlploggrpc.Option
 	if endpoint != "" {
 		grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(endpoint), otlploggrpc.WithInsecure())
@@ -466,7 +472,7 @@ func createGRPCLoggerProvider(ctx context.Context, endpoint string) (*sdklog.Log
 	if err != nil {
 		return nil, nil, err
 	}
-	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)), sdklog.WithResource(res))
 	return lp, lp.Shutdown, nil
 }
 
