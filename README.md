@@ -12,6 +12,13 @@ metrics, and logs — no live services required.
 ## Install
 
 ```sh
+brew tap andrewh/tap
+brew install motel
+```
+
+Or with Go:
+
+```sh
 go install github.com/andrewh/motel/cmd/motel@latest
 ```
 
