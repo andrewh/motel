@@ -256,5 +256,5 @@ shared server dependency.
 ## Further Reading
 
 - [`examples/synth/`](../../examples/synth/) — example topology configs
-- [`demos/`](../../demos/) — executable showboat demos 17-21 cover motel-synth
+- [`demos/`](../../demos/) — executable showboat demos 17-24 cover motel-synth
 - [`pkg/synth/`](../../pkg/synth/) — implementation source
