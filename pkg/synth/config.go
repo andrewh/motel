@@ -248,14 +248,23 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("at least one service is required")
 	}
 
-	// Build a lookup of all known operations for reference validation
+	// Build lookups for reference validation:
+	// knownOps: all defined operations
+	// opCalls: which targets each operation calls (for remove_calls validation)
 	knownOps := make(map[string]bool)
+	opCalls := make(map[string]map[string]bool)
 	for _, svc := range cfg.Services {
 		if len(svc.Operations) == 0 {
 			return fmt.Errorf("service %q must have at least one operation", svc.Name)
 		}
 		for _, op := range svc.Operations {
-			knownOps[svc.Name+"."+op.Name] = true
+			ref := svc.Name + "." + op.Name
+			knownOps[ref] = true
+			targets := make(map[string]bool, len(op.Calls))
+			for _, call := range op.Calls {
+				targets[call.Target] = true
+			}
+			opCalls[ref] = targets
 		}
 	}
 
@@ -396,7 +405,7 @@ func ValidateConfig(cfg *Config) error {
 					return fmt.Errorf("scenario %q: override %q: attribute %q: %w", sc.Name, ref, attrName, err)
 				}
 			}
-			if err := validateCallChanges(sc.Name, ref, override, knownOps); err != nil {
+			if err := validateCallChanges(sc.Name, ref, override, knownOps, opCalls[ref]); err != nil {
 				return err
 			}
 		}
@@ -447,7 +456,7 @@ func validateTrafficConfig(tc TrafficConfig, isOverlay bool) error {
 }
 
 // validateCallChanges validates add_calls and remove_calls within a scenario override.
-func validateCallChanges(scenarioName, ref string, override OverrideConfig, knownOps map[string]bool) error {
+func validateCallChanges(scenarioName, ref string, override OverrideConfig, knownOps map[string]bool, callerTargets map[string]bool) error {
 	prefix := fmt.Sprintf("scenario %q: override %q", scenarioName, ref)
 	for _, call := range override.AddCalls {
 		if err := validateCallConfig(call, knownOps); err != nil {
@@ -460,6 +469,9 @@ func validateCallChanges(scenarioName, ref string, override OverrideConfig, know
 		}
 		if !knownOps[rc.Target] {
 			return fmt.Errorf("%s: remove_calls: target %q references unknown operation", prefix, rc.Target)
+		}
+		if !callerTargets[rc.Target] {
+			return fmt.Errorf("%s: remove_calls: target %q is not called by %s", prefix, rc.Target, ref)
 		}
 	}
 	return nil
