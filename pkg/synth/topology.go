@@ -3,7 +3,9 @@
 package synth
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -238,6 +240,12 @@ func findRoots(topo *Topology) []*Operation {
 			}
 		}
 	}
+	slices.SortFunc(roots, func(a, b *Operation) int {
+		if c := cmp.Compare(a.Service.Name, b.Service.Name); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
 	return roots
 }
 

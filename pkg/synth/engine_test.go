@@ -1784,8 +1784,10 @@ func TestEngineWalkTraceWithAddCalls(t *testing.T) {
 		},
 	}
 
+	gatewayOp := topo.Services["gateway"].Operations["request"]
+
 	var stats Stats
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, overrides, &stats, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), gatewayOp, time.Now(), 0, overrides, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
