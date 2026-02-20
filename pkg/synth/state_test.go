@@ -350,7 +350,7 @@ func TestEngineCircuitBreakerIntegration(t *testing.T) {
 	opState := engine.State.Get("svc.op")
 	require.NotNil(t, opState)
 
-	for range 2 {
+	for range opState.FailureThreshold {
 		engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	}
 
