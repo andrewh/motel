@@ -92,6 +92,8 @@ All three signal types are driven by the same topology.
 - [CLI reference](docs/reference/synth.md)
 - [DSL reference](cmd/motel/README.md) — full topology schema
 - [Example topologies](docs/examples/)
+- [Modelling your services](docs/how-to/model-your-services.md)
+- [How import infers a topology](docs/explanation/import-pipeline/README.md)
 
 ## Licence
 

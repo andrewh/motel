@@ -4,7 +4,7 @@
 
 The `motel import` command reverses the normal workflow: instead of writing a topology by hand, you feed in real trace data and it infers one for you. This is useful for bootstrapping a synth topology from production traces or from another tracing tool's output.
 
-For a detailed walkthrough of how each pipeline stage processes real trace data, see the [worked example](../docs/explanation/synth/worked-example/README.md).
+For a detailed walkthrough of how each pipeline stage processes real trace data, see [How import infers a topology](../explanation/import-pipeline/README.md).
 
 ## How the inference works
 

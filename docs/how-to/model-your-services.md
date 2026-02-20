@@ -169,4 +169,4 @@ A practical workflow is to import a rough topology from traces, then refine it b
 
 - [CLI reference](../reference/synth.md) — CLI flags and output format
 - [DSL reference](../../cmd/motel/README.md) — full topology schema
-- [Worked example: import pipeline](../explanation/worked-example/README.md) — deep-dive into how import infers topology from traces
+- [How import infers a topology](../explanation/import-pipeline/README.md) — step-by-step walkthrough with real trace data

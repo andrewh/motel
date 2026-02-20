@@ -81,3 +81,5 @@ The full DSL reference — services, operations, calls, attributes, traffic, and
 
 - [Getting started tutorial](../tutorials/getting-started.md)
 - [Example topologies](../examples/)
+- [How import infers a topology](../explanation/import-pipeline/README.md)
+- [Modelling your services](../how-to/model-your-services.md)
