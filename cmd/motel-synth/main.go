@@ -117,12 +117,16 @@ func validateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			svcLabel := "services"
+			if len(topo.Services) == 1 {
+				svcLabel = "service"
+			}
 			rootLabel := "operations"
 			if len(topo.Roots) == 1 {
 				rootLabel = "operation"
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d services, %d root %s\n",
-				len(topo.Services), len(topo.Roots), rootLabel)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n",
+				len(topo.Services), svcLabel, len(topo.Roots), rootLabel)
 			return nil
 		},
 	}

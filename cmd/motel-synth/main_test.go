@@ -82,7 +82,31 @@ traffic:
 
 		err := root.Execute()
 		require.NoError(t, err)
+		assert.Contains(t, out.String(), "2 services")
 		assert.Contains(t, out.String(), "2 root operations")
+	})
+
+	t.Run("singular service", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "1 service,")
 	})
 
 	t.Run("invalid config", func(t *testing.T) {
