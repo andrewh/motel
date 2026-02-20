@@ -41,6 +41,7 @@ type ResolvedCircuitBreaker struct {
 type Operation struct {
 	Service        *Service
 	Name           string
+	Ref            string
 	Duration       Distribution
 	ErrorRate      float64
 	Calls          []Call
@@ -125,6 +126,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 			op := &Operation{
 				Service:    svc,
 				Name:       opCfg.Name,
+				Ref:        svcCfg.Name + "." + opCfg.Name,
 				Duration:   dist,
 				ErrorRate:  errorRate,
 				CallStyle:  opCfg.CallStyle,
@@ -262,7 +264,7 @@ func detectCycles(topo *Topology) error {
 	visit = func(op *Operation) error {
 		switch state[op] {
 		case visiting:
-			return fmt.Errorf("cycle detected involving %s.%s", op.Service.Name, op.Name)
+			return fmt.Errorf("cycle detected involving %s", op.Ref)
 		case visited:
 			return nil
 		}

@@ -157,10 +157,8 @@ func validateScenarioCycles(sc Scenario, topo *Topology) error {
 	// Start with base topology edges
 	for _, svc := range topo.Services {
 		for _, op := range svc.Operations {
-			ref := svc.Name + "." + op.Name
 			for _, call := range op.Calls {
-				targetRef := call.Operation.Service.Name + "." + call.Operation.Name
-				adj[ref] = append(adj[ref], targetRef)
+				adj[op.Ref] = append(adj[op.Ref], call.Operation.Ref)
 			}
 		}
 	}
@@ -185,8 +183,7 @@ func validateScenarioCycles(sc Scenario, topo *Topology) error {
 
 		// Add calls
 		for _, call := range ov.AddCalls {
-			targetRef := call.Operation.Service.Name + "." + call.Operation.Name
-			adj[ref] = append(adj[ref], targetRef)
+			adj[ref] = append(adj[ref], call.Operation.Ref)
 		}
 	}
 
