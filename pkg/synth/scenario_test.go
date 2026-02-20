@@ -680,6 +680,50 @@ func TestBuildScenariosCycleDetection(t *testing.T) {
 	})
 }
 
+func TestBuildScenariosCycleDetectionDeterministic(t *testing.T) {
+	t.Parallel()
+
+	// Build a topology with many nodes to make map iteration order visible
+	services := make(map[string]*Service)
+	ops := make(map[string]*Operation)
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		svc := &Service{Name: name, Operations: make(map[string]*Operation)}
+		op := &Operation{Service: svc, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+		svc.Operations["op"] = op
+		services[name] = svc
+		ops[name] = op
+	}
+	// Chain: a -> b -> c -> d -> e
+	ops["a"].Calls = []Call{{Operation: ops["b"]}}
+	ops["b"].Calls = []Call{{Operation: ops["c"]}}
+	ops["c"].Calls = []Call{{Operation: ops["d"]}}
+	ops["d"].Calls = []Call{{Operation: ops["e"]}}
+
+	topo := &Topology{Services: services, Roots: []*Operation{ops["a"]}}
+
+	// Scenario adds e -> a, creating a cycle
+	cfgs := []ScenarioConfig{{
+		Name:     "cyclic",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"e.op": {AddCalls: []CallConfig{{Target: "a.op"}}},
+		},
+	}}
+
+	// Run multiple times — error message must be identical each time
+	var firstErr string
+	for i := range 10 {
+		_, err := BuildScenarios(cfgs, topo)
+		require.Error(t, err, "iteration %d", i)
+		if i == 0 {
+			firstErr = err.Error()
+		} else {
+			assert.Equal(t, firstErr, err.Error(), "cycle error message should be deterministic (iteration %d)", i)
+		}
+	}
+}
+
 func TestResolveOverridesMergesCallChanges(t *testing.T) {
 	t.Parallel()
 
