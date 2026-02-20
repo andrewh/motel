@@ -54,7 +54,7 @@ The validator checks scenario timing, override references, and duration formats.
 ```
 
 ```output
-Configuration valid: 2 services, 1 root operations
+Configuration valid: 2 services, 1 root operation
 ```
 
 Invalid scenario references are caught. For example, overriding a non-existent operation:

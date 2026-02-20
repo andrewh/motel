@@ -68,7 +68,7 @@ The validator checks timeout, retries, and retry_backoff fields alongside the us
 ```
 
 ```output
-Configuration valid: 3 services, 1 root operations
+Configuration valid: 3 services, 1 root operation
 ```
 
 Misconfigured retry fields are caught. For example, setting retry_backoff without retries:
