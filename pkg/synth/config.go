@@ -67,14 +67,31 @@ func (c *CallConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
+// BackpressureConfig describes backpressure behaviour for an operation.
+type BackpressureConfig struct {
+	LatencyThreshold   string  `yaml:"latency_threshold"`
+	DurationMultiplier float64 `yaml:"duration_multiplier,omitempty"`
+	ErrorRateAdd       string  `yaml:"error_rate_add,omitempty"`
+}
+
+// CircuitBreakerConfig describes circuit breaker behaviour for an operation.
+type CircuitBreakerConfig struct {
+	FailureThreshold int    `yaml:"failure_threshold"`
+	Window           string `yaml:"window"`
+	Cooldown         string `yaml:"cooldown"`
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
-	Domain     string                          `yaml:"domain,omitempty"`
-	Duration   string                          `yaml:"duration"`
-	ErrorRate  string                          `yaml:"error_rate,omitempty"`
-	Calls      []CallConfig                    `yaml:"calls,omitempty"`
-	CallStyle  string                          `yaml:"call_style,omitempty"`
-	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	Domain         string                          `yaml:"domain,omitempty"`
+	Duration       string                          `yaml:"duration"`
+	ErrorRate      string                          `yaml:"error_rate,omitempty"`
+	Calls          []CallConfig                    `yaml:"calls,omitempty"`
+	CallStyle      string                          `yaml:"call_style,omitempty"`
+	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
+	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
+	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
 }
 
 // ServiceConfig describes a service in the topology.
@@ -86,13 +103,16 @@ type ServiceConfig struct {
 
 // OperationConfig describes an operation within a service.
 type OperationConfig struct {
-	Name       string
-	Domain     string
-	Duration   string
-	ErrorRate  string
-	Calls      []CallConfig
-	CallStyle  string
-	Attributes map[string]AttributeValueConfig
+	Name           string
+	Domain         string
+	Duration       string
+	ErrorRate      string
+	Calls          []CallConfig
+	CallStyle      string
+	Attributes     map[string]AttributeValueConfig
+	QueueDepth     int
+	Backpressure   *BackpressureConfig
+	CircuitBreaker *CircuitBreakerConfig
 }
 
 // TrafficConfig describes the traffic generation pattern.
@@ -204,13 +224,16 @@ func LoadConfig(path string) (*Config, error) {
 		for _, opName := range opNames {
 			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
-				Name:       opName,
-				Domain:     rawOp.Domain,
-				Duration:   rawOp.Duration,
-				ErrorRate:  rawOp.ErrorRate,
-				Calls:      rawOp.Calls,
-				CallStyle:  rawOp.CallStyle,
-				Attributes: rawOp.Attributes,
+				Name:           opName,
+				Domain:         rawOp.Domain,
+				Duration:       rawOp.Duration,
+				ErrorRate:      rawOp.ErrorRate,
+				Calls:          rawOp.Calls,
+				CallStyle:      rawOp.CallStyle,
+				Attributes:     rawOp.Attributes,
+				QueueDepth:     rawOp.QueueDepth,
+				Backpressure:   rawOp.Backpressure,
+				CircuitBreaker: rawOp.CircuitBreaker,
 			})
 		}
 		cfg.Services = append(cfg.Services, svc)
@@ -256,6 +279,45 @@ func ValidateConfig(cfg *Config) error {
 			for attrName, attrCfg := range op.Attributes {
 				if _, err := NewAttributeGenerator(attrCfg); err != nil {
 					return fmt.Errorf("service %q operation %q: attribute %q: %w", svc.Name, op.Name, attrName, err)
+				}
+			}
+
+			if op.QueueDepth < 0 {
+				return fmt.Errorf("service %q operation %q: queue_depth must not be negative", svc.Name, op.Name)
+			}
+
+			if bp := op.Backpressure; bp != nil {
+				if bp.LatencyThreshold == "" {
+					return fmt.Errorf("service %q operation %q: backpressure requires latency_threshold", svc.Name, op.Name)
+				}
+				if _, err := time.ParseDuration(bp.LatencyThreshold); err != nil {
+					return fmt.Errorf("service %q operation %q: backpressure: invalid latency_threshold: %w", svc.Name, op.Name, err)
+				}
+				if bp.DurationMultiplier < 0 {
+					return fmt.Errorf("service %q operation %q: backpressure: duration_multiplier must not be negative", svc.Name, op.Name)
+				}
+				if bp.ErrorRateAdd != "" {
+					if _, err := parseErrorRate(bp.ErrorRateAdd); err != nil {
+						return fmt.Errorf("service %q operation %q: backpressure: invalid error_rate_add: %w", svc.Name, op.Name, err)
+					}
+				}
+			}
+
+			if cb := op.CircuitBreaker; cb != nil {
+				if cb.FailureThreshold <= 0 {
+					return fmt.Errorf("service %q operation %q: circuit_breaker: failure_threshold must be positive", svc.Name, op.Name)
+				}
+				if cb.Window == "" {
+					return fmt.Errorf("service %q operation %q: circuit_breaker requires window", svc.Name, op.Name)
+				}
+				if _, err := time.ParseDuration(cb.Window); err != nil {
+					return fmt.Errorf("service %q operation %q: circuit_breaker: invalid window: %w", svc.Name, op.Name, err)
+				}
+				if cb.Cooldown == "" {
+					return fmt.Errorf("service %q operation %q: circuit_breaker requires cooldown", svc.Name, op.Name)
+				}
+				if _, err := time.ParseDuration(cb.Cooldown); err != nil {
+					return fmt.Errorf("service %q operation %q: circuit_breaker: invalid cooldown: %w", svc.Name, op.Name, err)
 				}
 			}
 

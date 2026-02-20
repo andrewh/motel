@@ -307,6 +307,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Duration:         duration,
 		Observers:        observers,
 		MaxSpansPerTrace: opts.maxSpansPerTrace,
+		State:            synth.NewSimulationState(topo),
 	}
 
 	// Handle OS signals for graceful shutdown

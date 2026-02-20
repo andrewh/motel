@@ -1109,6 +1109,159 @@ func TestValidateConfig(t *testing.T) {
 		cfg := twoServiceConfig()
 		require.NoError(t, ValidateConfig(cfg))
 	})
+
+	t.Run("negative queue_depth rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].QueueDepth = -1
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "queue_depth must not be negative")
+	})
+
+	t.Run("zero queue_depth accepted", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].QueueDepth = 0
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("positive queue_depth accepted", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].QueueDepth = 10
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("backpressure missing latency_threshold rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].Backpressure = &BackpressureConfig{
+			DurationMultiplier: 2.0,
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "backpressure requires latency_threshold")
+	})
+
+	t.Run("backpressure invalid latency_threshold rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].Backpressure = &BackpressureConfig{
+			LatencyThreshold: "not-a-duration",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid latency_threshold")
+	})
+
+	t.Run("backpressure negative duration_multiplier rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].Backpressure = &BackpressureConfig{
+			LatencyThreshold:   "50ms",
+			DurationMultiplier: -1.0,
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duration_multiplier must not be negative")
+	})
+
+	t.Run("backpressure invalid error_rate_add rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].Backpressure = &BackpressureConfig{
+			LatencyThreshold: "50ms",
+			ErrorRateAdd:     "garbage",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid error_rate_add")
+	})
+
+	t.Run("valid backpressure accepted", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].Backpressure = &BackpressureConfig{
+			LatencyThreshold:   "100ms",
+			DurationMultiplier: 3.0,
+			ErrorRateAdd:       "10%",
+		}
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("circuit_breaker missing failure_threshold rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			Window:   "1m",
+			Cooldown: "10s",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failure_threshold must be positive")
+	})
+
+	t.Run("circuit_breaker missing window rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			FailureThreshold: 5,
+			Cooldown:         "10s",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "circuit_breaker requires window")
+	})
+
+	t.Run("circuit_breaker invalid window rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			FailureThreshold: 5,
+			Window:           "bad",
+			Cooldown:         "10s",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid window")
+	})
+
+	t.Run("circuit_breaker missing cooldown rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			FailureThreshold: 5,
+			Window:           "1m",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "circuit_breaker requires cooldown")
+	})
+
+	t.Run("circuit_breaker invalid cooldown rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			FailureThreshold: 5,
+			Window:           "1m",
+			Cooldown:         "not-a-duration",
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid cooldown")
+	})
+
+	t.Run("valid circuit_breaker accepted", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Services[0].Operations[0].CircuitBreaker = &CircuitBreakerConfig{
+			FailureThreshold: 5,
+			Window:           "1m",
+			Cooldown:         "30s",
+		}
+		require.NoError(t, ValidateConfig(cfg))
+	})
 }
 
 func twoServiceConfig() *Config {

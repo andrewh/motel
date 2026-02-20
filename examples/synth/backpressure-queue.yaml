@@ -1,0 +1,57 @@
+# Backpressure, queue depth, and circuit breaker simulation
+# Demonstrates cross-trace state effects under load
+
+version: 1
+
+services:
+  gateway:
+    operations:
+      request:
+        duration: 5ms +/- 2ms
+        calls:
+          - target: api.process
+            timeout: 200ms
+            retries: 1
+            retry_backoff: 20ms
+
+  api:
+    attributes:
+      deployment.environment: production
+    operations:
+      process:
+        duration: 15ms +/- 5ms
+        queue_depth: 20
+        backpressure:
+          latency_threshold: 50ms
+          duration_multiplier: 3.0
+          error_rate_add: 10%
+        calls:
+          - target: database.query
+
+  database:
+    operations:
+      query:
+        duration: 20ms +/- 5ms
+        error_rate: 1%
+        circuit_breaker:
+          failure_threshold: 5
+          window: 30s
+          cooldown: 10s
+
+traffic:
+  rate: 50/s
+
+scenarios:
+  - name: load spike
+    at: +5s
+    duration: 15s
+    traffic:
+      rate: 500/s
+
+  - name: database degradation
+    at: +8s
+    duration: 10s
+    override:
+      database.query:
+        duration: 150ms +/- 30ms
+        error_rate: 30%
