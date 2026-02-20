@@ -11,6 +11,7 @@ test:
 	go test ./...
 
 lint:
+	@test -z "$$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)
 	go vet ./...
 
 clean:
