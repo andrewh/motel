@@ -1,7 +1,5 @@
 # motel
 
-[![CI](https://github.com/andrewh/motel/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewh/motel/actions/workflows/ci.yml)
-
 Topology-driven synthetic telemetry generator for [OpenTelemetry](https://opentelemetry.io/).
 
 Describe your distributed system in YAML and motel generates realistic traces,
