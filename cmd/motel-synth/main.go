@@ -74,6 +74,9 @@ func runCmd() *cobra.Command {
 		Short: "Generate synthetic signals from a topology definition",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("slow-threshold") && !strings.Contains(signals, "logs") {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --slow-threshold has no effect without --signals logs")
+			}
 			return runGenerate(cmd.Context(), args[0], runOptions{
 				endpoint:         endpoint,
 				stdout:           stdout,
@@ -114,8 +117,12 @@ func validateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d services, %d root operations\n",
-				len(topo.Services), len(topo.Roots))
+			rootLabel := "operations"
+			if len(topo.Roots) == 1 {
+				rootLabel = "operation"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d services, %d root %s\n",
+				len(topo.Services), len(topo.Roots), rootLabel)
 			return nil
 		},
 	}
