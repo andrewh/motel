@@ -162,8 +162,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	duration := op.Duration
 	errorRate := op.ErrorRate
 	opAttrs := op.Attributes
-	ref := op.Service.Name + "." + op.Name
-	if ov, ok := overrides[ref]; ok {
+	if ov, ok := overrides[op.Ref]; ok {
 		if ov.Duration.Mean > 0 {
 			duration = ov.Duration
 		}
@@ -181,7 +180,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	// Consult simulation state for queue depth, circuit breaker, backpressure
 	var opState *OperationState
 	if e.State != nil {
-		opState = e.State.Get(ref)
+		opState = e.State.Get(op.Ref)
 	}
 	if opState != nil {
 		durationMult, errAdd, rejected, reason := opState.Admit(elapsed, e.Rng)
@@ -412,8 +411,7 @@ func effectiveCalls(op *Operation, overrides map[string]Override) []Call {
 	if len(overrides) == 0 {
 		return op.Calls
 	}
-	ref := op.Service.Name + "." + op.Name
-	ov, ok := overrides[ref]
+	ov, ok := overrides[op.Ref]
 	if !ok || !ov.HasCallChanges() {
 		return op.Calls
 	}
@@ -421,8 +419,7 @@ func effectiveCalls(op *Operation, overrides map[string]Override) []Call {
 	calls := make([]Call, 0, len(op.Calls)+len(ov.AddCalls))
 
 	for _, c := range op.Calls {
-		targetRef := c.Operation.Service.Name + "." + c.Operation.Name
-		if !ov.RemoveCalls[targetRef] {
+		if !ov.RemoveCalls[c.Operation.Ref] {
 			calls = append(calls, c)
 		}
 	}

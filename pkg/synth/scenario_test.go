@@ -533,9 +533,9 @@ func callTopoForTests() *Topology {
 	svcB := &Service{Name: "b", Operations: make(map[string]*Operation)}
 	svcC := &Service{Name: "c", Operations: make(map[string]*Operation)}
 
-	opA := &Operation{Service: svcA, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
-	opB := &Operation{Service: svcB, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
-	opC := &Operation{Service: svcC, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opA := &Operation{Service: svcA, Name: "op", Ref: "a.op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opB := &Operation{Service: svcB, Name: "op", Ref: "b.op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opC := &Operation{Service: svcC, Name: "op", Ref: "c.op", Duration: Distribution{Mean: 10 * time.Millisecond}}
 
 	opA.Calls = []Call{{Operation: opB}}
 	svcA.Operations["op"] = opA
