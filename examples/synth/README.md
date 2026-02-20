@@ -1,0 +1,27 @@
+# Example Topologies
+
+Ready-to-use YAML topology files for motel-synth. Each file is self-contained
+and can be validated and run directly:
+
+```sh
+./build/motel-synth validate examples/synth/basic-topology.yaml
+./build/motel-synth run --stdout --duration 5s examples/synth/basic-topology.yaml
+```
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `basic-topology.yaml` | Five-service topology with attributes, weighted status codes, and a scenario. Best starting point. |
+| `traffic-patterns.yaml` | Minimal two-service topology for comparing traffic arrival models (uniform, diurnal, poisson, bursty). |
+| `scenario-override.yaml` | Three overlapping scenarios with priority stacking, attribute overrides, and traffic rate changes. |
+| `cascading-failure.yaml` | Timeout and retry through a three-tier chain during scenario-driven database degradation. |
+| `circuit-breaker.yaml` | Scenario `add_calls`/`remove_calls` for circuit-breaker fallback patterns. |
+| `conditional-calls.yaml` | Per-call probability, `on-error`/`on-success` conditions, and `count` fan-out. |
+| `backpressure-queue.yaml` | Queue depth rejection, circuit breaker trips, and backpressure duration amplification. |
+
+## Further reading
+
+- [Getting started tutorial](../../docs/tutorials/synth-getting-started.md)
+- [Topology DSL reference](../../cmd/motel-synth/README.md)
+- [Modelling your services](../../docs/how-to/model-your-services.md)

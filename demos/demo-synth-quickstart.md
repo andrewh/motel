@@ -58,7 +58,7 @@ The `validate` command checks structural correctness: service and operation refe
 ```
 
 ```output
-Configuration valid: 2 services, 1 root operations
+Configuration valid: 2 services, 1 root operation
 ```
 
 The validator catches common mistakes. For example, a broken call reference:

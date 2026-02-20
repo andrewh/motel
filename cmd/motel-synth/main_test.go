@@ -55,6 +55,58 @@ func TestValidateCommand(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, out.String(), "Configuration valid")
 		assert.Contains(t, out.String(), "2 services")
+		assert.Contains(t, out.String(), "1 root operation\n")
+	})
+
+	t.Run("plural root operations", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  svc-a:
+    operations:
+      op-a:
+        duration: 10ms
+  svc-b:
+    operations:
+      op-b:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "2 services")
+		assert.Contains(t, out.String(), "2 root operations")
+	})
+
+	t.Run("singular service", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "1 service,")
 	})
 
 	t.Run("invalid config", func(t *testing.T) {
@@ -236,4 +288,18 @@ func TestRunCommandNegativeSlowThreshold(t *testing.T) {
 	err := root.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "slow-threshold")
+}
+
+func TestRunCommandSlowThresholdWithoutLogs(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--slow-threshold", "50ms", path})
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+
+	err := root.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "--slow-threshold has no effect without --signals logs")
 }

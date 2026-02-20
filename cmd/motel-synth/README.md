@@ -32,6 +32,15 @@ make build-synth
 
 ## DSL Reference
 
+### version
+
+Required. Must be `1`. This field identifies the topology schema version so
+that future changes to the DSL can be handled without breaking existing files.
+
+```yaml
+version: 1
+```
+
 ### services
 
 Map of service name to definition. Each service has optional `attributes`
@@ -256,5 +265,6 @@ shared server dependency.
 ## Further Reading
 
 - [`examples/synth/`](../../examples/synth/) — example topology configs
+- [Worked example: importing from traces](../../docs/explanation/synth/worked-example/README.md) — deep-dive into the `import` pipeline
 - [`demos/`](../../demos/) — executable showboat demos 17-24 cover motel-synth
 - [`pkg/synth/`](../../pkg/synth/) — implementation source

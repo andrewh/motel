@@ -87,7 +87,7 @@ The validator checks the new fields: queue_depth must be non-negative, backpress
 ```
 
 ```output
-Configuration valid: 3 services, 1 root operations
+Configuration valid: 3 services, 1 root operation
 ```
 
 Validation catches incomplete circuit breaker configuration. For example, omitting the cooldown:

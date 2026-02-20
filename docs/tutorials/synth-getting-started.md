@@ -72,7 +72,7 @@ Check the topology for errors before generating traces:
 You should see:
 
 ```
-Configuration valid: 2 services, 1 root operations
+Configuration valid: 2 services, 1 root operation
 ```
 
 If something is wrong, the error message includes the service name, operation name, and field:
