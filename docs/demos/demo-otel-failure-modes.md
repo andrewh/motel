@@ -1,19 +1,19 @@
-# motel-synth: Wide Attributes, Call Styles, and Run Statistics
+# motel: Wide Attributes, Call Styles, and Run Statistics
 
 *2026-02-11T14:14:25Z*
 
-motel-synth generates synthetic OTLP traces from a YAML topology definition. This demo walks through three features that address community-reported OTel failure modes: per-operation attributes for wide structured events, parallel/sequential call styles, and structured run statistics.
+motel generates synthetic OTLP traces from a YAML topology definition. This demo walks through three features that address community-reported OTel failure modes: per-operation attributes for wide structured events, parallel/sequential call styles, and structured run statistics.
 
 ## The example topology
 
 The example config defines five services with per-operation attributes, weighted status codes, high-cardinality sequence fields, and a parallel call style on order-service.
 
 ```bash
-cat examples/synth/basic-topology.yaml
+cat docs/examples/basic-topology.yaml
 ```
 
 ```output
-# Five-service topology demonstrating motel-synth capabilities
+# Five-service topology demonstrating motel capabilities
 # Generates realistic traces with gateway, two backends, and two datastores
 
 version: 1
@@ -121,7 +121,7 @@ scenarios:
 The validate command checks the topology for structural correctness, including the new attribute definitions and call style fields.
 
 ```bash
-./build/motel-synth validate examples/synth/basic-topology.yaml
+motel validate docs/examples/basic-topology.yaml
 ```
 
 ```output
@@ -133,7 +133,7 @@ Configuration valid: 5 services, 2 root operations
 Running with `--stdout` emits spans as JSON. Each gateway span carries per-operation attributes: static values (`http.route`), weighted random values (`http.response.status_code`), and high-cardinality sequences (`user.id`). [This demonstrates why arbitrarily-wide structured events are more powerful than low-cardinality metrics.](explain://)
 
 ```bash
-./build/motel-synth run --stdout --duration 200ms examples/synth/basic-topology.yaml 2>/dev/null | grep 'GET /users' | head -1 | jq -r \
+motel run --stdout --duration 200ms docs/examples/basic-topology.yaml 2>/dev/null | grep 'GET /users' | head -1 | jq -r \
   '.Attributes | sort_by(.Key) | .[] | "  \(.Key): \(.Value.Value)"'
 ```
 
@@ -155,7 +155,7 @@ The gateway span carries service attributes (`deployment.environment`, `service.
 The order-service uses `call_style: parallel`, so its two downstream calls (postgres and redis) start at the same time. We can verify this by checking whether the start times of sibling spans match.
 
 ```bash
-./build/motel-synth run --stdout --duration 200ms examples/synth/basic-topology.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 200ms docs/examples/basic-topology.yaml 2>/dev/null | jq -rs '
   group_by(.SpanContext.TraceID) |
   map(select(
     any(.Name == "create") and
@@ -173,10 +173,10 @@ parallel (query and get share start time): true
 
 ## Run statistics
 
-motel-synth emits structured JSON to stderr at the end of a run. This addresses the silent-failure critique: if your observability pipeline drops data, compare these numbers against what arrived.
+motel emits structured JSON to stderr at the end of a run. This addresses the silent-failure critique: if your observability pipeline drops data, compare these numbers against what arrived.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 1s docs/examples/basic-topology.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "fields: \(keys)",
   "traces > 0: \(.traces > 0)",
   "spans > traces: \(.spans > .traces)",

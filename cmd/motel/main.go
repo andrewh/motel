@@ -1,4 +1,4 @@
-// Standalone CLI for topology-driven synthetic OTLP signal generation
+// Topology-driven synthetic OTLP signal generator
 // Reads a YAML topology definition and emits traces, metrics, and logs via OTel SDK
 package main
 
@@ -46,7 +46,7 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "motel-synth",
+		Use:   "motel",
 		Short: "Topology-driven synthetic OTLP trace generator",
 	}
 
@@ -179,7 +179,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "motel-synth %s (commit: %s, built: %s)\n", version, commit, buildTime)
+			fmt.Fprintf(cmd.OutOrStdout(), "motel %s (commit: %s, built: %s)\n", version, commit, buildTime)
 		},
 	}
 }

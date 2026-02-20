@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/andrewh/motel/pkg/models"
 )
 
 const (
@@ -42,7 +41,7 @@ func NewTrafficPattern(cfg TrafficConfig) (TrafficPattern, error) {
 		return nil, fmt.Errorf("overlay: %w", err)
 	}
 
-	overlayRate, err := models.NewRate(cfg.Overlay.Rate)
+	overlayRate, err := ParseRate(cfg.Overlay.Rate)
 	if err != nil {
 		return nil, fmt.Errorf("overlay: invalid traffic rate: %w", err)
 	}
@@ -56,7 +55,7 @@ func NewTrafficPattern(cfg TrafficConfig) (TrafficPattern, error) {
 }
 
 func newBasePattern(cfg TrafficConfig) (TrafficPattern, error) {
-	rate, err := models.NewRate(cfg.Rate)
+	rate, err := ParseRate(cfg.Rate)
 	if err != nil {
 		return nil, fmt.Errorf("invalid traffic rate: %w", err)
 	}
@@ -272,7 +271,7 @@ func newCustomPattern(baseRate float64, cfg TrafficConfig) (*customPattern, erro
 			return nil, fmt.Errorf("segment %d: invalid until %q: %w", i, sc.Until, err)
 		}
 
-		rate, err := models.NewRate(sc.Rate)
+		rate, err := ParseRate(sc.Rate)
 		if err != nil {
 			return nil, fmt.Errorf("segment %d: invalid rate %q: %w", i, sc.Rate, err)
 		}

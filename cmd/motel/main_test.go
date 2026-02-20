@@ -1,4 +1,4 @@
-// Tests for the motel-synth CLI commands
+// Tests for the motel CLI commands
 // Validates validate, version, and run subcommands
 package main
 

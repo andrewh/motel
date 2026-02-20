@@ -1,8 +1,8 @@
-# motel-synth
+# motel
 
 Standalone CLI that generates realistic distributed traces from a YAML topology
 definition. No server, no live services — describe the behaviour of your
-system, and motel-synth derives telemetry from it.
+system, and motel derives telemetry from it.
 
 ## Mental Model
 
@@ -21,13 +21,13 @@ trace, sampling durations and errors from the configured distributions.
 ## Quick Start
 
 ```sh
-make build-synth
+go install github.com/andrewh/motel/cmd/motel@latest
 
 # Validate a topology file
-./build/motel-synth validate examples/synth/basic-topology.yaml
+motel validate docs/examples/basic-topology.yaml
 
 # Generate traces to stdout for 5 seconds
-./build/motel-synth run --stdout --duration 5s examples/synth/basic-topology.yaml
+motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 ```
 
 ## DSL Reference
@@ -223,12 +223,12 @@ scenarios:
 
 ## Derived Signals
 
-By default motel-synth emits traces only. Use `--signals` to add metrics and
+By default motel emits traces only. Use `--signals` to add metrics and
 logs derived from the same trace data:
 
 ```sh
-./build/motel-synth run --stdout --signals traces,metrics,logs \
-  --slow-threshold 200ms examples/synth/basic-topology.yaml
+motel run --stdout --signals traces,metrics,logs \
+  --slow-threshold 200ms docs/examples/basic-topology.yaml
 ```
 
 `--slow-threshold` controls which spans generate log records (spans exceeding
@@ -247,7 +247,7 @@ cascade upward — a failing child marks its parent span as errored. The
 `on-error` and `on-success` conditions evaluate the caller's own error rate,
 not the child's outcome.
 
-**Standalone.** motel-synth has no dependency on the motel server. It outputs
+**Standalone.** motel has no dependency on any server. It outputs
 OTLP to any collector via `--endpoint`, or JSON to stdout with `--stdout`.
 Protocol is configurable with `--protocol` (http/protobuf or grpc).
 
@@ -255,16 +255,8 @@ Protocol is configurable with `--protocol` (http/protobuf or grpc).
 execution. Enough structure to catch mistakes early, loose enough to experiment
 quickly.
 
-## Ecosystem
-
-motel-synth is one of three independent tools sharing the motel Go module.
-motel-llm generates test plans from natural language. motel-lite provides
-lightweight direct LLM-to-telemetry generation. Each tool stands alone — no
-shared server dependency.
-
 ## Further Reading
 
-- [`examples/synth/`](../../examples/synth/) — example topology configs
-- [Worked example: importing from traces](../../docs/explanation/synth/worked-example/README.md) — deep-dive into the `import` pipeline
-- [`demos/`](../../demos/) — executable showboat demos 17-24 cover motel-synth
+- [`docs/examples/`](../../docs/examples/) — example topology configs
+- [`docs/tutorials/`](../../docs/tutorials/) — getting started tutorial
 - [`pkg/synth/`](../../pkg/synth/) — implementation source

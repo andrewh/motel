@@ -1,11 +1,11 @@
 # Example Topologies
 
-Ready-to-use YAML topology files for motel-synth. Each file is self-contained
+Ready-to-use YAML topology files for motel. Each file is self-contained
 and can be validated and run directly:
 
 ```sh
-./build/motel-synth validate examples/synth/basic-topology.yaml
-./build/motel-synth run --stdout --duration 5s examples/synth/basic-topology.yaml
+motel validate docs/examples/basic-topology.yaml
+motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 ```
 
 ## Files
@@ -23,5 +23,5 @@ and can be validated and run directly:
 ## Further reading
 
 - [Getting started tutorial](../../docs/tutorials/synth-getting-started.md)
-- [Topology DSL reference](../../cmd/motel-synth/README.md)
+- [Topology DSL reference](../../cmd/motel/README.md)
 - [Modelling your services](../../docs/how-to/model-your-services.md)

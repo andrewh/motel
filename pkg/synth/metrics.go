@@ -19,7 +19,7 @@ type MetricObserver struct {
 
 // NewMetricObserver creates a MetricObserver backed by the given MeterProvider.
 func NewMetricObserver(mp metric.MeterProvider) (*MetricObserver, error) {
-	meter := mp.Meter("motel-synth")
+	meter := mp.Meter("motel")
 
 	duration, err := meter.Float64Histogram("synth.request.duration",
 		metric.WithUnit("ms"),

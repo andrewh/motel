@@ -1,15 +1,15 @@
-# motel-synth: Traffic Patterns
+# motel: Traffic Patterns
 
 *2026-02-11T16:00:00Z*
 
-motel-synth supports four traffic arrival patterns that control how traces are generated over time. This demo compares them using the same base rate and topology.
+motel supports four traffic arrival patterns that control how traces are generated over time. This demo compares them using the same base rate and topology.
 
 ## The topology
 
 A minimal two-service topology with a 50/s base rate. The `pattern` field selects the arrival model.
 
 ```bash
-cat examples/synth/traffic-patterns.yaml
+cat docs/examples/traffic-patterns.yaml
 ```
 
 ```output
@@ -42,7 +42,7 @@ traffic:
 The default. Generates traces at a constant rate throughout the run.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+motel run --stdout --duration 1s docs/examples/traffic-patterns.yaml 2>&1 >/dev/null | tail -1 | jq -r \
   '"rate within 20% of 50/s: \(.traces_per_second >= 40 and .traces_per_second <= 60)"'
 ```
 
@@ -72,7 +72,7 @@ traffic:
   rate: 50/s
   pattern: diurnal
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/diurnal.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+motel run --stdout --duration 1s /tmp/diurnal.yaml 2>&1 >/dev/null | tail -1 | jq -r \
   '"rate near 25/s (0.5x trough): \(.traces_per_second >= 15 and .traces_per_second <= 35)"'
 ```
 
@@ -102,7 +102,7 @@ traffic:
   rate: 50/s
   pattern: poisson
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/poisson.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+motel run --stdout --duration 1s /tmp/poisson.yaml 2>&1 >/dev/null | tail -1 | jq -r \
   '"rate within 20% of 50/s: \(.traces_per_second >= 40 and .traces_per_second <= 60)"'
 ```
 
@@ -132,7 +132,7 @@ traffic:
   rate: 50/s
   pattern: bursty
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/bursty.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+motel run --stdout --duration 1s /tmp/bursty.yaml 2>&1 >/dev/null | tail -1 | jq -r \
   '"rate above 150/s (5x burst): \(.traces_per_second > 150)"'
 ```
 
@@ -164,10 +164,10 @@ traffic:
   pattern: ${p}
 EOF
 done
-U=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-uniform.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
-D=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-diurnal.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
-P=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-poisson.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
-B=$(./build/motel-synth run --stdout --duration 1s /tmp/cmp-bursty.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+U=$(motel run --stdout --duration 1s /tmp/cmp-uniform.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+D=$(motel run --stdout --duration 1s /tmp/cmp-diurnal.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+P=$(motel run --stdout --duration 1s /tmp/cmp-poisson.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
+B=$(motel run --stdout --duration 1s /tmp/cmp-bursty.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
 jq -rn --argjson u "$U" --argjson d "$D" --argjson p "$P" --argjson b "$B" '
   "bursty > uniform: \($b > $u)",
   "diurnal < uniform: \($d < $u)",

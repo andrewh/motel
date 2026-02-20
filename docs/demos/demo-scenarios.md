@@ -1,4 +1,4 @@
-# motel-synth: Scenario Overrides
+# motel: Scenario Overrides
 
 *2026-02-11T16:00:00Z*
 
@@ -9,7 +9,7 @@ Scenarios let you inject time-windowed behaviour changes into a running simulati
 This config runs two services at 50/s. At the 2-second mark, a degradation scenario activates for 3 seconds: database.query latency jumps from 5ms to 200ms and error rate spikes from 0.1% to 25%.
 
 ```bash
-cat examples/synth/scenario-override.yaml
+cat docs/examples/scenario-override.yaml
 ```
 
 ```output
@@ -50,7 +50,7 @@ scenarios:
 The validator checks scenario timing, override references, and duration formats.
 
 ```bash
-./build/motel-synth validate examples/synth/scenario-override.yaml
+motel validate docs/examples/scenario-override.yaml
 ```
 
 ```output
@@ -77,7 +77,7 @@ scenarios:
       ghost.op:
         duration: 100ms
 EOF
-./build/motel-synth validate /tmp/bad-scenario.yaml 2>&1 | head -1
+motel validate /tmp/bad-scenario.yaml 2>&1 | head -1
 ```
 
 ```output
@@ -107,7 +107,7 @@ services:
 traffic:
   rate: 50/s
 EOF
-./build/motel-synth run --stdout --duration 1s /tmp/no-scenario.yaml 2>&1 >/dev/null | tail -1 | jq -r \
+motel run --stdout --duration 1s /tmp/no-scenario.yaml 2>&1 >/dev/null | tail -1 | jq -r \
   '"baseline error_rate < 5%: \(.error_rate < 0.05)"'
 ```
 
@@ -120,7 +120,7 @@ baseline error_rate < 5%: true
 Running for 6 seconds covers before (0-2s), during (2-5s), and after (5-6s) the degradation window. The 25% error rate on database.query during the scenario drives the overall error rate well above baseline.
 
 ```bash
-./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>&1 >/dev/null | tail -1 | jq -r '
+motel run --stdout --duration 6s docs/examples/scenario-override.yaml 2>&1 >/dev/null | tail -1 | jq -r '
   "scenario error_rate > 2%: \(.error_rate > 0.02)",
   "scenario has errors: \(.errors > 0)"'
 ```
@@ -135,7 +135,7 @@ scenario has errors: true
 The scenario also inflates database.query duration from 5ms to 200ms. Examining individual span durations shows two distinct populations: fast spans from outside the window and slow spans from during the degradation.
 
 ```bash
-./build/motel-synth run --stdout --duration 6s examples/synth/scenario-override.yaml 2>/dev/null | jq -rs '
+motel run --stdout --duration 6s docs/examples/scenario-override.yaml 2>/dev/null | jq -rs '
   def time_secs: split("T")[1] | rtrimstr("Z") | split(":") |
     (.[0] | tonumber) * 3600 + (.[1] | tonumber) * 60 + (.[2] | tonumber);
   [.[] | select(.Name == "query") |

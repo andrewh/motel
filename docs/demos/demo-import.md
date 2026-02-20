@@ -1,8 +1,8 @@
-# motel-synth: Importing Topology from Traces
+# motel: Importing Topology from Traces
 
 *2026-02-15T20:54:56Z by Showboat 0.5.0*
 
-The `motel-synth import` command reverses the normal workflow: instead of writing a topology by hand, you feed in real trace data and it infers one for you. This is useful for bootstrapping a synth topology from production traces or from another tracing tool's output.
+The `motel import` command reverses the normal workflow: instead of writing a topology by hand, you feed in real trace data and it infers one for you. This is useful for bootstrapping a synth topology from production traces or from another tracing tool's output.
 
 For a detailed walkthrough of how each pipeline stage processes real trace data, see the [worked example](../docs/explanation/synth/worked-example/README.md).
 
@@ -24,7 +24,7 @@ The import pipeline analyses trace data in stages:
 First, generate some traces from an existing topology. We use `--stdout` to emit stdouttrace JSON (one span per line), then pipe it into `import`.
 
 ```bash
-./build/motel-synth run --stdout --duration 500ms examples/synth/basic-topology.yaml 2>/dev/null | head -1 | jq -r "\"format: stdouttrace (line-delimited JSON)\", \"has SpanContext: \\(.SpanContext | length > 0)\", \"operation: \\(.Name)\""
+motel run --stdout --duration 500ms docs/examples/basic-topology.yaml 2>/dev/null | head -1 | jq -r "\"format: stdouttrace (line-delimited JSON)\", \"has SpanContext: \\(.SpanContext | length > 0)\", \"operation: \\(.Name)\""
 ```
 
 ```output
@@ -38,7 +38,7 @@ operation: query
 Pipe the generated traces directly into `import`. It auto-detects the input format, runs the inference pipeline, and emits a topology YAML.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>/dev/null | ./build/motel-synth import 2>/dev/null > /tmp/synth-imported.yaml && echo "version: $(grep -c "^version:" /tmp/synth-imported.yaml)" && echo "services discovered: $(grep -c "^    operations:" /tmp/synth-imported.yaml)" && echo "has calls: $(grep -c "calls:" /tmp/synth-imported.yaml | xargs test 0 -lt && echo true)" && echo "has traffic rate: $(grep -q "rate:" /tmp/synth-imported.yaml && echo true)"
+motel run --stdout --duration 1s docs/examples/basic-topology.yaml 2>/dev/null | motel import 2>/dev/null > /tmp/synth-imported.yaml && echo "version: $(grep -c "^version:" /tmp/synth-imported.yaml)" && echo "services discovered: $(grep -c "^    operations:" /tmp/synth-imported.yaml)" && echo "has calls: $(grep -c "calls:" /tmp/synth-imported.yaml | xargs test 0 -lt && echo true)" && echo "has traffic rate: $(grep -q "rate:" /tmp/synth-imported.yaml && echo true)"
 ```
 
 ```output
@@ -55,7 +55,7 @@ The import discovered all 5 services from the basic topology. Each operation get
 The YAML structure matches what you would write by hand: services, operations, durations, error rates, calls, and traffic rate.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>/dev/null | ./build/motel-synth import 2>/dev/null > /tmp/synth-imported.yaml && echo "--- services (sorted) ---" && grep "^  [a-z]" /tmp/synth-imported.yaml | grep -v "rate:" | sed "s/:$//" | sort && echo "--- inferred fields ---" && echo "durations: $(grep -c "duration:" /tmp/synth-imported.yaml)" && echo "call relationships: $(grep -c "calls:" /tmp/synth-imported.yaml)" && echo "service attributes: $(grep -c "deployment.environment" /tmp/synth-imported.yaml)"
+motel run --stdout --duration 1s docs/examples/basic-topology.yaml 2>/dev/null | motel import 2>/dev/null > /tmp/synth-imported.yaml && echo "--- services (sorted) ---" && grep "^  [a-z]" /tmp/synth-imported.yaml | grep -v "rate:" | sed "s/:$//" | sort && echo "--- inferred fields ---" && echo "durations: $(grep -c "duration:" /tmp/synth-imported.yaml)" && echo "call relationships: $(grep -c "calls:" /tmp/synth-imported.yaml)" && echo "service attributes: $(grep -c "deployment.environment" /tmp/synth-imported.yaml)"
 ```
 
 ```output
@@ -75,10 +75,10 @@ The topology has 6 operations across 5 services, 4 call relationships linking th
 
 ## Round-trip validation
 
-Every imported topology is automatically validated: the YAML is loaded back through `synth.LoadConfig` and `synth.ValidateConfig` to guarantee it will work with `motel-synth run`. We can also validate explicitly.
+Every imported topology is automatically validated: the YAML is loaded back through `synth.LoadConfig` and `synth.ValidateConfig` to guarantee it will work with `motel run`. We can also validate explicitly.
 
 ```bash
-./build/motel-synth validate /tmp/synth-imported.yaml
+motel validate /tmp/synth-imported.yaml
 ```
 
 ```output
@@ -90,7 +90,7 @@ Configuration valid: 5 services, 2 root operations
 By default, `import` auto-detects the input format by inspecting the JSON structure. You can also specify `--format stdouttrace` or `--format otlp` to skip detection.
 
 ```bash
-./build/motel-synth run --stdout --duration 500ms examples/synth/basic-topology.yaml 2>/dev/null | ./build/motel-synth import --format stdouttrace 2>/dev/null | grep -c "^version:"
+motel run --stdout --duration 500ms docs/examples/basic-topology.yaml 2>/dev/null | motel import --format stdouttrace 2>/dev/null | grep -c "^version:"
 ```
 
 ```output
@@ -102,7 +102,7 @@ By default, `import` auto-detects the input format by inspecting the JSON struct
 The `import` command reads from stdin by default, but also accepts a file path argument.
 
 ```bash
-./build/motel-synth run --stdout --duration 500ms examples/synth/basic-topology.yaml 2>/dev/null > /tmp/traces.jsonl && echo "saved spans: $(test $(wc -l < /tmp/traces.jsonl) -gt 10 && echo true)" && echo "import from file: $(./build/motel-synth import /tmp/traces.jsonl 2>/dev/null | grep -c "^version:")"
+motel run --stdout --duration 500ms docs/examples/basic-topology.yaml 2>/dev/null > /tmp/traces.jsonl && echo "saved spans: $(test $(wc -l < /tmp/traces.jsonl) -gt 10 && echo true)" && echo "import from file: $(motel import /tmp/traces.jsonl 2>/dev/null | grep -c "^version:")"
 ```
 
 ```output
@@ -115,7 +115,7 @@ import from file: 1
 The `--min-traces` flag warns when fewer traces are available than desired for statistical accuracy. With more traces, duration distributions and call probabilities become more representative.
 
 ```bash
-./build/motel-synth run --stdout --duration 200ms examples/synth/basic-topology.yaml 2>/dev/null | ./build/motel-synth import --min-traces 1000 2>&1 >/dev/null | grep -c "warning"
+motel run --stdout --duration 200ms docs/examples/basic-topology.yaml 2>/dev/null | motel import --min-traces 1000 2>&1 >/dev/null | grep -c "warning"
 ```
 
 ```output
@@ -127,7 +127,7 @@ The `--min-traces` flag warns when fewer traces are available than desired for s
 The ultimate test: generate traces from a topology, import to infer a new topology, then use the inferred topology to generate new traces.
 
 ```bash
-./build/motel-synth run --stdout --duration 1s examples/synth/basic-topology.yaml 2>/dev/null | ./build/motel-synth import 2>/dev/null > /tmp/inferred.yaml && ./build/motel-synth validate /tmp/inferred.yaml && ./build/motel-synth run --stdout --duration 200ms /tmp/inferred.yaml 2>/dev/null | jq -rs "\"re-generated traces: \(map(.SpanContext.TraceID) | unique | length > 0)\", \"re-generated services: \([.[].Attributes[] | select(.Key == \"synth.service\") | .Value.Value] | unique | sort)\""
+motel run --stdout --duration 1s docs/examples/basic-topology.yaml 2>/dev/null | motel import 2>/dev/null > /tmp/inferred.yaml && motel validate /tmp/inferred.yaml && motel run --stdout --duration 200ms /tmp/inferred.yaml 2>/dev/null | jq -rs "\"re-generated traces: \(map(.SpanContext.TraceID) | unique | length > 0)\", \"re-generated services: \([.[].Attributes[] | select(.Key == \"synth.service\") | .Value.Value] | unique | sort)\""
 ```
 
 ```output
