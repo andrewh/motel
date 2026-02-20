@@ -79,5 +79,5 @@ The full DSL reference — services, operations, calls, attributes, traffic, and
 
 ## Further reading
 
-- [Getting started tutorial](../tutorials/synth-getting-started.md)
+- [Getting started tutorial](../tutorials/getting-started.md)
 - [Example topologies](../examples/)

@@ -22,6 +22,6 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 
 ## Further reading
 
-- [Getting started tutorial](../../docs/tutorials/synth-getting-started.md)
+- [Getting started tutorial](../../docs/tutorials/getting-started.md)
 - [Topology DSL reference](../../cmd/motel/README.md)
 - [Modelling your services](../../docs/how-to/model-your-services.md)

@@ -88,7 +88,7 @@ All three signal types are driven by the same topology.
 
 ## Documentation
 
-- [Getting started tutorial](docs/tutorials/synth-getting-started.md)
+- [Getting started tutorial](docs/tutorials/getting-started.md)
 - [CLI reference](docs/reference/synth.md)
 - [DSL reference](cmd/motel/README.md) — full topology schema
 - [Example topologies](docs/examples/)
