@@ -252,9 +252,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		return err
 	}
 
-	res := resource.NewSchemaless(
+	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
 		attribute.String("motel.version", version),
-	)
+	))
+	if err != nil {
+		return fmt.Errorf("creating resource: %w", err)
+	}
 
 	// Create tracer provider (no-op if traces not requested)
 	var tp *sdktrace.TracerProvider
