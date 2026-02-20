@@ -56,7 +56,7 @@ Each operation defines the span it produces.
 |-------------|--------|-------------|
 | `duration`   | string | Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
 | `error_rate` | string | Percentage `0.5%` or decimal `0.005` |
-| `call_style` | string | `parallel` or `sequential` (default: sequential) |
+| `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
 | `calls`      | list   | Downstream calls to other operations |
@@ -256,5 +256,5 @@ shared server dependency.
 ## Further Reading
 
 - [`examples/synth/`](../../examples/synth/) — example topology configs
-- [`demos/`](../../demos/) — executable showboat demos 17-21 cover motel-synth
+- [`demos/`](../../demos/) — executable showboat demos 17-24 cover motel-synth
 - [`pkg/synth/`](../../pkg/synth/) — implementation source
