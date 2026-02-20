@@ -1,0 +1,26 @@
+# Inferred from 4 traces (10 spans) observed over 1 seconds
+# Review and adjust durations, error rates, and call probabilities as needed
+
+version: 1
+services:
+  api:
+    attributes:
+      deployment.environment: staging
+    operations:
+      handle:
+        duration: 27ms +/- 4.8ms
+        error_rate: 50%
+        calls:
+          - target: cache.lookup
+            probability: 0.5
+          - database.query
+  cache:
+    operations:
+      lookup:
+        duration: 1.3ms +/- 83µs
+  database:
+    operations:
+      query:
+        duration: 5.7ms +/- 2.6ms
+traffic:
+  rate: 3/s
