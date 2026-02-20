@@ -220,7 +220,7 @@ func validateScenarioCycles(sc Scenario, topo *Topology) error {
 		return nil
 	}
 
-	for ref := range adj {
+	for _, ref := range slices.Sorted(maps.Keys(adj)) {
 		if state[ref] == unvisited {
 			if err := visit(ref); err != nil {
 				return err

@@ -1491,6 +1491,24 @@ func TestValidateConfigCallChanges(t *testing.T) {
 		}}
 		require.NoError(t, ValidateConfig(cfg))
 	})
+
+	t.Run("remove_calls target not called by operation", func(t *testing.T) {
+		t.Parallel()
+		cfg := twoServiceConfig()
+		cfg.Scenarios = []ScenarioConfig{{
+			Name:     "test",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"other.op": {
+					RemoveCalls: []RemoveCallConfig{{Target: "svc.op"}},
+				},
+			},
+		}}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not called by")
+	})
 }
 
 func TestLoadConfigCallTimeout(t *testing.T) {
