@@ -32,19 +32,20 @@ This is useful for:
 Create a file called `my-topology.yaml`:
 
 ```yaml
+version: 1
+
 services:
-  - name: gateway
+  gateway:
     operations:
-      - name: "GET /users"
+      GET /users:
         duration: 30ms +/- 10ms
         error_rate: 1%
         calls:
-          - service: users
-            operation: list
+          - users.list
 
-  - name: users
+  users:
     operations:
-      - name: list
+      list:
         duration: 15ms +/- 5ms
         error_rate: 0.5%
 
@@ -52,7 +53,7 @@ traffic:
   rate: 10/s
 ```
 
-This describes a two-service system: a `gateway` that calls a `users` service. Each trace starts at `GET /users` on the gateway, which calls `list` on the users service.
+This describes a two-service system: a `gateway` that calls a `users` service. Each trace starts at `GET /users` on the gateway, which calls `list` on the users service. Calls use `service.operation` shorthand.
 
 Three concepts compose the entire topology DSL:
 
@@ -120,13 +121,13 @@ Each span line contains standard OpenTelemetry fields:
 You can pipe the output through `jq` to explore:
 
 ```sh
-# Show operation names and their durations
-./build/motel-synth run --stdout --duration 1s my-topology.yaml | \
-  jq -r '[.Name, (.EndTime | split(".")[0])] | @tsv'
-
 # Count spans per operation
-./build/motel-synth run --stdout --duration 2s my-topology.yaml | \
+./build/motel-synth run --stdout --duration 2s my-topology.yaml 2>/dev/null | \
   jq -r .Name | sort | uniq -c | sort -rn
+
+# Show trace IDs and their operation names
+./build/motel-synth run --stdout --duration 1s my-topology.yaml 2>/dev/null | \
+  jq -r '[.SpanContext.TraceID[:8], .Name] | @tsv'
 ```
 
 ## Step 5: Send traces to a collector
