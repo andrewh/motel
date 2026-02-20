@@ -147,9 +147,33 @@ type ScenarioConfig struct {
 
 // OverrideConfig holds per-operation overrides within a scenario.
 type OverrideConfig struct {
-	Duration   string                          `yaml:"duration,omitempty"`
-	ErrorRate  string                          `yaml:"error_rate,omitempty"`
-	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	Duration    string                          `yaml:"duration,omitempty"`
+	ErrorRate   string                          `yaml:"error_rate,omitempty"`
+	Attributes  map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	AddCalls    []CallConfig                    `yaml:"add_calls,omitempty"`
+	RemoveCalls []RemoveCallConfig              `yaml:"remove_calls,omitempty"`
+}
+
+// RemoveCallConfig identifies a downstream call to remove by target reference.
+type RemoveCallConfig struct {
+	Target string `yaml:"target"`
+}
+
+// UnmarshalYAML handles both scalar string and mapping forms for remove call config.
+func (r *RemoveCallConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	var scalar string
+	if err := unmarshal(&scalar); err == nil {
+		r.Target = scalar
+		return nil
+	}
+
+	type plain RemoveCallConfig
+	var p plain
+	if err := unmarshal(&p); err != nil {
+		return fmt.Errorf("remove_calls: expected string or mapping with target: %w", err)
+	}
+	*r = RemoveCallConfig(p)
+	return nil
 }
 
 // LoadConfig reads and parses a YAML configuration file.
@@ -372,6 +396,9 @@ func ValidateConfig(cfg *Config) error {
 					return fmt.Errorf("scenario %q: override %q: attribute %q: %w", sc.Name, ref, attrName, err)
 				}
 			}
+			if err := validateCallChanges(sc.Name, ref, override, knownOps); err != nil {
+				return err
+			}
 		}
 		if sc.Traffic != nil {
 			if err := validateTrafficConfig(*sc.Traffic, false); err != nil {
@@ -416,6 +443,69 @@ func validateTrafficConfig(tc TrafficConfig, isOverlay bool) error {
 		}
 	}
 
+	return nil
+}
+
+// validateCallChanges validates add_calls and remove_calls within a scenario override.
+func validateCallChanges(scenarioName, ref string, override OverrideConfig, knownOps map[string]bool) error {
+	prefix := fmt.Sprintf("scenario %q: override %q", scenarioName, ref)
+	for _, call := range override.AddCalls {
+		if err := validateCallConfig(call, knownOps); err != nil {
+			return fmt.Errorf("%s: add_calls: %w", prefix, err)
+		}
+	}
+	for _, rc := range override.RemoveCalls {
+		if !strings.Contains(rc.Target, ".") {
+			return fmt.Errorf("%s: remove_calls: target %q must be in service.operation format", prefix, rc.Target)
+		}
+		if !knownOps[rc.Target] {
+			return fmt.Errorf("%s: remove_calls: target %q references unknown operation", prefix, rc.Target)
+		}
+	}
+	return nil
+}
+
+// validateCallConfig checks a single CallConfig for structural correctness.
+func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
+	if !strings.Contains(call.Target, ".") {
+		return fmt.Errorf("target %q must be in service.operation format", call.Target)
+	}
+	if !knownOps[call.Target] {
+		return fmt.Errorf("target %q references unknown operation", call.Target)
+	}
+	if call.Probability < 0 || call.Probability > 1 {
+		return fmt.Errorf("target %q probability must be between 0 and 1", call.Target)
+	}
+	if call.Condition != "" && call.Condition != "on-error" && call.Condition != "on-success" {
+		return fmt.Errorf("target %q condition must be \"on-error\" or \"on-success\", got %q", call.Target, call.Condition)
+	}
+	if call.Count < 0 {
+		return fmt.Errorf("target %q count must not be negative", call.Target)
+	}
+	if call.Timeout != "" {
+		d, err := time.ParseDuration(call.Timeout)
+		if err != nil {
+			return fmt.Errorf("target %q invalid timeout: %w", call.Target, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("target %q timeout must be positive", call.Target)
+		}
+	}
+	if call.Retries < 0 {
+		return fmt.Errorf("target %q retries must not be negative", call.Target)
+	}
+	if call.RetryBackoff != "" {
+		d, err := time.ParseDuration(call.RetryBackoff)
+		if err != nil {
+			return fmt.Errorf("target %q invalid retry_backoff: %w", call.Target, err)
+		}
+		if d < 0 {
+			return fmt.Errorf("target %q retry_backoff must not be negative", call.Target)
+		}
+	}
+	if call.RetryBackoff != "" && call.Retries == 0 {
+		return fmt.Errorf("target %q retry_backoff requires retries > 0", call.Target)
+	}
 	return nil
 }
 

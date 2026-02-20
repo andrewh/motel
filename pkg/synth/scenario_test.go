@@ -10,6 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// minimalTopo returns a topology with a single "svc.op" operation for scenario tests.
+func minimalTopo() *Topology {
+	svc := &Service{Name: "svc", Operations: make(map[string]*Operation)}
+	op := &Operation{Service: svc, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	svc.Operations["op"] = op
+	return &Topology{
+		Services: map[string]*Service{"svc": svc},
+		Roots:    []*Operation{op},
+	}
+}
+
 func TestParseOffset(t *testing.T) {
 	t.Parallel()
 
@@ -57,7 +68,7 @@ func TestBuildScenarios(t *testing.T) {
 			},
 		}}
 
-		scenarios, err := BuildScenarios(cfgs)
+		scenarios, err := BuildScenarios(cfgs, minimalTopo())
 		require.NoError(t, err)
 		require.Len(t, scenarios, 1)
 
@@ -81,7 +92,7 @@ func TestBuildScenarios(t *testing.T) {
 			},
 		}}
 
-		scenarios, err := BuildScenarios(cfgs)
+		scenarios, err := BuildScenarios(cfgs, minimalTopo())
 		require.NoError(t, err)
 		assert.False(t, scenarios[0].Overrides["svc.op"].HasErrorRate)
 	})
@@ -205,7 +216,7 @@ func TestBuildScenariosPreservesPriority(t *testing.T) {
 		},
 	}}
 
-	scenarios, err := BuildScenarios(cfgs)
+	scenarios, err := BuildScenarios(cfgs, minimalTopo())
 	require.NoError(t, err)
 	require.Len(t, scenarios, 1)
 	assert.Equal(t, 42, scenarios[0].Priority)
@@ -260,7 +271,7 @@ func TestBuildScenariosWithAttributes(t *testing.T) {
 		},
 	}}
 
-	scenarios, err := BuildScenarios(cfgs)
+	scenarios, err := BuildScenarios(cfgs, minimalTopo())
 	require.NoError(t, err)
 	require.Len(t, scenarios, 1)
 	require.Contains(t, scenarios[0].Overrides, "svc.op")
@@ -284,7 +295,7 @@ func TestBuildScenariosInvalidAttribute(t *testing.T) {
 		},
 	}}
 
-	_, err := BuildScenarios(cfgs)
+	_, err := BuildScenarios(cfgs, minimalTopo())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "attribute")
 }
@@ -451,7 +462,7 @@ func TestBuildScenariosWithTraffic(t *testing.T) {
 		Traffic:  &TrafficConfig{Rate: "500/s"},
 	}}
 
-	scenarios, err := BuildScenarios(cfgs)
+	scenarios, err := BuildScenarios(cfgs, minimalTopo())
 	require.NoError(t, err)
 	require.Len(t, scenarios, 1)
 	require.NotNil(t, scenarios[0].Traffic)
@@ -470,7 +481,7 @@ func TestBuildScenariosWithoutTraffic(t *testing.T) {
 		},
 	}}
 
-	scenarios, err := BuildScenarios(cfgs)
+	scenarios, err := BuildScenarios(cfgs, minimalTopo())
 	require.NoError(t, err)
 	require.Len(t, scenarios, 1)
 	assert.Nil(t, scenarios[0].Traffic)
@@ -514,5 +525,224 @@ func TestResolveTraffic(t *testing.T) {
 		tp := ResolveTraffic(active)
 		require.NotNil(t, tp)
 		assert.InDelta(t, 100.0, tp.Rate(0), 0.1)
+	})
+}
+
+func callTopoForTests() *Topology {
+	svcA := &Service{Name: "a", Operations: make(map[string]*Operation)}
+	svcB := &Service{Name: "b", Operations: make(map[string]*Operation)}
+	svcC := &Service{Name: "c", Operations: make(map[string]*Operation)}
+
+	opA := &Operation{Service: svcA, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opB := &Operation{Service: svcB, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opC := &Operation{Service: svcC, Name: "op", Duration: Distribution{Mean: 10 * time.Millisecond}}
+
+	opA.Calls = []Call{{Operation: opB}}
+	svcA.Operations["op"] = opA
+	svcB.Operations["op"] = opB
+	svcC.Operations["op"] = opC
+
+	return &Topology{
+		Services: map[string]*Service{"a": svcA, "b": svcB, "c": svcC},
+		Roots:    []*Operation{opA, opC},
+	}
+}
+
+func TestBuildScenariosWithAddCalls(t *testing.T) {
+	t.Parallel()
+
+	topo := callTopoForTests()
+	cfgs := []ScenarioConfig{{
+		Name:     "add-cache",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"a.op": {
+				AddCalls: []CallConfig{{Target: "c.op", Condition: "on-error"}},
+			},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs, topo)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+
+	ov := scenarios[0].Overrides["a.op"]
+	require.Len(t, ov.AddCalls, 1)
+	assert.Equal(t, topo.Services["c"].Operations["op"], ov.AddCalls[0].Operation)
+	assert.Equal(t, "on-error", ov.AddCalls[0].Condition)
+}
+
+func TestBuildScenariosWithRemoveCalls(t *testing.T) {
+	t.Parallel()
+
+	topo := callTopoForTests()
+	cfgs := []ScenarioConfig{{
+		Name:     "circuit-break",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"a.op": {
+				RemoveCalls: []RemoveCallConfig{{Target: "b.op"}},
+			},
+		},
+	}}
+
+	scenarios, err := BuildScenarios(cfgs, topo)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+
+	ov := scenarios[0].Overrides["a.op"]
+	require.Len(t, ov.RemoveCalls, 1)
+	assert.True(t, ov.RemoveCalls["b.op"])
+}
+
+func TestBuildScenariosUnknownAddCallTarget(t *testing.T) {
+	t.Parallel()
+
+	topo := callTopoForTests()
+	cfgs := []ScenarioConfig{{
+		Name:     "bad",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"a.op": {
+				AddCalls: []CallConfig{{Target: "nonexistent.op"}},
+			},
+		},
+	}}
+
+	_, err := BuildScenarios(cfgs, topo)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent")
+}
+
+func TestBuildScenariosCycleDetection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("add_calls creating cycle rejected", func(t *testing.T) {
+		t.Parallel()
+		topo := callTopoForTests() // a.op -> b.op
+		cfgs := []ScenarioConfig{{
+			Name:     "cyclic",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"b.op": {
+					AddCalls: []CallConfig{{Target: "a.op"}},
+				},
+			},
+		}}
+
+		_, err := BuildScenarios(cfgs, topo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cycle")
+	})
+
+	t.Run("acyclic add_calls accepted", func(t *testing.T) {
+		t.Parallel()
+		topo := callTopoForTests() // a.op -> b.op, c.op standalone
+		cfgs := []ScenarioConfig{{
+			Name:     "ok",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"b.op": {
+					AddCalls: []CallConfig{{Target: "c.op"}},
+				},
+			},
+		}}
+
+		_, err := BuildScenarios(cfgs, topo)
+		require.NoError(t, err)
+	})
+
+	t.Run("remove breaks existing path so add is safe", func(t *testing.T) {
+		t.Parallel()
+		topo := callTopoForTests() // a.op -> b.op
+		cfgs := []ScenarioConfig{{
+			Name:     "swap",
+			At:       "+1m",
+			Duration: "5m",
+			Override: map[string]OverrideConfig{
+				"a.op": {
+					RemoveCalls: []RemoveCallConfig{{Target: "b.op"}},
+					AddCalls:    []CallConfig{{Target: "c.op"}},
+				},
+				"c.op": {
+					AddCalls: []CallConfig{{Target: "b.op"}},
+				},
+			},
+		}}
+
+		_, err := BuildScenarios(cfgs, topo)
+		require.NoError(t, err)
+	})
+}
+
+func TestResolveOverridesMergesCallChanges(t *testing.T) {
+	t.Parallel()
+
+	topo := callTopoForTests()
+	opB := topo.Services["b"].Operations["op"]
+	opC := topo.Services["c"].Operations["op"]
+
+	t.Run("AddCalls accumulate across scenarios", func(t *testing.T) {
+		t.Parallel()
+		scenarios := []Scenario{
+			{
+				Overrides: map[string]Override{
+					"a.op": {AddCalls: []Call{{Operation: opB}}},
+				},
+			},
+			{
+				Overrides: map[string]Override{
+					"a.op": {AddCalls: []Call{{Operation: opC}}},
+				},
+			},
+		}
+
+		overrides := ResolveOverrides(scenarios)
+		require.Len(t, overrides["a.op"].AddCalls, 2)
+	})
+
+	t.Run("RemoveCalls union across scenarios", func(t *testing.T) {
+		t.Parallel()
+		scenarios := []Scenario{
+			{
+				Overrides: map[string]Override{
+					"a.op": {RemoveCalls: map[string]bool{"b.op": true}},
+				},
+			},
+			{
+				Overrides: map[string]Override{
+					"a.op": {RemoveCalls: map[string]bool{"c.op": true}},
+				},
+			},
+		}
+
+		overrides := ResolveOverrides(scenarios)
+		assert.True(t, overrides["a.op"].RemoveCalls["b.op"])
+		assert.True(t, overrides["a.op"].RemoveCalls["c.op"])
+	})
+
+	t.Run("does not mutate original scenario AddCalls", func(t *testing.T) {
+		t.Parallel()
+		scenarios := []Scenario{
+			{
+				Overrides: map[string]Override{
+					"a.op": {AddCalls: []Call{{Operation: opB}}},
+				},
+			},
+			{
+				Overrides: map[string]Override{
+					"a.op": {AddCalls: []Call{{Operation: opC}}},
+				},
+			},
+		}
+
+		_ = ResolveOverrides(scenarios)
+		assert.Len(t, scenarios[0].Overrides["a.op"].AddCalls, 1,
+			"original scenario should not be mutated")
 	})
 }
