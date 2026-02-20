@@ -37,7 +37,7 @@ brews:
       token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
     homepage: https://github.com/andrewh/motel
     description: Synthetic telemetry generator for OpenTelemetry
-    license: MIT
+    license: Apache-2.0
     install: |
       bin.install "motel"
 
