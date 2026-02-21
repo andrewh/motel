@@ -115,6 +115,16 @@ func (r *Registry) Groups() []Group {
 	return r.groups
 }
 
+// Merge combines two registries into a new one. Groups from other are appended
+// after groups from r, so duplicate group IDs in other take precedence.
+// Attribute references are re-resolved across the combined set.
+func (r *Registry) Merge(other *Registry) *Registry {
+	combined := make([]Group, 0, len(r.groups)+len(other.groups))
+	combined = append(combined, r.groups...)
+	combined = append(combined, other.groups...)
+	return buildRegistry(combined)
+}
+
 // buildRegistry indexes groups and resolves attribute references.
 func buildRegistry(groups []Group) *Registry {
 	r := &Registry{
@@ -133,7 +143,7 @@ func buildRegistry(groups []Group) *Registry {
 		}
 		for j := range g.Attributes {
 			attr := &g.Attributes[j]
-			if attr.ID != "" {
+			if attr.ID != "" && attr.Ref == "" {
 				r.byAttrID[attr.ID] = attr
 			}
 		}
