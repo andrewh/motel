@@ -94,6 +94,7 @@ All three signal types are driven by the same topology.
 - [Example topologies](docs/examples/)
 - [Modelling your services](docs/how-to/model-your-services.md)
 - [How import infers a topology](docs/explanation/import-pipeline/README.md)
+- [How motel uses OTel Weaver](docs/explanation/motel-and-weaver.md)
 
 ## Licence
 
