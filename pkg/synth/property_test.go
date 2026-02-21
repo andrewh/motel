@@ -1053,3 +1053,502 @@ func TestProperty_ParseDistribution_RoundTrip(t *testing.T) {
 		}
 	})
 }
+
+// --- Topology building ---
+
+func TestProperty_BuildTopology_RefsCorrect(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		for svcName, svc := range topo.Services {
+			if svc.Name != svcName {
+				t.Fatalf("service map key %q != service.Name %q", svcName, svc.Name)
+			}
+			for opName, op := range svc.Operations {
+				if op.Name != opName {
+					t.Fatalf("operation map key %q != op.Name %q", opName, op.Name)
+				}
+				expectedRef := svcName + "." + opName
+				if op.Ref != expectedRef {
+					t.Fatalf("op.Ref %q != expected %q", op.Ref, expectedRef)
+				}
+				if op.Service != svc {
+					t.Fatalf("op %q.Service pointer does not match parent service", op.Ref)
+				}
+			}
+		}
+	})
+}
+
+func TestProperty_BuildTopology_NoCycles(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		// DFS to verify no cycles
+		const (
+			unvisited = iota
+			visiting
+			visited
+		)
+		state := make(map[*Operation]int)
+		var visit func(op *Operation) error
+		visit = func(op *Operation) error {
+			if state[op] == visiting {
+				return fmt.Errorf("cycle at %s", op.Ref)
+			}
+			if state[op] == visited {
+				return nil
+			}
+			state[op] = visiting
+			for _, call := range op.Calls {
+				if err := visit(call.Operation); err != nil {
+					return err
+				}
+			}
+			state[op] = visited
+			return nil
+		}
+		for _, svc := range topo.Services {
+			for _, op := range svc.Operations {
+				if err := visit(op); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	})
+}
+
+func TestProperty_BuildTopology_RootsNotCalledByAnyone(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		called := make(map[*Operation]bool)
+		for _, svc := range topo.Services {
+			for _, op := range svc.Operations {
+				for _, call := range op.Calls {
+					called[call.Operation] = true
+				}
+			}
+		}
+
+		for _, root := range topo.Roots {
+			if called[root] {
+				t.Fatalf("root %s is called by another operation", root.Ref)
+			}
+		}
+	})
+}
+
+func TestProperty_BuildTopology_RootsComplete(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		called := make(map[*Operation]bool)
+		for _, svc := range topo.Services {
+			for _, op := range svc.Operations {
+				for _, call := range op.Calls {
+					called[call.Operation] = true
+				}
+			}
+		}
+
+		rootSet := make(map[*Operation]bool)
+		for _, root := range topo.Roots {
+			rootSet[root] = true
+		}
+
+		for _, svc := range topo.Services {
+			for _, op := range svc.Operations {
+				if !called[op] && !rootSet[op] {
+					t.Fatalf("operation %s is not called and not in roots", op.Ref)
+				}
+			}
+		}
+	})
+}
+
+func TestProperty_BuildTopology_RootsSorted(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		for i := 1; i < len(topo.Roots); i++ {
+			a, b := topo.Roots[i-1], topo.Roots[i]
+			if a.Service.Name > b.Service.Name ||
+				(a.Service.Name == b.Service.Name && a.Name > b.Name) {
+				t.Fatalf("roots not sorted: %s before %s", a.Ref, b.Ref)
+			}
+		}
+	})
+}
+
+func TestProperty_BuildTopology_CycleDetected(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Build a config with a deliberate cycle: svc0.op0 -> svc1.op0 -> svc0.op0
+		dur0 := rapid.IntRange(1, 100).Draw(t, "dur0")
+		dur1 := rapid.IntRange(1, 100).Draw(t, "dur1")
+
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "svc0",
+					Operations: []OperationConfig{{
+						Name:     "op0",
+						Duration: fmt.Sprintf("%dms", dur0),
+						Calls:    []CallConfig{{Target: "svc1.op0"}},
+					}},
+				},
+				{
+					Name: "svc1",
+					Operations: []OperationConfig{{
+						Name:     "op0",
+						Duration: fmt.Sprintf("%dms", dur1),
+						Calls:    []CallConfig{{Target: "svc0.op0"}},
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		_, err := BuildTopology(cfg)
+		if err == nil {
+			t.Fatal("expected cycle detection error, got nil")
+		}
+	})
+}
+
+func TestProperty_BuildTopology_CallsResolvedCorrectly(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		for _, svc := range topo.Services {
+			for _, op := range svc.Operations {
+				for _, call := range op.Calls {
+					target := call.Operation
+					if target == nil {
+						t.Fatalf("call from %s has nil target", op.Ref)
+					}
+					// Verify the target exists in the topology
+					targetSvc, ok := topo.Services[target.Service.Name]
+					if !ok {
+						t.Fatalf("call target %s: service %q not in topology", target.Ref, target.Service.Name)
+					}
+					if _, ok := targetSvc.Operations[target.Name]; !ok {
+						t.Fatalf("call target %s: operation %q not in service %q", target.Ref, target.Name, target.Service.Name)
+					}
+				}
+			}
+		}
+	})
+}
+
+// --- Rate parsing ---
+
+func TestProperty_ParseRate_ValidRates(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		count := rapid.IntRange(1, 10000).Draw(t, "count")
+		unit := rapid.SampledFrom([]string{"s", "m", "h"}).Draw(t, "unit")
+		s := fmt.Sprintf("%d/%s", count, unit)
+
+		rate, err := ParseRate(s)
+		if err != nil {
+			t.Fatalf("ParseRate(%q): %v", s, err)
+		}
+		if rate.Count() != count {
+			t.Fatalf("count: got %d, want %d", rate.Count(), count)
+		}
+	})
+}
+
+func TestProperty_ParseRate_ZeroOrNegativeRejected(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		count := rapid.IntRange(-100, 0).Draw(t, "count")
+		s := fmt.Sprintf("%d/s", count)
+
+		_, err := ParseRate(s)
+		if err == nil {
+			t.Fatalf("ParseRate(%q) should fail for non-positive count", s)
+		}
+	})
+}
+
+func TestProperty_ParseRate_ExceedsMaxRejected(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		count := rapid.IntRange(10001, 100000).Draw(t, "count")
+		s := fmt.Sprintf("%d/s", count)
+
+		_, err := ParseRate(s)
+		if err == nil {
+			t.Fatalf("ParseRate(%q) should fail for count > 10000", s)
+		}
+	})
+}
+
+func TestProperty_ParseRate_PerSecondRate(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		count := rapid.IntRange(1, 10000).Draw(t, "count")
+		s := fmt.Sprintf("%d/s", count)
+
+		rate, err := ParseRate(s)
+		if err != nil {
+			t.Fatalf("ParseRate(%q): %v", s, err)
+		}
+		if rate.Period() != time.Second {
+			t.Fatalf("expected period Second, got %v", rate.Period())
+		}
+	})
+}
+
+// --- Config validation ---
+
+func TestProperty_ValidateConfig_AcceptsValidConfigs(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genSimpleConfig(t)
+		if err := ValidateConfig(cfg); err != nil {
+			t.Fatalf("ValidateConfig rejected valid config: %v", err)
+		}
+	})
+}
+
+func TestProperty_ValidateConfig_RejectsNoServices(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		rate := rapid.IntRange(1, 100).Draw(t, "rate")
+		cfg := &Config{
+			Traffic: TrafficConfig{Rate: fmt.Sprintf("%d/s", rate)},
+		}
+		if err := ValidateConfig(cfg); err == nil {
+			t.Fatal("expected error for config with no services")
+		}
+	})
+}
+
+func TestProperty_ValidateConfig_RejectsNoTrafficRate(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		dur := rapid.IntRange(1, 100).Draw(t, "dur")
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: fmt.Sprintf("%dms", dur),
+				}},
+			}},
+		}
+		if err := ValidateConfig(cfg); err == nil {
+			t.Fatal("expected error for config with no traffic rate")
+		}
+	})
+}
+
+func TestProperty_ValidateConfig_RejectsBadCallTarget(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		dur := rapid.IntRange(1, 100).Draw(t, "dur")
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: fmt.Sprintf("%dms", dur),
+					Calls:    []CallConfig{{Target: "nonexistent.op"}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		if err := ValidateConfig(cfg); err == nil {
+			t.Fatal("expected error for call to nonexistent target")
+		}
+	})
+}
+
+func TestProperty_ValidateConfig_RejectsBadDuration(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		badDur := rapid.SampledFrom([]string{"", "abc", "-5ms", "0ms"}).Draw(t, "badDur")
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: badDur,
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		if err := ValidateConfig(cfg); err == nil {
+			t.Fatalf("expected error for bad duration %q", badDur)
+		}
+	})
+}
+
+// --- Traffic patterns ---
+
+func TestProperty_UniformPattern_ConstantRate(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		baseRate := rapid.Float64Range(0.1, 10000).Draw(t, "baseRate")
+		p := &UniformPattern{BaseRate: baseRate}
+
+		for range 20 {
+			elapsed := time.Duration(rapid.Int64Range(0, int64(24*time.Hour)).Draw(t, "elapsed"))
+			got := p.Rate(elapsed)
+			if got != baseRate {
+				t.Fatalf("UniformPattern.Rate(%v) = %f, want %f", elapsed, got, baseRate)
+			}
+		}
+	})
+}
+
+func TestProperty_DiurnalPattern_BoundedRate(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		baseRate := rapid.Float64Range(1, 1000).Draw(t, "baseRate")
+		trough := rapid.Float64Range(0.1, 0.9).Draw(t, "trough")
+		peak := rapid.Float64Range(trough+0.1, 3.0).Draw(t, "peak")
+		periodH := rapid.IntRange(1, 48).Draw(t, "periodH")
+
+		p := &DiurnalPattern{
+			BaseRate:         baseRate,
+			PeakMultiplier:   peak,
+			TroughMultiplier: trough,
+			Period:           time.Duration(periodH) * time.Hour,
+		}
+
+		minRate := baseRate * trough
+		maxRate := baseRate * peak
+
+		for range 50 {
+			elapsed := time.Duration(rapid.Int64Range(0, int64(72*time.Hour)).Draw(t, "elapsed"))
+			got := p.Rate(elapsed)
+			if got < minRate-0.001 || got > maxRate+0.001 {
+				t.Fatalf("DiurnalPattern.Rate(%v) = %f, outside [%f, %f]", elapsed, got, minRate, maxRate)
+			}
+		}
+	})
+}
+
+func TestProperty_BurstyPattern_RateAlternates(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		baseRate := rapid.Float64Range(1, 1000).Draw(t, "baseRate")
+		multiplier := rapid.Float64Range(2, 10).Draw(t, "multiplier")
+		intervalMin := rapid.IntRange(2, 10).Draw(t, "intervalMin")
+		durationSec := rapid.IntRange(1, (intervalMin*60)-1).Draw(t, "durationSec")
+
+		p := &BurstyPattern{
+			BaseRate:        baseRate,
+			BurstMultiplier: multiplier,
+			BurstInterval:   time.Duration(intervalMin) * time.Minute,
+			BurstDuration:   time.Duration(durationSec) * time.Second,
+		}
+
+		// During burst window
+		burstElapsed := time.Duration(rapid.IntRange(0, durationSec-1).Draw(t, "burstT")) * time.Second
+		burstRate := p.Rate(burstElapsed)
+		expected := baseRate * multiplier
+		if burstRate != expected {
+			t.Fatalf("during burst: got %f, want %f", burstRate, expected)
+		}
+
+		// Outside burst window: pick a time halfway between burst end and interval end
+		midNormal := time.Duration(durationSec)*time.Second + (time.Duration(intervalMin)*time.Minute-time.Duration(durationSec)*time.Second)/2
+		normalRate := p.Rate(midNormal)
+		if normalRate != baseRate {
+			t.Fatalf("outside burst at %v: got %f, want %f", midNormal, normalRate, baseRate)
+		}
+	})
+}
+
+func TestProperty_TrafficPattern_NonNegativeRate(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		patternName := rapid.SampledFrom([]string{"uniform", "diurnal", "poisson"}).Draw(t, "pattern")
+		rate := rapid.IntRange(1, 1000).Draw(t, "rate")
+
+		tcfg := TrafficConfig{
+			Rate:    fmt.Sprintf("%d/s", rate),
+			Pattern: patternName,
+		}
+		if patternName == "diurnal" {
+			tcfg.PeakMultiplier = 2.0
+			tcfg.TroughMultiplier = 0.5
+			tcfg.Period = "1h"
+		}
+
+		p, err := NewTrafficPattern(tcfg)
+		if err != nil {
+			t.Fatalf("NewTrafficPattern: %v", err)
+		}
+
+		for range 20 {
+			elapsed := time.Duration(rapid.Int64Range(0, int64(24*time.Hour)).Draw(t, "elapsed"))
+			r := p.Rate(elapsed)
+			if r < 0 {
+				t.Fatalf("%s pattern returned negative rate %f at %v", patternName, r, elapsed)
+			}
+		}
+	})
+}
+
+func TestProperty_CustomPattern_SegmentBoundaries(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		baseRate := rapid.IntRange(1, 100).Draw(t, "baseRate")
+		seg1Rate := rapid.IntRange(1, 100).Draw(t, "seg1Rate")
+		seg2Rate := rapid.IntRange(1, 100).Draw(t, "seg2Rate")
+		seg1UntilMin := rapid.IntRange(1, 10).Draw(t, "seg1Until")
+		seg2UntilMin := rapid.IntRange(seg1UntilMin+1, 20).Draw(t, "seg2Until")
+
+		tcfg := TrafficConfig{
+			Rate:    fmt.Sprintf("%d/s", baseRate),
+			Pattern: "custom",
+			Segments: []SegmentConfig{
+				{Until: fmt.Sprintf("%dm", seg1UntilMin), Rate: fmt.Sprintf("%d/s", seg1Rate)},
+				{Until: fmt.Sprintf("%dm", seg2UntilMin), Rate: fmt.Sprintf("%d/s", seg2Rate)},
+			},
+		}
+
+		p, err := NewTrafficPattern(tcfg)
+		if err != nil {
+			t.Fatalf("NewTrafficPattern: %v", err)
+		}
+
+		// Before seg1: should return seg1 rate
+		r1 := p.Rate(time.Duration(seg1UntilMin-1) * time.Minute)
+		if r1 != float64(seg1Rate) {
+			t.Fatalf("before seg1 boundary: got %f, want %f", r1, float64(seg1Rate))
+		}
+
+		// Between seg1 and seg2: should return seg2 rate
+		midpoint := time.Duration((seg1UntilMin+seg2UntilMin)/2) * time.Minute
+		if midpoint >= time.Duration(seg2UntilMin)*time.Minute {
+			midpoint = time.Duration(seg1UntilMin)*time.Minute + time.Second
+		}
+		r2 := p.Rate(midpoint)
+		if r2 != float64(seg2Rate) {
+			t.Fatalf("between segments: got %f at %v, want %f", r2, midpoint, float64(seg2Rate))
+		}
+
+		// After all segments: should return base rate
+		r3 := p.Rate(time.Duration(seg2UntilMin+1) * time.Minute)
+		if r3 != float64(baseRate) {
+			t.Fatalf("after all segments: got %f, want %f", r3, float64(baseRate))
+		}
+	})
+}
