@@ -68,14 +68,14 @@ func FuzzParseRate(f *testing.F) {
 		s := genRateString.Draw(t, "rate")
 		rate, err := ParseRate(s)
 		if err != nil {
-			// Some regex-generated strings may exceed 10000 — that's a valid rejection
+			// Some regex-generated strings may exceed MaxRateCount — that's a valid rejection
 			return
 		}
 		if rate.Count() <= 0 {
 			t.Fatalf("parsed rate count %d should be positive", rate.Count())
 		}
-		if rate.Count() > 10000 {
-			t.Fatalf("parsed rate count %d exceeds 10000", rate.Count())
+		if rate.Count() > MaxRateCount {
+			t.Fatalf("parsed rate count %d exceeds %d", rate.Count(), MaxRateCount)
 		}
 	}))
 }

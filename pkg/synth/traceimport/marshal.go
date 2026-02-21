@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/andrewh/motel/pkg/synth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -115,8 +116,8 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 	// Traffic rate
 	if windowSecs > 0 && traceCount > 1 {
 		rate := float64(traceCount) / windowSecs
-		if rate > 10000 {
-			rate = 10000
+		if rate > synth.MaxRateCount {
+			rate = synth.MaxRateCount
 		}
 		if rate >= 1.0 {
 			cfg.Traffic["rate"] = fmt.Sprintf("%.0f/s", rate)

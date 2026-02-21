@@ -120,7 +120,7 @@ func walkOnce(t *rapid.T, cfg *Config) (*Topology, []tracetest.SpanStub, *Stats)
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
 	seed := genSeed(t)
-	rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+	rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 	engine := &Engine{
 		Topology: topo,
@@ -705,7 +705,7 @@ func TestProperty_Engine_ScenarioOverrideApplied(t *testing.T) {
 		defer func() { _ = tp.Shutdown(context.Background()) }()
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		overrides := map[string]Override{
 			"svc.op": {Duration: Distribution{Mean: time.Duration(overrideDurMs) * time.Millisecond}},
@@ -762,7 +762,7 @@ func TestProperty_Engine_ScenarioErrorRateOverride(t *testing.T) {
 		defer func() { _ = tp.Shutdown(context.Background()) }()
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		overrides := map[string]Override{
 			"svc.op": {ErrorRate: 1.0, HasErrorRate: true},
@@ -799,7 +799,7 @@ func TestProperty_StaticValue_AlwaysReturnsSameValue(t *testing.T) {
 		val := rapid.String().Draw(t, "val")
 		gen := &StaticValue{Value: val}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 100 {
 			got := gen.Generate(rng)
@@ -831,7 +831,7 @@ func TestProperty_WeightedChoice_OutputInChoices(t *testing.T) {
 		}
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 200 {
 			got := gen.Generate(rng)
@@ -847,7 +847,7 @@ func TestProperty_BoolValue_OutputIsBoolean(t *testing.T) {
 		prob := rapid.Float64Range(0, 1).Draw(t, "prob")
 		gen := &BoolValue{Probability: prob}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 100 {
 			got := gen.Generate(rng)
@@ -863,7 +863,7 @@ func TestProperty_BoolValue_ExtremesProbabilities(t *testing.T) {
 		seed := genSeed(t)
 
 		// Probability 0 should always return false
-		rng0 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng0 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 		gen0 := &BoolValue{Probability: 0}
 		for range 100 {
 			if gen0.Generate(rng0).(bool) {
@@ -872,7 +872,7 @@ func TestProperty_BoolValue_ExtremesProbabilities(t *testing.T) {
 		}
 
 		// Probability 1 should always return true
-		rng1 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng1 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 		gen1 := &BoolValue{Probability: 1}
 		for range 100 {
 			if !gen1.Generate(rng1).(bool) {
@@ -890,7 +890,7 @@ func TestProperty_RangeValue_WithinBounds(t *testing.T) {
 
 		gen := &RangeValue{Min: lo, Max: hi}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 200 {
 			got := gen.Generate(rng).(int64)
@@ -906,7 +906,7 @@ func TestProperty_RangeValue_SingleValue(t *testing.T) {
 		val := rapid.Int64Range(-1000, 1000).Draw(t, "val")
 		gen := &RangeValue{Min: val, Max: val}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 50 {
 			got := gen.Generate(rng).(int64)
@@ -922,7 +922,7 @@ func TestProperty_SequenceValue_Monotonic(t *testing.T) {
 		pattern := rapid.SampledFrom([]string{"req-{n}", "{n}", "id-{n}-end"}).Draw(t, "pattern")
 		gen := &SequenceValue{Pattern: pattern}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		prev := ""
 		for range 50 {
@@ -941,7 +941,7 @@ func TestProperty_NormalValue_MeanConverges(t *testing.T) {
 		stddev := rapid.Float64Range(0.1, 10).Draw(t, "stddev")
 		gen := &NormalValue{Mean: mean, StdDev: stddev}
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		sum := 0.0
 		n := 10000
@@ -977,7 +977,7 @@ func TestProperty_Distribution_SampleNonNegative(t *testing.T) {
 		}
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 500 {
 			d := dist.Sample(rng)
@@ -994,7 +994,7 @@ func TestProperty_Distribution_ZeroStdDevReturnsMean(t *testing.T) {
 		dist := Distribution{Mean: time.Duration(meanMs) * time.Millisecond}
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		for range 100 {
 			d := dist.Sample(rng)
@@ -1015,7 +1015,7 @@ func TestProperty_Distribution_MeanConverges(t *testing.T) {
 		}
 
 		seed := genSeed(t)
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		sum := 0.0
 		n := 10000
@@ -1309,12 +1309,12 @@ func TestProperty_ParseRate_ZeroOrNegativeRejected(t *testing.T) {
 
 func TestProperty_ParseRate_ExceedsMaxRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		count := rapid.IntRange(10001, 100000).Draw(t, "count")
+		count := rapid.IntRange(MaxRateCount+1, 100000).Draw(t, "count")
 		s := fmt.Sprintf("%d/s", count)
 
 		_, err := ParseRate(s)
 		if err == nil {
-			t.Fatalf("ParseRate(%q) should fail for count > 10000", s)
+			t.Fatalf("ParseRate(%q) should fail for count > %d", s, MaxRateCount)
 		}
 	})
 }
@@ -1606,7 +1606,7 @@ func TestProperty_CircuitBreaker_StateMachine(t *testing.T) {
 		}
 
 		seed := rapid.Uint64().Draw(t, "seed")
-		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
 		m := &circuitBreakerModel{
 			state:     os,
