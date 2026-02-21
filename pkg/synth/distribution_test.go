@@ -66,7 +66,7 @@ func TestParseDistribution(t *testing.T) {
 		{
 			name:    "empty string",
 			input:   "",
-			wantErr: "duration string cannot be empty",
+			wantErr: "duration is required",
 		},
 		{
 			name:    "invalid mean",

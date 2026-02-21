@@ -189,7 +189,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	if raw.Version == nil {
-		return nil, fmt.Errorf("missing required field: version")
+		return nil, fmt.Errorf("missing required field: version (e.g. 'version: 1')")
 	}
 	if *raw.Version != CurrentVersion {
 		return nil, fmt.Errorf("unsupported config version %d (supported: %d)", *raw.Version, CurrentVersion)
@@ -245,7 +245,10 @@ func LoadConfig(path string) (*Config, error) {
 // ValidateConfig checks a configuration for structural correctness.
 func ValidateConfig(cfg *Config) error {
 	if len(cfg.Services) == 0 {
-		return fmt.Errorf("at least one service is required")
+		return fmt.Errorf("at least one service is required under 'services:')")
+	}
+	if cfg.Traffic.Rate == "" {
+		return fmt.Errorf("traffic section with rate is required (e.g. 'rate: 10/s')")
 	}
 
 	// Build lookups for reference validation:
