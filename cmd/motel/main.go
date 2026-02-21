@@ -129,8 +129,10 @@ func validateCmd() *cobra.Command {
 			if len(topo.Roots) == 1 {
 				rootLabel = "operation"
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n",
-				len(topo.Services), svcLabel, len(topo.Roots), rootLabel)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n\n"+
+				"To generate signals:\n"+
+				"  motel run --stdout %s\n",
+				len(topo.Services), svcLabel, len(topo.Roots), rootLabel, args[0])
 			return nil
 		},
 	}
