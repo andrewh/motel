@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -48,8 +49,9 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "motel",
-		Short: "Synthetic OpenTelemetry generator",
+		Use:           "motel",
+		Short:         "Synthetic OpenTelemetry generator",
+		SilenceUsage:  true,
 	}
 
 	root.AddCommand(runCmd())
@@ -127,8 +129,11 @@ func validateCmd() *cobra.Command {
 			if len(topo.Roots) == 1 {
 				rootLabel = "operation"
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n",
-				len(topo.Services), svcLabel, len(topo.Roots), rootLabel)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n\n"+
+				"To generate signals:\n"+
+				"  motel run --stdout %s\n\n"+
+				"See https://github.com/andrewh/motel/tree/main/docs/examples for more examples.\n",
+				len(topo.Services), svcLabel, len(topo.Roots), rootLabel, args[0])
 			return nil
 		},
 	}
@@ -218,9 +223,41 @@ func parseSignals(s string) (map[string]bool, error) {
 }
 
 const (
-	defaultDuration = 1 * time.Minute
-	shutdownTimeout = 5 * time.Second
+	defaultDuration      = 1 * time.Minute
+	shutdownTimeout      = 5 * time.Second
+	connectCheckTimeout  = 2 * time.Second
+	defaultHTTPPort      = "4318"
+	defaultGRPCPort      = "4317"
 )
+
+func checkEndpoint(endpoint, protocol, configPath string) error {
+	host := endpoint
+	if host == "" {
+		port := defaultHTTPPort
+		if protocol == "grpc" {
+			port = defaultGRPCPort
+		}
+		host = "localhost:" + port
+	} else if _, _, err := net.SplitHostPort(host); err != nil {
+		port := defaultHTTPPort
+		if protocol == "grpc" {
+			port = defaultGRPCPort
+		}
+		host = net.JoinHostPort(host, port)
+	}
+
+	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	if err != nil {
+		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
+			"To emit signals as JSON to the terminal, use --stdout:\n"+
+			"  motel run --stdout --duration 10s %s\n\n"+
+			"To send to a specific collector, use --endpoint:\n"+
+			"  motel run --endpoint collector.example.com:4318 %s\n\n"+
+			"Without --duration, motel runs for 1 minute", host, configPath, configPath)
+	}
+	_ = conn.Close()
+	return nil
+}
 
 func runGenerate(ctx context.Context, configPath string, opts runOptions) error {
 	cfg, err := synth.LoadConfig(configPath)
@@ -241,6 +278,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	scenarios, err := synth.BuildScenarios(cfg.Scenarios, topo)
 	if err != nil {
 		return err
+	}
+
+	if !opts.stdout {
+		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
+			return err
+		}
 	}
 
 	if opts.slowThreshold < 0 {

@@ -8,7 +8,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o build/motel ./cmd/motel
 
 test:
-	go test ./...
+	go test $(shell go list ./... | grep -v /third_party/)
 
 lint:
 	@test -z "$$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)

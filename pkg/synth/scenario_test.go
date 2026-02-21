@@ -35,7 +35,7 @@ func TestParseOffset(t *testing.T) {
 		{name: "hours with plus", input: "+1h", want: time.Hour},
 		{name: "without plus", input: "5m", want: 5 * time.Minute},
 		{name: "complex duration", input: "+1h30m", want: 90 * time.Minute},
-		{name: "empty", input: "", wantErr: "cannot be empty"},
+		{name: "empty", input: "", wantErr: "offset is required"},
 		{name: "invalid", input: "+xyz", wantErr: "invalid"},
 	}
 

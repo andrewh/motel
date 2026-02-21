@@ -35,7 +35,7 @@ type Override struct {
 func ParseOffset(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return 0, fmt.Errorf("offset cannot be empty")
+		return 0, fmt.Errorf("offset is required (e.g. '+5m', '30s')")
 	}
 	s = strings.TrimPrefix(s, "+")
 	d, err := time.ParseDuration(s)

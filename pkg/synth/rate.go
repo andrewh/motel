@@ -18,7 +18,7 @@ type Rate struct {
 // ParseRate creates a Rate from a string like "10/s", "5/m", "100/h".
 func ParseRate(s string) (Rate, error) {
 	if s == "" {
-		return Rate{}, fmt.Errorf("rate cannot be empty")
+		return Rate{}, fmt.Errorf("required (e.g. '10/s', '100/m', '1000/h')")
 	}
 
 	parts := strings.Split(s, "/")

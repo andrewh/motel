@@ -23,7 +23,7 @@ type Distribution struct {
 func ParseDistribution(s string) (Distribution, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return Distribution{}, fmt.Errorf("duration string cannot be empty")
+		return Distribution{}, fmt.Errorf("duration is required (e.g. '50ms', '1s +/- 200ms')")
 	}
 
 	// Try splitting on "+/-" or "±"

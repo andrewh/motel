@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -302,4 +303,61 @@ func TestRunCommandSlowThresholdWithoutLogs(t *testing.T) {
 	err := root.Execute()
 	require.NoError(t, err)
 	assert.Contains(t, stderr.String(), "--slow-threshold has no effect without --signals logs")
+}
+
+func TestCheckEndpoint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unreachable default endpoint", func(t *testing.T) {
+		t.Parallel()
+		err := checkEndpoint("", "http/protobuf", "test.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4318")
+		assert.Contains(t, err.Error(), "--stdout")
+		assert.Contains(t, err.Error(), "--endpoint")
+		assert.Contains(t, err.Error(), "Without --duration, motel runs for 1 minute")
+		assert.Contains(t, err.Error(), "test.yaml")
+	})
+
+	t.Run("unreachable grpc default endpoint", func(t *testing.T) {
+		t.Parallel()
+		err := checkEndpoint("", "grpc", "test.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4317")
+	})
+
+	t.Run("unreachable custom endpoint", func(t *testing.T) {
+		t.Parallel()
+		err := checkEndpoint("192.0.2.1:9999", "http/protobuf", "test.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot reach OTLP collector at 192.0.2.1:9999")
+	})
+
+	t.Run("reachable endpoint succeeds", func(t *testing.T) {
+		t.Parallel()
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer ln.Close() //nolint:errcheck // best-effort close in test
+
+		err = checkEndpoint(ln.Addr().String(), "http/protobuf", "test.yaml")
+		require.NoError(t, err)
+	})
+
+	t.Run("endpoint without port gets default", func(t *testing.T) {
+		t.Parallel()
+		err := checkEndpoint("192.0.2.1", "http/protobuf", "test.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "192.0.2.1:4318")
+	})
+
+	t.Run("run command fails fast without collector", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"run", "--endpoint", "192.0.2.1:9999", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot reach OTLP collector")
+	})
 }
