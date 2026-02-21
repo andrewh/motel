@@ -7,7 +7,7 @@ OpenTelemetry's semantic conventions define standard attribute names and types f
 
 ## Defining custom conventions
 
-A semantic convention directory mirrors the Weaver registry layout: YAML files organised into subdirectories by domain. Each file defines one or more attribute groups.
+A semantic convention directory mirrors the [Weaver](https://github.com/open-telemetry/weaver) registry layout: YAML files organised into subdirectories by domain. Each file defines one or more attribute groups.
 
 ```bash
 mkdir -p /tmp/motel-semconv/payments && cat > /tmp/motel-semconv/payments/registry.yaml << 'EOF'
