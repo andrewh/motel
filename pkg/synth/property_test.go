@@ -1552,3 +1552,162 @@ func TestProperty_CustomPattern_SegmentBoundaries(t *testing.T) {
 		}
 	})
 }
+
+// --- Circuit breaker state machine ---
+
+// circuitBreakerModel is a simplified model of the expected circuit breaker behaviour.
+// rapid drives random sequences of actions (request success, request failure, time advance)
+// and we check the real OperationState against this model after every action.
+type circuitBreakerModel struct {
+	state     *OperationState
+	rng       *rand.Rand
+	elapsed   time.Duration
+	model     CircuitState
+	openedAt  time.Duration
+	failures  []time.Duration // failure timestamps within window
+	threshold int
+	window    time.Duration
+	cooldown  time.Duration
+}
+
+func (m *circuitBreakerModel) pruneFailures() {
+	cutoff := m.elapsed - m.window
+	pruned := m.failures[:0]
+	for _, at := range m.failures {
+		if at >= cutoff {
+			pruned = append(pruned, at)
+		}
+	}
+	m.failures = pruned
+}
+
+func TestProperty_CircuitBreaker_StateMachine(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		threshold := rapid.IntRange(1, 5).Draw(t, "threshold")
+		windowMs := rapid.IntRange(100, 5000).Draw(t, "windowMs")
+		cooldownMs := rapid.IntRange(50, 2000).Draw(t, "cooldownMs")
+
+		os := &OperationState{
+			FailureThreshold: threshold,
+			WindowDuration:   time.Duration(windowMs) * time.Millisecond,
+			Cooldown:         time.Duration(cooldownMs) * time.Millisecond,
+		}
+
+		seed := rapid.Uint64().Draw(t, "seed")
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		m := &circuitBreakerModel{
+			state:     os,
+			rng:       rng,
+			threshold: threshold,
+			window:    time.Duration(windowMs) * time.Millisecond,
+			cooldown:  time.Duration(cooldownMs) * time.Millisecond,
+			model:     CircuitClosed,
+		}
+
+		t.Repeat(map[string]func(*rapid.T){
+			"advanceTime": func(t *rapid.T) {
+				advance := time.Duration(rapid.IntRange(1, 1000).Draw(t, "advMs")) * time.Millisecond
+				m.elapsed += advance
+			},
+			"successRequest": func(t *rapid.T) {
+				_, _, rejected, reason := m.state.Admit(m.elapsed, m.rng)
+
+				if m.model == CircuitOpen {
+					if m.elapsed-m.openedAt >= m.cooldown {
+						// Should transition to HalfOpen and admit
+						m.model = CircuitHalfOpen
+					} else {
+						// Should reject
+						if !rejected {
+							t.Fatal("model says Open, should reject")
+						}
+						if reason != ReasonCircuitOpen {
+							t.Fatalf("expected circuit_open reason, got %q", reason)
+						}
+						return
+					}
+				}
+
+				if rejected {
+					t.Fatalf("model says %v, should not reject (reason=%q)", m.model, reason)
+				}
+
+				m.state.Enter()
+				m.state.Exit(m.elapsed, time.Millisecond, false)
+
+				// Model: success in HalfOpen closes the circuit
+				if m.model == CircuitHalfOpen {
+					m.model = CircuitClosed
+					m.failures = m.failures[:0]
+				}
+
+				// Prune model's failure window
+				m.pruneFailures()
+			},
+			"failRequest": func(t *rapid.T) {
+				_, _, rejected, reason := m.state.Admit(m.elapsed, m.rng)
+
+				if m.model == CircuitOpen {
+					if m.elapsed-m.openedAt >= m.cooldown {
+						m.model = CircuitHalfOpen
+					} else {
+						if !rejected {
+							t.Fatal("model says Open, should reject")
+						}
+						if reason != ReasonCircuitOpen {
+							t.Fatalf("expected circuit_open reason, got %q", reason)
+						}
+						return
+					}
+				}
+
+				if rejected {
+					t.Fatalf("model says %v, should not reject (reason=%q)", m.model, reason)
+				}
+
+				m.state.Enter()
+				m.state.Exit(m.elapsed, time.Millisecond, true)
+
+				// Model: failure in HalfOpen reopens the circuit
+				if m.model == CircuitHalfOpen {
+					m.model = CircuitOpen
+					m.openedAt = m.elapsed
+					m.pruneFailures()
+					return
+				}
+
+				// Model: accumulate failure, prune window, check threshold
+				m.pruneFailures()
+				if len(m.failures) < m.threshold {
+					m.failures = append(m.failures, m.elapsed)
+				}
+
+				if len(m.failures) >= m.threshold && m.model == CircuitClosed {
+					m.model = CircuitOpen
+					m.openedAt = m.elapsed
+				}
+			},
+			"": func(t *rapid.T) {
+				// Invariant checks after every action
+				if m.state.Circuit != m.model {
+					t.Fatalf("state mismatch: real=%v, model=%v (elapsed=%v)",
+						m.state.Circuit, m.model, m.elapsed)
+				}
+
+				// Open circuit must reject
+				if m.model == CircuitOpen && m.elapsed-m.openedAt < m.cooldown {
+					_, _, rejected, _ := m.state.Admit(m.elapsed, m.rng)
+					if !rejected {
+						t.Fatal("Open circuit within cooldown should reject")
+					}
+				}
+
+				// Active requests should never be negative
+				if m.state.ActiveRequests < 0 {
+					t.Fatalf("negative active requests: %d", m.state.ActiveRequests)
+				}
+			},
+		})
+	})
+}
