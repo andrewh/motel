@@ -12,8 +12,17 @@ This tutorial walks you through generating realistic distributed traces from a Y
 
 ## Prerequisites
 
-- Go toolchain installed
-- motel built: `go install github.com/andrewh/motel/cmd/motel@latest`
+Install motel via Homebrew:
+
+```sh
+brew install andrewh/tap/motel
+```
+
+Or with the Go toolchain:
+
+```sh
+go install github.com/andrewh/motel/cmd/motel@latest
+```
 
 No server or external services required — motel is completely standalone.
 

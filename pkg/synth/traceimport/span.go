@@ -55,7 +55,7 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 	}
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
-		return nil, fmt.Errorf("no spans found in input")
+		return nil, fmt.Errorf("no spans found in input\n\nProvide a file or pipe stdin:\n  motel import traces.json\n  cat traces.json | motel import")
 	}
 
 	if format == FormatAuto {
@@ -71,7 +71,7 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 	case FormatOTLP:
 		return parseOTLP(data)
 	default:
-		return nil, fmt.Errorf("unknown format %q", format)
+		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp", format)
 	}
 }
 
@@ -212,7 +212,7 @@ func parseStdouttrace(data []byte) ([]Span, error) {
 		return nil, fmt.Errorf("reading input: %w", err)
 	}
 	if len(spans) == 0 {
-		return nil, fmt.Errorf("no spans found in input")
+		return nil, fmt.Errorf("no spans found in input\n\nProvide a file or pipe stdin:\n  motel import traces.json\n  cat traces.json | motel import")
 	}
 	return spans, nil
 }
@@ -274,7 +274,7 @@ func parseOTLP(data []byte) ([]Span, error) {
 	}
 
 	if len(spans) == 0 {
-		return nil, fmt.Errorf("no spans found in input")
+		return nil, fmt.Errorf("no spans found in input\n\nProvide a file or pipe stdin:\n  motel import traces.json\n  cat traces.json | motel import")
 	}
 	return spans, nil
 }
