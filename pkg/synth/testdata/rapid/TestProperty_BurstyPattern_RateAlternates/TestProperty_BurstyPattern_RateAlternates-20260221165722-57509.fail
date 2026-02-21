@@ -1,0 +1,31 @@
+# 2026/02/21 16:57:22.558190 [TestProperty_BurstyPattern_RateAlternates] [rapid] draw baseRate: 1
+# 2026/02/21 16:57:22.558195 [TestProperty_BurstyPattern_RateAlternates] [rapid] draw multiplier: 2
+# 2026/02/21 16:57:22.558197 [TestProperty_BurstyPattern_RateAlternates] [rapid] draw intervalMin: 3
+# 2026/02/21 16:57:22.558198 [TestProperty_BurstyPattern_RateAlternates] [rapid] draw durationSec: 179
+# 2026/02/21 16:57:22.558199 [TestProperty_BurstyPattern_RateAlternates] [rapid] draw burstT: 0
+# 2026/02/21 16:57:22.558200 [TestProperty_BurstyPattern_RateAlternates] outside burst: got 2.000000, want 1.000000
+# 
+v0.4.8#8130198482051421501
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x11f81dbaf090f9
+0xb2
+0x0
+0x0
+0x0

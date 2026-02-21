@@ -1,0 +1,14 @@
+# 2026/02/21 14:55:55.237327 [TestProperty_Distribution_MeanConverges] [rapid] draw meanMs: 10
+# 2026/02/21 14:55:55.237330 [TestProperty_Distribution_MeanConverges] [rapid] draw stddevMs: 50
+# 2026/02/21 14:55:55.237331 [TestProperty_Distribution_MeanConverges] [rapid] draw seed: 0x0
+# 2026/02/21 14:55:55.237489 [TestProperty_Distribution_MeanConverges] Distribution mean did not converge: expected ~10ms, got 25.28505ms (diff 15.28505ms, tolerance 5ms)
+# 
+v0.4.8#4255209387173934012
+0x0
+0x0
+0x0
+0x0
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x0
