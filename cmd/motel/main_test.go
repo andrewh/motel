@@ -391,7 +391,7 @@ traffic:
 
 		err := root.Execute()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--semconv directory")
+		assert.Contains(t, err.Error(), "does not exist")
 	})
 
 	t.Run("semconv path is a file not a directory", func(t *testing.T) {

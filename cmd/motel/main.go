@@ -569,7 +569,7 @@ func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error
 	if semconvDir != "" {
 		info, statErr := os.Stat(semconvDir)
 		if statErr != nil {
-			return nil, fmt.Errorf("--semconv directory: %w", statErr)
+			return nil, fmt.Errorf("--semconv directory %q does not exist", semconvDir)
 		}
 		if !info.IsDir() {
 			return nil, fmt.Errorf("--semconv path %q is not a directory", semconvDir)

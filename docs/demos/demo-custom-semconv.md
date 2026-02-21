@@ -232,5 +232,5 @@ motel validate \
 ```
 
 ```output
-Error: --semconv directory: stat /nonexistent: no such file or directory
+Error: --semconv directory "/nonexistent" does not exist
 ```
