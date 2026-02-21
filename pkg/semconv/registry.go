@@ -120,8 +120,14 @@ func (r *Registry) Groups() []Group {
 // Attribute references are re-resolved across the combined set.
 func (r *Registry) Merge(other *Registry) *Registry {
 	combined := make([]Group, 0, len(r.groups)+len(other.groups))
-	combined = append(combined, r.groups...)
-	combined = append(combined, other.groups...)
+	for _, g := range r.groups {
+		g.Attributes = append([]Attribute(nil), g.Attributes...)
+		combined = append(combined, g)
+	}
+	for _, g := range other.groups {
+		g.Attributes = append([]Attribute(nil), g.Attributes...)
+		combined = append(combined, g)
+	}
 	return buildRegistry(combined)
 }
 

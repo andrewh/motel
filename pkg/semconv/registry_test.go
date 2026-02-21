@@ -605,6 +605,53 @@ groups:
 	assert.Equal(t, "string", attr.Type.Value)
 }
 
+func TestMerge_DoesNotMutateOriginals(t *testing.T) {
+	t.Parallel()
+	fsBase := fstest.MapFS{
+		"server/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.server
+    type: attribute_group
+    brief: 'Server attributes.'
+    attributes:
+      - id: server.address
+        type: string
+        brief: 'Server address.'
+        stability: stable
+`),
+		},
+	}
+	fsUser := fstest.MapFS{
+		"myapp/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app.'
+    attributes:
+      - ref: server.address
+        brief: 'Upstream host.'
+`),
+		},
+	}
+
+	base, err := Load(fsBase)
+	require.NoError(t, err)
+	user, err := Load(fsUser)
+	require.NoError(t, err)
+
+	// Capture the original ref attribute state before merge.
+	userAttr := user.Group("registry.myapp").Attributes[0]
+	origType := userAttr.Type.Value
+
+	_ = base.Merge(user)
+
+	// The original user registry's attribute should be unchanged.
+	afterAttr := user.Group("registry.myapp").Attributes[0]
+	assert.Equal(t, origType, afterAttr.Type.Value, "Merge should not mutate the original registry")
+}
+
 func TestLoad_NonYAMLFilesIgnored(t *testing.T) {
 	t.Parallel()
 	fsys := fstest.MapFS{
