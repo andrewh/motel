@@ -67,7 +67,8 @@ motel run --endpoint localhost:4318 --duration 30s my-topology.yaml
 motel reads a YAML topology file describing services, operations, call
 patterns, latency distributions, and error rates. It walks the topology tree
 once per trace, producing spans that look like they came from real instrumented
-services.
+services. All signals include a `motel.version` resource attribute so you can
+distinguish synthetic traffic from real data.
 
 Use cases:
 
