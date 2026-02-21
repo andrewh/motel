@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/andrewh/motel)](https://goreportcard.com/report/github.com/andrewh/motel)
 [![Go Reference](https://pkg.go.dev/badge/github.com/andrewh/motel.svg)](https://pkg.go.dev/github.com/andrewh/motel)
 
-Topology-driven synthetic telemetry generator for [OpenTelemetry](https://opentelemetry.io/).
+Synthetic [OpenTelemetry](https://opentelemetry.io/) generator.
 
 Describe your distributed system in YAML and motel generates realistic traces,
 metrics, and logs — no live services required.

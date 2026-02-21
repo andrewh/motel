@@ -1,4 +1,4 @@
-// Topology-driven synthetic OTLP signal generator
+// Synthetic OpenTelemetry generator
 // Reads a YAML topology definition and emits traces, metrics, and logs via OTel SDK
 package main
 
@@ -49,7 +49,7 @@ func main() {
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "motel",
-		Short: "Topology-driven synthetic OTLP trace generator",
+		Short: "Synthetic OpenTelemetry generator",
 	}
 
 	root.AddCommand(runCmd())
