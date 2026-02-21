@@ -1,5 +1,6 @@
 // Property-based tests for the synth engine using pgregory.net/rapid
-// Covers topology conformance, span nesting, error cascading, and stats consistency
+// Covers topology conformance, span nesting, error cascading, stats consistency,
+// and scenario activation/override resolution
 package synth
 
 import (
@@ -14,6 +15,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"pgregory.net/rapid"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // --- Generators ---
@@ -367,6 +370,412 @@ func TestProperty_Engine_AllSpansShareTraceID(t *testing.T) {
 			if s.SpanContext.TraceID() != traceID {
 				t.Fatalf("span %s has trace ID %v, expected %v", s.Name, s.SpanContext.TraceID(), traceID)
 			}
+		}
+	})
+}
+
+// --- Scenario generators ---
+
+// genScenario generates a random Scenario with a valid activation window.
+func genScenario(t *rapid.T, label string, refs []string) Scenario {
+	startMin := rapid.Int64Range(0, int64(10*time.Minute)).Draw(t, label+"-start")
+	dur := rapid.Int64Range(int64(time.Second), int64(5*time.Minute)).Draw(t, label+"-dur")
+	priority := rapid.IntRange(0, 100).Draw(t, label+"-priority")
+
+	overrides := make(map[string]Override)
+	for _, ref := range refs {
+		if !rapid.Bool().Draw(t, label+"-has-"+ref) {
+			continue
+		}
+		var ov Override
+		if rapid.Bool().Draw(t, label+"-hasDur-"+ref) {
+			meanMs := rapid.IntRange(1, 1000).Draw(t, label+"-durMs-"+ref)
+			ov.Duration = Distribution{Mean: time.Duration(meanMs) * time.Millisecond}
+		}
+		if rapid.Bool().Draw(t, label+"-hasErr-"+ref) {
+			errPct := rapid.Float64Range(0, 1.0).Draw(t, label+"-errRate-"+ref)
+			ov.ErrorRate = errPct
+			ov.HasErrorRate = true
+		}
+		overrides[ref] = ov
+	}
+
+	start := time.Duration(startMin)
+	return Scenario{
+		Name:      label,
+		Start:     start,
+		End:       start + time.Duration(dur),
+		Priority:  priority,
+		Overrides: overrides,
+	}
+}
+
+// genScenarioList generates 1-5 scenarios with overlapping windows.
+func genScenarioList(t *rapid.T, refs []string) []Scenario {
+	n := rapid.IntRange(1, 5).Draw(t, "nScenarios")
+	scenarios := make([]Scenario, n)
+	for i := range n {
+		scenarios[i] = genScenario(t, fmt.Sprintf("sc%d", i), refs)
+	}
+	return scenarios
+}
+
+// --- ActiveScenarios properties ---
+
+func TestProperty_ActiveScenarios_WindowCorrectness(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		refs := []string{"svc.op"}
+		scenarios := genScenarioList(t, refs)
+		elapsed := time.Duration(rapid.Int64Range(0, int64(15*time.Minute)).Draw(t, "elapsed"))
+
+		active := ActiveScenarios(scenarios, elapsed)
+
+		for _, sc := range active {
+			if elapsed < sc.Start || elapsed >= sc.End {
+				t.Fatalf("scenario %q active at %v but window is [%v, %v)", sc.Name, elapsed, sc.Start, sc.End)
+			}
+		}
+
+		// Verify nothing was missed
+		activeNames := make(map[string]bool)
+		for _, sc := range active {
+			activeNames[sc.Name] = true
+		}
+		for _, sc := range scenarios {
+			shouldBeActive := elapsed >= sc.Start && elapsed < sc.End
+			if shouldBeActive && !activeNames[sc.Name] {
+				t.Fatalf("scenario %q should be active at %v (window [%v, %v)) but was not returned",
+					sc.Name, elapsed, sc.Start, sc.End)
+			}
+		}
+	})
+}
+
+func TestProperty_ActiveScenarios_SortedByPriority(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		refs := []string{"svc.op"}
+		scenarios := genScenarioList(t, refs)
+		elapsed := time.Duration(rapid.Int64Range(0, int64(15*time.Minute)).Draw(t, "elapsed"))
+
+		active := ActiveScenarios(scenarios, elapsed)
+
+		for i := 1; i < len(active); i++ {
+			if active[i].Priority < active[i-1].Priority {
+				t.Fatalf("active scenarios not sorted by priority: %d at index %d, %d at index %d",
+					active[i-1].Priority, i-1, active[i].Priority, i)
+			}
+		}
+	})
+}
+
+func TestProperty_ActiveScenarios_StableOrder(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		refs := []string{"svc.op"}
+		scenarios := genScenarioList(t, refs)
+		elapsed := time.Duration(rapid.Int64Range(0, int64(15*time.Minute)).Draw(t, "elapsed"))
+
+		active1 := ActiveScenarios(scenarios, elapsed)
+		active2 := ActiveScenarios(scenarios, elapsed)
+
+		if len(active1) != len(active2) {
+			t.Fatalf("ActiveScenarios not deterministic: got %d then %d", len(active1), len(active2))
+		}
+		for i := range active1 {
+			if active1[i].Name != active2[i].Name {
+				t.Fatalf("ActiveScenarios not stable: index %d was %q then %q", i, active1[i].Name, active2[i].Name)
+			}
+		}
+	})
+}
+
+// --- ResolveOverrides properties ---
+
+func TestProperty_ResolveOverrides_LastWins(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		ref := "svc.op"
+		dur1 := rapid.IntRange(1, 500).Draw(t, "dur1")
+		dur2 := rapid.IntRange(501, 1000).Draw(t, "dur2")
+
+		scenarios := []Scenario{
+			{
+				Priority: 1,
+				Overrides: map[string]Override{
+					ref: {Duration: Distribution{Mean: time.Duration(dur1) * time.Millisecond}},
+				},
+			},
+			{
+				Priority: 2,
+				Overrides: map[string]Override{
+					ref: {Duration: Distribution{Mean: time.Duration(dur2) * time.Millisecond}},
+				},
+			},
+		}
+
+		overrides := ResolveOverrides(scenarios)
+		got := overrides[ref].Duration.Mean
+		want := time.Duration(dur2) * time.Millisecond
+		if got != want {
+			t.Fatalf("expected last-wins duration %v, got %v", want, got)
+		}
+	})
+}
+
+func TestProperty_ResolveOverrides_PartialPreservesEarlier(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		ref := "svc.op"
+		durMs := rapid.IntRange(1, 1000).Draw(t, "durMs")
+		errRate := rapid.Float64Range(0.01, 1.0).Draw(t, "errRate")
+
+		scenarios := []Scenario{
+			{
+				Overrides: map[string]Override{
+					ref: {
+						Duration:     Distribution{Mean: time.Duration(100) * time.Millisecond},
+						ErrorRate:    errRate,
+						HasErrorRate: true,
+					},
+				},
+			},
+			{
+				Overrides: map[string]Override{
+					ref: {Duration: Distribution{Mean: time.Duration(durMs) * time.Millisecond}},
+				},
+			},
+		}
+
+		overrides := ResolveOverrides(scenarios)
+		ov := overrides[ref]
+
+		if ov.Duration.Mean != time.Duration(durMs)*time.Millisecond {
+			t.Fatalf("duration should be %dms, got %v", durMs, ov.Duration.Mean)
+		}
+		if !ov.HasErrorRate {
+			t.Fatal("error rate should be preserved from first scenario")
+		}
+		if ov.ErrorRate != errRate {
+			t.Fatalf("error rate should be %f, got %f", errRate, ov.ErrorRate)
+		}
+	})
+}
+
+func TestProperty_ResolveOverrides_DoesNotMutateInput(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		ref := "svc.op"
+		nScenarios := rapid.IntRange(2, 4).Draw(t, "nScenarios")
+		scenarios := make([]Scenario, nScenarios)
+
+		originalAttrCounts := make([]int, nScenarios)
+		originalAddCallCounts := make([]int, nScenarios)
+
+		for i := range nScenarios {
+			attrs := make(map[string]AttributeGenerator)
+			attrKey := fmt.Sprintf("attr%d", i)
+			attrs[attrKey] = &StaticValue{Value: fmt.Sprintf("val%d", i)}
+
+			scenarios[i] = Scenario{
+				Overrides: map[string]Override{
+					ref: {
+						Attributes: attrs,
+						AddCalls:   []Call{{Operation: &Operation{Ref: fmt.Sprintf("target%d.op", i)}}},
+					},
+				},
+			}
+			originalAttrCounts[i] = len(attrs)
+			originalAddCallCounts[i] = 1
+		}
+
+		_ = ResolveOverrides(scenarios)
+
+		for i := range nScenarios {
+			ov := scenarios[i].Overrides[ref]
+			if len(ov.Attributes) != originalAttrCounts[i] {
+				t.Fatalf("scenario %d attributes mutated: was %d, now %d",
+					i, originalAttrCounts[i], len(ov.Attributes))
+			}
+			if len(ov.AddCalls) != originalAddCallCounts[i] {
+				t.Fatalf("scenario %d AddCalls mutated: was %d, now %d",
+					i, originalAddCallCounts[i], len(ov.AddCalls))
+			}
+		}
+	})
+}
+
+func TestProperty_ResolveOverrides_AllRefsPresent(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		refs := []string{"svc.op", "svc.op2", "svc2.op"}
+		scenarios := genScenarioList(t, refs)
+
+		overrides := ResolveOverrides(scenarios)
+
+		expectedRefs := make(map[string]bool)
+		for _, sc := range scenarios {
+			for ref := range sc.Overrides {
+				expectedRefs[ref] = true
+			}
+		}
+		for ref := range expectedRefs {
+			if _, ok := overrides[ref]; !ok {
+				t.Fatalf("ref %q present in scenarios but missing from merged overrides", ref)
+			}
+		}
+	})
+}
+
+// --- ResolveTraffic properties ---
+
+func TestProperty_ResolveTraffic_HighestPriorityWins(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(1, 5).Draw(t, "nScenarios")
+		scenarios := make([]Scenario, n)
+
+		lastTrafficIdx := -1
+		rates := make([]float64, n)
+
+		for i := range n {
+			hasTraffic := rapid.Bool().Draw(t, fmt.Sprintf("hasTraffic%d", i))
+			if hasTraffic {
+				rate := rapid.IntRange(1, 1000).Draw(t, fmt.Sprintf("rate%d", i))
+				rateStr := fmt.Sprintf("%d/s", rate)
+				pattern, err := NewTrafficPattern(TrafficConfig{Rate: rateStr})
+				if err != nil {
+					t.Fatalf("NewTrafficPattern(%q): %v", rateStr, err)
+				}
+				scenarios[i] = Scenario{Priority: i, Traffic: pattern}
+				rates[i] = float64(rate)
+				lastTrafficIdx = i
+			} else {
+				scenarios[i] = Scenario{Priority: i}
+			}
+		}
+
+		result := ResolveTraffic(scenarios)
+
+		if lastTrafficIdx == -1 {
+			if result != nil {
+				t.Fatal("expected nil traffic when no scenario has traffic")
+			}
+		} else {
+			if result == nil {
+				t.Fatal("expected non-nil traffic")
+			}
+			gotRate := result.Rate(0)
+			assert.InDelta(t, rates[lastTrafficIdx], gotRate, 0.1,
+				"traffic should come from last scenario with traffic override")
+		}
+	})
+}
+
+// --- Engine with scenario overrides ---
+
+func TestProperty_Engine_ScenarioOverrideApplied(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		durMs := rapid.IntRange(1, 50).Draw(t, "baseDur")
+		overrideDurMs := rapid.IntRange(100, 500).Draw(t, "overrideDur")
+
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: fmt.Sprintf("%dms", durMs),
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+		defer func() { _ = tp.Shutdown(context.Background()) }()
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		overrides := map[string]Override{
+			"svc.op": {Duration: Distribution{Mean: time.Duration(overrideDurMs) * time.Millisecond}},
+		}
+
+		engine := &Engine{
+			Topology: topo,
+			Provider: tp,
+			Rng:      rng,
+		}
+
+		var stats Stats
+		engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, overrides, &stats, new(int), DefaultMaxSpansPerTrace)
+
+		if err := tp.ForceFlush(context.Background()); err != nil {
+			t.Fatalf("ForceFlush: %v", err)
+		}
+
+		spans := exporter.GetSpans()
+		if len(spans) != 1 {
+			t.Fatalf("expected 1 span, got %d", len(spans))
+		}
+
+		spanDur := spans[0].EndTime.Sub(spans[0].StartTime)
+		overrideDur := time.Duration(overrideDurMs) * time.Millisecond
+		baseDur := time.Duration(durMs) * time.Millisecond
+
+		if spanDur != overrideDur {
+			t.Fatalf("span duration %v should equal override %v (base was %v)", spanDur, overrideDur, baseDur)
+		}
+	})
+}
+
+func TestProperty_Engine_ScenarioErrorRateOverride(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "100/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+		defer func() { _ = tp.Shutdown(context.Background()) }()
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		overrides := map[string]Override{
+			"svc.op": {ErrorRate: 1.0, HasErrorRate: true},
+		}
+
+		engine := &Engine{
+			Topology: topo,
+			Provider: tp,
+			Rng:      rng,
+		}
+
+		var stats Stats
+		engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, overrides, &stats, new(int), DefaultMaxSpansPerTrace)
+
+		if err := tp.ForceFlush(context.Background()); err != nil {
+			t.Fatalf("ForceFlush: %v", err)
+		}
+
+		spans := exporter.GetSpans()
+		if len(spans) != 1 {
+			t.Fatalf("expected 1 span, got %d", len(spans))
+		}
+
+		if spans[0].Status.Code != codes.Error {
+			t.Fatal("100% error rate override should produce error span")
 		}
 	})
 }
