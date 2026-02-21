@@ -177,6 +177,9 @@ func importCmd() *cobra.Command {
 				Warnings:  cmd.ErrOrStderr(),
 			})
 			if err != nil {
+				if strings.Contains(err.Error(), "no spans found") {
+					return fmt.Errorf("%w\n\nProvide a file or pipe stdin:\n  motel import traces.json\n  cat traces.json | motel import", err)
+				}
 				return err
 			}
 
