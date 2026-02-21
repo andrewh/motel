@@ -465,6 +465,193 @@ func TestLoad_EmptyFS(t *testing.T) {
 	assert.Empty(t, reg.Domains())
 }
 
+// --- Phase 5: Merge ---
+
+func TestMerge_CombinesGroups(t *testing.T) {
+	t.Parallel()
+	fsA := fstest.MapFS{
+		"http/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.http
+    type: attribute_group
+    brief: 'HTTP attributes.'
+    attributes:
+      - id: http.method
+        type: string
+        brief: 'HTTP method.'
+`),
+		},
+	}
+	fsB := fstest.MapFS{
+		"myapp/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app attributes.'
+    attributes:
+      - id: myapp.request_id
+        type: string
+        brief: 'Request ID.'
+`),
+		},
+	}
+
+	regA, err := Load(fsA)
+	require.NoError(t, err)
+	regB, err := Load(fsB)
+	require.NoError(t, err)
+
+	merged := regA.Merge(regB)
+	assert.NotNil(t, merged.Group("registry.http"))
+	assert.NotNil(t, merged.Group("registry.myapp"))
+	assert.NotNil(t, merged.Attribute("http.method"))
+	assert.NotNil(t, merged.Attribute("myapp.request_id"))
+	assert.Len(t, merged.Groups(), 2)
+}
+
+func TestMerge_UserOverridesEmbedded(t *testing.T) {
+	t.Parallel()
+	fsBase := fstest.MapFS{
+		"http/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.http
+    type: attribute_group
+    brief: 'Upstream HTTP.'
+    attributes:
+      - id: http.method
+        type: string
+        brief: 'HTTP method.'
+`),
+		},
+	}
+	fsUser := fstest.MapFS{
+		"http/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.http
+    type: attribute_group
+    brief: 'Custom HTTP.'
+    attributes:
+      - id: http.method
+        type: string
+        brief: 'Custom method.'
+      - id: http.custom_header
+        type: string
+        brief: 'Custom header.'
+`),
+		},
+	}
+
+	base, err := Load(fsBase)
+	require.NoError(t, err)
+	user, err := Load(fsUser)
+	require.NoError(t, err)
+
+	merged := base.Merge(user)
+	g := merged.Group("registry.http")
+	require.NotNil(t, g)
+	assert.Equal(t, "Custom HTTP.", g.Brief)
+	assert.Len(t, g.Attributes, 2)
+	assert.NotNil(t, merged.Attribute("http.custom_header"))
+}
+
+func TestMerge_RefsResolveAcrossRegistries(t *testing.T) {
+	t.Parallel()
+	fsBase := fstest.MapFS{
+		"server/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.server
+    type: attribute_group
+    brief: 'Server attributes.'
+    attributes:
+      - id: server.address
+        type: string
+        brief: 'Server address.'
+        stability: stable
+        examples: ["example.com"]
+`),
+		},
+	}
+	fsUser := fstest.MapFS{
+		"myapp/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app.'
+    attributes:
+      - ref: server.address
+        brief: 'Upstream host.'
+`),
+		},
+	}
+
+	base, err := Load(fsBase)
+	require.NoError(t, err)
+	user, err := Load(fsUser)
+	require.NoError(t, err)
+
+	merged := base.Merge(user)
+	g := merged.Group("registry.myapp")
+	require.NotNil(t, g)
+	require.Len(t, g.Attributes, 1)
+	attr := g.Attributes[0]
+	assert.Equal(t, "server.address", attr.ID)
+	assert.Equal(t, "Upstream host.", attr.Brief)
+	assert.Equal(t, "string", attr.Type.Value)
+}
+
+func TestMerge_DoesNotMutateOriginals(t *testing.T) {
+	t.Parallel()
+	fsBase := fstest.MapFS{
+		"server/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.server
+    type: attribute_group
+    brief: 'Server attributes.'
+    attributes:
+      - id: server.address
+        type: string
+        brief: 'Server address.'
+        stability: stable
+`),
+		},
+	}
+	fsUser := fstest.MapFS{
+		"myapp/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app.'
+    attributes:
+      - ref: server.address
+        brief: 'Upstream host.'
+`),
+		},
+	}
+
+	base, err := Load(fsBase)
+	require.NoError(t, err)
+	user, err := Load(fsUser)
+	require.NoError(t, err)
+
+	// Capture the original ref attribute state before merge.
+	userAttr := user.Group("registry.myapp").Attributes[0]
+	origType := userAttr.Type.Value
+
+	_ = base.Merge(user)
+
+	// The original user registry's attribute should be unchanged.
+	afterAttr := user.Group("registry.myapp").Attributes[0]
+	assert.Equal(t, origType, afterAttr.Type.Value, "Merge should not mutate the original registry")
+}
+
 func TestLoad_NonYAMLFilesIgnored(t *testing.T) {
 	t.Parallel()
 	fsys := fstest.MapFS{

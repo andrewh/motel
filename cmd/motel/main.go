@@ -71,6 +71,7 @@ func runCmd() *cobra.Command {
 		signals          string
 		slowThreshold    time.Duration
 		maxSpansPerTrace int
+		semconvDir       string
 	)
 
 	cmd := &cobra.Command{
@@ -94,6 +95,7 @@ func runCmd() *cobra.Command {
 				signals:          signals,
 				slowThreshold:    slowThreshold,
 				maxSpansPerTrace: maxSpansPerTrace,
+				semconvDir:       semconvDir,
 			})
 		},
 	}
@@ -105,12 +107,15 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&signals, "signals", "traces", "comma-separated signals to emit: traces,metrics,logs")
 	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, "maximum spans per trace (0 = default 10000)")
+	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 
 	return cmd
 }
 
 func validateCmd() *cobra.Command {
-	return &cobra.Command{
+	var semconvDir string
+
+	cmd := &cobra.Command{
 		Use:   "validate <topology.yaml>",
 		Short: "Parse and validate a topology configuration",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -127,7 +132,7 @@ func validateCmd() *cobra.Command {
 			if err := synth.ValidateConfig(cfg); err != nil {
 				return err
 			}
-			topo, err := buildTopology(cfg)
+			topo, err := buildTopology(cfg, semconvDir)
 			if err != nil {
 				return err
 			}
@@ -147,6 +152,10 @@ func validateCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
+
+	return cmd
 }
 
 func importCmd() *cobra.Command {
@@ -212,6 +221,7 @@ type runOptions struct {
 	signals          string
 	slowThreshold    time.Duration
 	maxSpansPerTrace int
+	semconvDir       string
 }
 
 var validSignals = map[string]bool{
@@ -292,7 +302,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	if err := synth.ValidateConfig(cfg); err != nil {
 		return err
 	}
-	topo, err := buildTopology(cfg)
+	topo, err := buildTopology(cfg, opts.semconvDir)
 	if err != nil {
 		return err
 	}
@@ -551,10 +561,24 @@ func createGRPCLoggerProvider(ctx context.Context, endpoint string, res *resourc
 	return lp, lp.Shutdown, nil
 }
 
-func buildTopology(cfg *synth.Config) (*synth.Topology, error) {
+func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {
 	reg, err := semconv.LoadEmbedded()
 	if err != nil {
 		return nil, fmt.Errorf("loading semantic conventions: %w", err)
+	}
+	if semconvDir != "" {
+		info, statErr := os.Stat(semconvDir)
+		if statErr != nil {
+			return nil, fmt.Errorf("--semconv directory %q does not exist", semconvDir)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("--semconv path %q is not a directory", semconvDir)
+		}
+		userReg, loadErr := semconv.Load(os.DirFS(semconvDir))
+		if loadErr != nil {
+			return nil, fmt.Errorf("loading semantic conventions from %s: %w", semconvDir, loadErr)
+		}
+		reg = reg.Merge(userReg)
 	}
 	return synth.BuildTopology(cfg, domainResolver(reg))
 }

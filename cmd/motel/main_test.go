@@ -305,6 +305,110 @@ func TestRunCommandSlowThresholdWithoutLogs(t *testing.T) {
 	assert.Contains(t, stderr.String(), "--slow-threshold has no effect without --signals logs")
 }
 
+func TestSemconvFlag(t *testing.T) {
+	t.Parallel()
+
+	t.Run("validate with custom semconv dir", func(t *testing.T) {
+		t.Parallel()
+		semconvDir := t.TempDir()
+		myappDir := filepath.Join(semconvDir, "myapp")
+		require.NoError(t, os.MkdirAll(myappDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(myappDir, "registry.yaml"), []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app attributes.'
+    attributes:
+      - id: myapp.request_id
+        type: string
+        brief: 'Request ID.'
+        examples: ["abc-123"]
+`), 0o600))
+
+		cfg := `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        domain: myapp
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", "--semconv", semconvDir, path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "Configuration valid")
+	})
+
+	t.Run("run with custom semconv dir", func(t *testing.T) {
+		t.Parallel()
+		semconvDir := t.TempDir()
+		myappDir := filepath.Join(semconvDir, "myapp")
+		require.NoError(t, os.MkdirAll(myappDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(myappDir, "registry.yaml"), []byte(`
+groups:
+  - id: registry.myapp
+    type: attribute_group
+    brief: 'My app attributes.'
+    attributes:
+      - id: myapp.request_id
+        type: string
+        brief: 'Request ID.'
+        examples: ["abc-123"]
+`), 0o600))
+
+		cfg := `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        domain: myapp
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--semconv", semconvDir, path})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("nonexistent semconv dir", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", "--semconv", "/nonexistent/semconv", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+
+	t.Run("semconv path is a file not a directory", func(t *testing.T) {
+		t.Parallel()
+		f := filepath.Join(t.TempDir(), "not-a-dir.yaml")
+		require.NoError(t, os.WriteFile(f, []byte("hello"), 0o600))
+
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", "--semconv", f, path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a directory")
+	})
+}
+
 func TestCheckEndpoint(t *testing.T) {
 	t.Parallel()
 
