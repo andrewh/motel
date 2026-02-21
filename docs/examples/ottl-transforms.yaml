@@ -1,0 +1,166 @@
+# Topology that produces spans with messy, realistic attributes for
+# practising OTTL transformations: mixed naming conventions, redundant
+# attributes, values that need extraction or normalisation.
+
+version: 1
+
+services:
+  api-gateway:
+    attributes:
+      deployment.environment: production
+      service.namespace: ecommerce
+      # Legacy attribute that should be renamed
+      team_name: platform-eng
+    operations:
+      POST /api/checkout:
+        duration: 60ms +/- 15ms
+        error_rate: 2%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/checkout"
+          # Mixed naming: camelCase instead of dotted convention
+          httpStatusCode:
+            values:
+              "200": 85
+              "400": 8
+              "422": 4
+              "500": 3
+          # Compound value that should be split into separate attributes
+          request.metadata:
+            values:
+              "region=eu-west-1;priority=high": 30
+              "region=us-east-1;priority=low": 50
+              "region=ap-south-1;priority=medium": 20
+          customer.id:
+            sequence: "cust-{n}"
+        calls:
+          - order-service.create
+          - inventory-service.check
+
+      GET /api/products:
+        duration: 25ms +/- 8ms
+        error_rate: 0.5%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/products"
+          httpStatusCode:
+            values:
+              "200": 95
+              "404": 3
+              "500": 2
+          # Attribute that belongs on the service, not the span
+          datacenter:
+            value: dc-1
+        calls:
+          - product-service.list
+
+  order-service:
+    attributes:
+      deployment.environment: production
+      team_name: orders-squad
+    operations:
+      create:
+        duration: 45ms +/- 12ms
+        error_rate: 1.5%
+        call_style: sequential
+        attributes:
+          # Wrong semantic convention: should be db.operation.name
+          database.operation:
+            values:
+              INSERT: 80
+              UPDATE: 20
+          # PII that should be redacted
+          user.email:
+            values:
+              "alice@example.com": 30
+              "bob@example.com": 30
+              "carol@example.com": 20
+              "dave@example.com": 20
+        calls:
+          - postgres.query
+          - notification-service.send
+
+  inventory-service:
+    attributes:
+      deployment.environment: production
+      team_name: fulfilment
+    operations:
+      check:
+        duration: 15ms +/- 5ms
+        error_rate: 0.3%
+        attributes:
+          # Inconsistent boolean representation
+          inStock:
+            values:
+              "true": 85
+              "false": 15
+          warehouse.region:
+            values:
+              EU: 40
+              US: 40
+              APAC: 20
+        calls:
+          - redis.get
+
+  product-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      list:
+        duration: 20ms +/- 6ms
+        error_rate: 0.2%
+        attributes:
+          result.count:
+            range: [0, 200]
+        calls:
+          - postgres.query
+
+  notification-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      send:
+        duration: 100ms +/- 30ms
+        error_rate: 3%
+        attributes:
+          # Inconsistent naming: underscore vs dot convention
+          notification_type:
+            values:
+              order_confirmation: 70
+              payment_receipt: 30
+          notification_channel:
+            values:
+              email: 80
+              sms: 20
+
+  postgres:
+    attributes:
+      db.system: postgresql
+    operations:
+      query:
+        duration: 8ms +/- 3ms
+        error_rate: 0.1%
+        attributes:
+          db.statement:
+            values:
+              "SELECT * FROM orders WHERE id = ?": 40
+              "INSERT INTO orders (customer_id, total) VALUES (?, ?)": 35
+              "UPDATE inventory SET quantity = quantity - ? WHERE sku = ?": 25
+
+  redis:
+    attributes:
+      db.system: redis
+    operations:
+      get:
+        duration: 2ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          db.operation:
+            value: GET
+
+traffic:
+  rate: 20/s
