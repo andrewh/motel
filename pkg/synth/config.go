@@ -258,7 +258,7 @@ func ValidateConfig(cfg *Config) error {
 	opCalls := make(map[string]map[string]bool)
 	for _, svc := range cfg.Services {
 		if len(svc.Operations) == 0 {
-			return fmt.Errorf("service %q must have at least one operation (e.g. 'GET /users', 'query', 'process')", svc.Name)
+			return fmt.Errorf("service %q must have at least one operation, e.g.\n  operations:\n    GET /users:\n      duration: 50ms", svc.Name)
 		}
 		for _, op := range svc.Operations {
 			ref := svc.Name + "." + op.Name
