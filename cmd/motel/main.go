@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -219,9 +220,40 @@ func parseSignals(s string) (map[string]bool, error) {
 }
 
 const (
-	defaultDuration = 1 * time.Minute
-	shutdownTimeout = 5 * time.Second
+	defaultDuration      = 1 * time.Minute
+	shutdownTimeout      = 5 * time.Second
+	connectCheckTimeout  = 2 * time.Second
+	defaultHTTPPort      = "4318"
+	defaultGRPCPort      = "4317"
 )
+
+func checkEndpoint(endpoint, protocol string) error {
+	host := endpoint
+	if host == "" {
+		port := defaultHTTPPort
+		if protocol == "grpc" {
+			port = defaultGRPCPort
+		}
+		host = "localhost:" + port
+	} else if _, _, err := net.SplitHostPort(host); err != nil {
+		port := defaultHTTPPort
+		if protocol == "grpc" {
+			port = defaultGRPCPort
+		}
+		host = net.JoinHostPort(host, port)
+	}
+
+	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	if err != nil {
+		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
+			"To emit signals as JSON to the terminal, use --stdout:\n"+
+			"  motel run --stdout topology.yaml\n\n"+
+			"To send to a specific collector, use --endpoint:\n"+
+			"  motel run --endpoint collector.example.com:4318 topology.yaml", host)
+	}
+	_ = conn.Close()
+	return nil
+}
 
 func runGenerate(ctx context.Context, configPath string, opts runOptions) error {
 	cfg, err := synth.LoadConfig(configPath)
@@ -242,6 +274,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	scenarios, err := synth.BuildScenarios(cfg.Scenarios, topo)
 	if err != nil {
 		return err
+	}
+
+	if !opts.stdout {
+		if err := checkEndpoint(opts.endpoint, opts.protocol); err != nil {
+			return err
+		}
 	}
 
 	if opts.slowThreshold < 0 {
