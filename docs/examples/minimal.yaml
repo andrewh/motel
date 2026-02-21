@@ -1,0 +1,13 @@
+# Smallest valid motel topology
+# Run with: motel run --stdout minimal.yaml
+
+version: 1
+
+services:
+  api:
+    operations:
+      GET /health:
+        duration: 30ms +/- 10ms
+
+traffic:
+  rate: 1/s
