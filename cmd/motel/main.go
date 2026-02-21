@@ -74,9 +74,14 @@ func runCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run <config.yaml>",
+		Use:   "run <topology.yaml>",
 		Short: "Generate synthetic signals from a topology definition",
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return fmt.Errorf("missing topology file\n\nUsage: motel run <topology.yaml>")
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("slow-threshold") && !strings.Contains(signals, "logs") {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --slow-threshold has no effect without --signals logs")
@@ -95,7 +100,7 @@ func runCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318)")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
-	cmd.Flags().DurationVar(&duration, "duration", 0, "override simulation duration (0 = from config or 1m default)")
+	cmd.Flags().DurationVar(&duration, "duration", 0, "simulation duration, e.g. 10s, 5m, 1h (default 1m)")
 	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
 	cmd.Flags().StringVar(&signals, "signals", "traces", "comma-separated signals to emit: traces,metrics,logs")
 	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
@@ -106,9 +111,14 @@ func runCmd() *cobra.Command {
 
 func validateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate <config.yaml>",
+		Use:   "validate <topology.yaml>",
 		Short: "Parse and validate a topology configuration",
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return fmt.Errorf("missing topology file\n\nUsage: motel validate <topology.yaml>")
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := synth.LoadConfig(args[0])
 			if err != nil {
@@ -167,6 +177,9 @@ func importCmd() *cobra.Command {
 				Warnings:  cmd.ErrOrStderr(),
 			})
 			if err != nil {
+				if strings.Contains(err.Error(), "no spans found") {
+					return fmt.Errorf("%w\n\nProvide a file or pipe stdin:\n  motel import traces.json\n  cat traces.json | motel import", err)
+				}
 				return err
 			}
 
@@ -205,6 +218,18 @@ var validSignals = map[string]bool{
 	"traces":  true,
 	"metrics": true,
 	"logs":    true,
+}
+
+var validProtocols = map[string]bool{
+	"http/protobuf": true,
+	"grpc":          true,
+}
+
+func validateProtocol(p string) error {
+	if !validProtocols[p] {
+		return fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", p)
+	}
+	return nil
 }
 
 func parseSignals(s string) (map[string]bool, error) {
@@ -280,12 +305,6 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		return err
 	}
 
-	if !opts.stdout {
-		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
-			return err
-		}
-	}
-
 	if opts.slowThreshold < 0 {
 		return fmt.Errorf("--slow-threshold must not be negative, got %s", opts.slowThreshold)
 	}
@@ -293,6 +312,16 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	enabledSignals, err := parseSignals(opts.signals)
 	if err != nil {
 		return err
+	}
+
+	if err := validateProtocol(opts.protocol); err != nil {
+		return err
+	}
+
+	if !opts.stdout {
+		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
+			return err
+		}
 	}
 
 	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(

@@ -71,7 +71,7 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 	case FormatOTLP:
 		return parseOTLP(data)
 	default:
-		return nil, fmt.Errorf("unknown format %q", format)
+		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp", format)
 	}
 }
 

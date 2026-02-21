@@ -2,6 +2,10 @@
 
 Synthetic OpenTelemetry generator.
 
+## Model
+
+- Use Claude Opus (latest available) for all work on this project
+
 ## Core Standards
 
 - **Module**: `github.com/andrewh/motel`
