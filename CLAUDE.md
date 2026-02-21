@@ -32,6 +32,7 @@ pkg/semconv/        # OpenTelemetry semantic convention registry
 third_party/        # Vendored semantic convention YAML data
 docs/               # Documentation, examples, demos, man pages
 docs/explanation/import-pipeline/  # Worked example of the import inference pipeline
+docs/explanation/property-testing.md  # Property testing rationale, patterns, and fuzz workflow
 docs/how-to/        # How-to guides (e.g. model-your-services.md)
 docs/examples/      # Example topology YAML files
 docs/demos/         # Showboat demo scripts
@@ -61,3 +62,11 @@ docs/tutorials/     # Getting started tutorial
 - No magic numbers; use named constants or variables
 - No descriptive single-line comments
 - Always ensure tests pass before committing
+
+## Property Testing and Fuzzing
+
+- Property tests use `pgregory.net/rapid` — see `docs/explanation/property-testing.md` for rationale and patterns
+- Fuzz targets wrap property tests via `rapid.MakeFuzz` — they live in `fuzz_test.go` files alongside property tests
+- Fuzz corpus is stored in `testdata/fuzz/` directories and replays automatically during `make test`
+- To run fuzz targets for extended periods: `go test ./pkg/synth/ -fuzz=FuzzName -fuzztime=5m`
+- After fuzzing, copy new corpus entries from `~/Library/Caches/go-build/fuzz/` (macOS) to `testdata/fuzz/` and commit
