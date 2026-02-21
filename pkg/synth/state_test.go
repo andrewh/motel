@@ -297,7 +297,7 @@ func TestEngineQueueDepthRejection(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &stats, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -351,14 +351,14 @@ func TestEngineCircuitBreakerIntegration(t *testing.T) {
 	require.NotNil(t, opState)
 
 	for range opState.FailureThreshold {
-		engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+		engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	}
 
 	assert.Equal(t, CircuitOpen, opState.Circuit, "circuit should be open after threshold failures")
 
 	// Third call should be rejected (circuit is open)
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, &stats, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	assert.Equal(t, int64(1), stats.CircuitBreakerTrips)
@@ -400,7 +400,7 @@ func TestEngineBackpressureIntegration(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 
 	// First call: 10ms duration > 5ms threshold → backpressure activates
-	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans1 := exporter.GetSpans()
@@ -409,7 +409,7 @@ func TestEngineBackpressureIntegration(t *testing.T) {
 
 	// Second call: backpressure should be active, amplifying duration
 	exporter.Reset()
-	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans2 := exporter.GetSpans()
@@ -440,7 +440,7 @@ func TestEngineStateNotCreatedWithoutConfig(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, &stats, new(int), DefaultMaxSpansPerTrace)
+	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()

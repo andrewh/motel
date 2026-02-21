@@ -72,6 +72,7 @@ func runCmd() *cobra.Command {
 		slowThreshold    time.Duration
 		maxSpansPerTrace int
 		semconvDir       string
+		labelScenarios   bool
 	)
 
 	cmd := &cobra.Command{
@@ -96,6 +97,7 @@ func runCmd() *cobra.Command {
 				slowThreshold:    slowThreshold,
 				maxSpansPerTrace: maxSpansPerTrace,
 				semconvDir:       semconvDir,
+				labelScenarios:   labelScenarios,
 			})
 		},
 	}
@@ -108,6 +110,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, "maximum spans per trace (0 = default 10000)")
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
+	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
 
 	return cmd
 }
@@ -222,6 +225,7 @@ type runOptions struct {
 	slowThreshold    time.Duration
 	maxSpansPerTrace int
 	semconvDir       string
+	labelScenarios   bool
 }
 
 var validSignals = map[string]bool{
@@ -410,6 +414,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Observers:        observers,
 		MaxSpansPerTrace: opts.maxSpansPerTrace,
 		State:            synth.NewSimulationState(topo),
+		LabelScenarios:   opts.labelScenarios,
 	}
 
 	// Handle OS signals for graceful shutdown

@@ -144,6 +144,7 @@ type sdkStatus struct {
 var excludedAttributes = map[string]bool{
 	"synth.service":          true,
 	"synth.operation":        true,
+	"synth.scenarios":        true,
 	"telemetry.sdk.language": true,
 	"telemetry.sdk.name":     true,
 	"telemetry.sdk.version":  true,

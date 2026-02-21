@@ -17,6 +17,7 @@ type SpanInfo struct {
 	IsError   bool
 	Kind      trace.SpanKind
 	Attrs     []attribute.KeyValue
+	Scenarios []string
 }
 
 // SpanObserver receives span metadata after each span is emitted.
