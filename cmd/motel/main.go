@@ -49,9 +49,9 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "motel",
-		Short:         "Synthetic OpenTelemetry generator",
-		SilenceUsage:  true,
+		Use:          "motel",
+		Short:        "Synthetic OpenTelemetry generator",
+		SilenceUsage: true,
 	}
 
 	root.AddCommand(runCmd())
@@ -199,7 +199,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "motel %s (commit: %s, built: %s)\n", version, commit, buildTime)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "motel %s (commit: %s, built: %s)\n", version, commit, buildTime)
 		},
 	}
 }
@@ -248,11 +248,11 @@ func parseSignals(s string) (map[string]bool, error) {
 }
 
 const (
-	defaultDuration      = 1 * time.Minute
-	shutdownTimeout      = 5 * time.Second
-	connectCheckTimeout  = 2 * time.Second
-	defaultHTTPPort      = "4318"
-	defaultGRPCPort      = "4317"
+	defaultDuration     = 1 * time.Minute
+	shutdownTimeout     = 5 * time.Second
+	connectCheckTimeout = 2 * time.Second
+	defaultHTTPPort     = "4318"
+	defaultGRPCPort     = "4317"
 )
 
 func checkEndpoint(endpoint, protocol, configPath string) error {
