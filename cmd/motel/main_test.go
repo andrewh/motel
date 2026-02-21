@@ -310,24 +310,25 @@ func TestCheckEndpoint(t *testing.T) {
 
 	t.Run("unreachable default endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("", "http/protobuf")
+		err := checkEndpoint("", "http/protobuf", "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4318")
 		assert.Contains(t, err.Error(), "--stdout")
 		assert.Contains(t, err.Error(), "--endpoint")
 		assert.Contains(t, err.Error(), "Without --duration, motel runs for 1 minute")
+		assert.Contains(t, err.Error(), "test.yaml")
 	})
 
 	t.Run("unreachable grpc default endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("", "grpc")
+		err := checkEndpoint("", "grpc", "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4317")
 	})
 
 	t.Run("unreachable custom endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("192.0.2.1:9999", "http/protobuf")
+		err := checkEndpoint("192.0.2.1:9999", "http/protobuf", "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at 192.0.2.1:9999")
 	})
@@ -338,13 +339,13 @@ func TestCheckEndpoint(t *testing.T) {
 		require.NoError(t, err)
 		defer ln.Close() //nolint:errcheck // best-effort close in test
 
-		err = checkEndpoint(ln.Addr().String(), "http/protobuf")
+		err = checkEndpoint(ln.Addr().String(), "http/protobuf", "test.yaml")
 		require.NoError(t, err)
 	})
 
 	t.Run("endpoint without port gets default", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("192.0.2.1", "http/protobuf")
+		err := checkEndpoint("192.0.2.1", "http/protobuf", "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "192.0.2.1:4318")
 	})

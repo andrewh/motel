@@ -229,7 +229,7 @@ const (
 	defaultGRPCPort      = "4317"
 )
 
-func checkEndpoint(endpoint, protocol string) error {
+func checkEndpoint(endpoint, protocol, configPath string) error {
 	host := endpoint
 	if host == "" {
 		port := defaultHTTPPort
@@ -249,10 +249,10 @@ func checkEndpoint(endpoint, protocol string) error {
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
-			"  motel run --stdout --duration 10s topology.yaml\n\n"+
+			"  motel run --stdout --duration 10s %s\n\n"+
 			"To send to a specific collector, use --endpoint:\n"+
-			"  motel run --endpoint collector.example.com:4318 topology.yaml\n\n"+
-			"Without --duration, motel runs for 1 minute", host)
+			"  motel run --endpoint collector.example.com:4318 %s\n\n"+
+			"Without --duration, motel runs for 1 minute", host, configPath, configPath)
 	}
 	_ = conn.Close()
 	return nil
@@ -280,7 +280,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	if !opts.stdout {
-		if err := checkEndpoint(opts.endpoint, opts.protocol); err != nil {
+		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
 			return err
 		}
 	}
