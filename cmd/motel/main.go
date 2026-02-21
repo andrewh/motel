@@ -48,8 +48,9 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "motel",
-		Short: "Synthetic OpenTelemetry generator",
+		Use:           "motel",
+		Short:         "Synthetic OpenTelemetry generator",
+		SilenceUsage:  true,
 	}
 
 	root.AddCommand(runCmd())

@@ -248,7 +248,7 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("at least one service is required under 'services:')")
 	}
 	if cfg.Traffic.Rate == "" {
-		return fmt.Errorf("traffic section with rate is required (e.g. 'rate: 10/s')")
+		return fmt.Errorf("traffic section with rate is required, e.g.\n\n  traffic:\n    rate: 10/s")
 	}
 
 	// Build lookups for reference validation:
