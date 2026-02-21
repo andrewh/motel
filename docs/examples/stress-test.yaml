@@ -1,0 +1,60 @@
+# High-volume bursty topology for stress-testing collector queues
+# Designed to overwhelm queue and retry configuration under load
+
+version: 1
+
+services:
+  web-gateway:
+    operations:
+      ingest:
+        duration: 5ms +/- 2ms
+        calls:
+          - processing.handle
+
+  processing:
+    attributes:
+      deployment.environment: production
+    operations:
+      handle:
+        duration: 15ms +/- 5ms
+        error_rate: 0.5%
+        calls:
+          - database.write
+          - cache.set
+
+  database:
+    operations:
+      write:
+        duration: 8ms +/- 3ms
+        error_rate: 0.2%
+
+  cache:
+    operations:
+      set:
+        duration: 2ms +/- 1ms
+        error_rate: 0.1%
+
+traffic:
+  rate: 500/s
+  pattern: bursty
+  burst_multiplier: 10
+  burst_interval: 30s
+  burst_duration: 5s
+
+scenarios:
+  - name: sustained peak
+    at: +1m
+    duration: 30s
+    traffic:
+      rate: 2000/s
+      pattern: uniform
+
+  - name: extreme burst
+    at: +2m
+    duration: 20s
+    traffic:
+      rate: 1000/s
+      pattern: bursty
+      burst_multiplier: 15
+      burst_interval: 10s
+      burst_duration: 3s
