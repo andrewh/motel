@@ -29,19 +29,19 @@ func FuzzMarshalRoundTrip(f *testing.F) {
 			t.Fatalf("MarshalConfig: %v", err)
 		}
 
-		f, err := os.CreateTemp("", "fuzz-test-*.yaml")
+		tmpFile, err := os.CreateTemp("", "fuzz-test-*.yaml")
 		if err != nil {
 			t.Fatalf("creating temp file: %v", err)
 		}
-		defer os.Remove(f.Name())
+		defer os.Remove(tmpFile.Name())
 
-		if _, err := f.Write(yamlBytes); err != nil {
-			f.Close()
+		if _, err := tmpFile.Write(yamlBytes); err != nil {
+			tmpFile.Close()
 			t.Fatalf("writing temp file: %v", err)
 		}
-		f.Close()
+		tmpFile.Close()
 
-		cfg, err := synth.LoadConfig(f.Name())
+		cfg, err := synth.LoadConfig(tmpFile.Name())
 		if err != nil {
 			t.Fatalf("LoadConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
 		}

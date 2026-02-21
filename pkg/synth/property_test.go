@@ -1281,7 +1281,7 @@ func TestProperty_BuildTopology_CallsResolvedCorrectly(t *testing.T) {
 
 func TestProperty_ParseRate_ValidRates(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		count := rapid.IntRange(1, 10000).Draw(t, "count")
+		count := rapid.IntRange(1, MaxRateCount).Draw(t, "count")
 		unit := rapid.SampledFrom([]string{"s", "m", "h"}).Draw(t, "unit")
 		s := fmt.Sprintf("%d/%s", count, unit)
 
@@ -1321,7 +1321,7 @@ func TestProperty_ParseRate_ExceedsMaxRejected(t *testing.T) {
 
 func TestProperty_ParseRate_PerSecondRate(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		count := rapid.IntRange(1, 10000).Draw(t, "count")
+		count := rapid.IntRange(1, MaxRateCount).Draw(t, "count")
 		s := fmt.Sprintf("%d/s", count)
 
 		rate, err := ParseRate(s)
