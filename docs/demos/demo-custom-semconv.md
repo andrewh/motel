@@ -140,7 +140,9 @@ traffic:
 Pass `--semconv` to point motel at the convention directory. Without it, the `payments` domain would be silently unresolved — with it, motel knows what attributes to generate.
 
 ```bash
-motel validate --semconv /tmp/motel-semconv /tmp/motel-payments.yaml
+motel validate \
+  --semconv /tmp/motel-semconv \
+  /tmp/motel-payments.yaml
 ```
 
 ```output
@@ -157,7 +159,14 @@ See https://github.com/andrewh/motel/tree/main/docs/examples for more examples.
 Run with `--semconv` and inspect the output. Each span carries attributes drawn from the custom convention definitions.
 
 ```bash
-motel run --stdout --duration 200ms --semconv /tmp/motel-semconv /tmp/motel-payments.yaml 2>/dev/null | jq -rs "[.[].Attributes[] | select(.Key | startswith(\"payments.\"))] | group_by(.Key) | map(.[0].Key) | sort | .[]"
+motel run \
+  --stdout \
+  --duration 200ms \
+  --semconv /tmp/motel-semconv \
+  /tmp/motel-payments.yaml 2>/dev/null \
+  | jq -rs '
+    [.[].Attributes[] | select(.Key | startswith("payments."))]
+    | group_by(.Key) | map(.[0].Key) | sort | .[]'
 ```
 
 ```output
@@ -192,11 +201,16 @@ services:
 traffic:
   rate: 10/s
 EOF
-motel run --stdout --duration 200ms --semconv /tmp/motel-semconv /tmp/motel-mixed.yaml 2>/dev/null | jq -rs "
-  [.[].Attributes[] | select(.Key | startswith(\"http.\") or startswith(\"payments.\"))]
-  | group_by(.Key) | map(.[0].Key) | sort | group_by(split(\".\")[0])
-  | map(\"\\(.[0] | split(\".\")[0]) domain: \\(length) attributes\")
-  | .[]"
+motel run \
+  --stdout \
+  --duration 200ms \
+  --semconv /tmp/motel-semconv \
+  /tmp/motel-mixed.yaml 2>/dev/null \
+  | jq -rs '
+    [.[].Attributes[] | select(.Key | startswith("http.") or startswith("payments."))]
+    | group_by(.Key) | map(.[0].Key) | sort | group_by(split(".")[0])
+    | map("\(.[0] | split(".")[0]) domain: \(length) attributes")
+    | .[]'
 ```
 
 ```output
@@ -211,7 +225,10 @@ The gateway spans carry standard HTTP attributes from the embedded registry, whi
 The `--semconv` flag validates that the path exists and is a directory.
 
 ```bash
-motel validate --semconv /nonexistent /tmp/motel-payments.yaml 2>&1 | head -1
+motel validate \
+  --semconv /nonexistent \
+  /tmp/motel-payments.yaml 2>&1 \
+  | head -1
 ```
 
 ```output
