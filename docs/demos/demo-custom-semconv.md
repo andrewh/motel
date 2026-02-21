@@ -163,8 +163,8 @@ motel run \
   --stdout \
   --duration 200ms \
   --semconv /tmp/motel-semconv \
-  /tmp/motel-payments.yaml 2>/dev/null \
-  | jq -rs '
+  /tmp/motel-payments.yaml 2>/dev/null |
+  jq -rs '
     [.[].Attributes[] | select(.Key | startswith("payments."))]
     | group_by(.Key) | map(.[0].Key) | sort | .[]'
 ```
@@ -205,8 +205,8 @@ motel run \
   --stdout \
   --duration 200ms \
   --semconv /tmp/motel-semconv \
-  /tmp/motel-mixed.yaml 2>/dev/null \
-  | jq -rs '
+  /tmp/motel-mixed.yaml 2>/dev/null |
+  jq -rs '
     [.[].Attributes[] | select(.Key | startswith("http.") or startswith("payments."))]
     | group_by(.Key) | map(.[0].Key) | sort | group_by(split(".")[0])
     | map("\(.[0] | split(".")[0]) domain: \(length) attributes")
@@ -227,8 +227,8 @@ The `--semconv` flag validates that the path exists and is a directory.
 ```bash
 motel validate \
   --semconv /nonexistent \
-  /tmp/motel-payments.yaml 2>&1 \
-  | head -1
+  /tmp/motel-payments.yaml 2>&1 |
+  head -1
 ```
 
 ```output
