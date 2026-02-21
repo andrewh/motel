@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// MaxRateCount is the maximum allowed count in a rate string (e.g. "10000/s").
+const MaxRateCount = 10000
+
 // Rate represents requests per time period.
 type Rate struct {
 	count  int
@@ -33,8 +36,8 @@ func ParseRate(s string) (Rate, error) {
 	if count <= 0 {
 		return Rate{}, fmt.Errorf("rate count must be positive")
 	}
-	if count > 10000 {
-		return Rate{}, fmt.Errorf("rate count cannot exceed 10000")
+	if count > MaxRateCount {
+		return Rate{}, fmt.Errorf("rate count cannot exceed %d", MaxRateCount)
 	}
 
 	period, err := parseRatePeriod(parts[1])
