@@ -247,9 +247,10 @@ func checkEndpoint(endpoint, protocol string) error {
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
-			"  motel run --stdout topology.yaml\n\n"+
+			"  motel run --stdout --duration 10s topology.yaml\n\n"+
 			"To send to a specific collector, use --endpoint:\n"+
-			"  motel run --endpoint collector.example.com:4318 topology.yaml", host)
+			"  motel run --endpoint collector.example.com:4318 topology.yaml\n\n"+
+			"Without --duration, motel runs for 1 minute", host)
 	}
 	_ = conn.Close()
 	return nil

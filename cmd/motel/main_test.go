@@ -315,6 +315,7 @@ func TestCheckEndpoint(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4318")
 		assert.Contains(t, err.Error(), "--stdout")
 		assert.Contains(t, err.Error(), "--endpoint")
+		assert.Contains(t, err.Error(), "Without --duration, motel runs for 1 minute")
 	})
 
 	t.Run("unreachable grpc default endpoint", func(t *testing.T) {
