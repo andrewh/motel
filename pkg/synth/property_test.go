@@ -21,6 +21,18 @@ import (
 
 // --- Generators ---
 
+// simpleConfig is a rapid.Custom generator for valid Config values.
+var simpleConfig = rapid.Custom(genSimpleConfig)
+
+// genDurationString generates a valid duration string using regex matching.
+var genDurationString = rapid.StringMatching(`[1-9][0-9]{0,2}ms`)
+
+// genRateString generates a valid rate string using regex matching.
+var genRateString = rapid.StringMatching(`[1-9][0-9]{0,3}/[smh]`)
+
+// genErrorRateString generates a valid error rate percentage.
+var genErrorRateString = rapid.StringMatching(`[1-9][0-9]?%`)
+
 // genSimpleConfig generates a valid Config with 1-4 services, each with 1-3 operations,
 // and a DAG of calls between them (no cycles).
 func genSimpleConfig(t *rapid.T) *Config {
@@ -39,14 +51,14 @@ func genSimpleConfig(t *rapid.T) *Config {
 		ops := make([]OperationConfig, nOps)
 		for j := range nOps {
 			opName := fmt.Sprintf("op%d", j)
-			dur := rapid.IntRange(1, 100).Draw(t, fmt.Sprintf("dur%d_%d", i, j))
-			errPct := rapid.IntRange(0, 100).Draw(t, fmt.Sprintf("errPct%d_%d", i, j))
+			dur := genDurationString.Draw(t, fmt.Sprintf("dur%d_%d", i, j))
+			hasErr := rapid.Bool().Draw(t, fmt.Sprintf("hasErr%d_%d", i, j))
 			ops[j] = OperationConfig{
 				Name:     opName,
-				Duration: fmt.Sprintf("%dms", dur),
+				Duration: dur,
 			}
-			if errPct > 0 {
-				ops[j].ErrorRate = fmt.Sprintf("%d%%", errPct)
+			if hasErr {
+				ops[j].ErrorRate = genErrorRateString.Draw(t, fmt.Sprintf("errRate%d_%d", i, j))
 			}
 			allOps = append(allOps, svcOp{svcName, opName})
 		}
@@ -84,7 +96,7 @@ func genSimpleConfig(t *rapid.T) *Config {
 
 	return &Config{
 		Services: svcs,
-		Traffic:  TrafficConfig{Rate: "100/s"},
+		Traffic:  TrafficConfig{Rate: genRateString.Draw(t, "rate")},
 	}
 }
 
@@ -1326,7 +1338,7 @@ func TestProperty_ParseRate_PerSecondRate(t *testing.T) {
 
 func TestProperty_ValidateConfig_AcceptsValidConfigs(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		cfg := genSimpleConfig(t)
+		cfg := simpleConfig.Draw(t, "cfg")
 		if err := ValidateConfig(cfg); err != nil {
 			t.Fatalf("ValidateConfig rejected valid config: %v", err)
 		}
