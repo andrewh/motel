@@ -4,7 +4,11 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/andrewh/motel)](https://goreportcard.com/report/github.com/andrewh/motel)
 [![Go Reference](https://pkg.go.dev/badge/github.com/andrewh/motel.svg)](https://pkg.go.dev/github.com/andrewh/motel)
 
-Synthetic [OpenTelemetry](https://opentelemetry.io/) generator.
+> **motel** /mōˈtel/ _noun_
+> mock opentelemetry. A synthetic signal generator for testing
+> and developing observability pipelines.
+
+`motel` is a synthetic [OpenTelemetry](https://opentelemetry.io/) generator.
 
 Describe your distributed system in YAML and motel generates realistic traces,
 metrics, and logs — no live services required.
