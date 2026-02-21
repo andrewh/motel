@@ -43,6 +43,20 @@ produces spans with `http.request.method`, `http.response.status_code`,
 `url.scheme`, and other HTTP semantic convention attributes — without
 listing them individually.
 
+## Custom definitions
+
+The embedded conventions cover the upstream OTel standard, but
+organisations often define their own semantic conventions for internal
+services or business-specific attributes.
+
+Currently, custom definitions can be added at compile time by vendoring
+additional Weaver registry YAML files into `third_party/semconv/model/`.
+They'll be embedded in the binary alongside the upstream definitions.
+
+Runtime customisation — pointing motel at a local directory or a remote
+Weaver registry server without recompiling — is tracked in
+[issue 28](https://github.com/andrewh/motel/issues/28).
+
 ## What motel does not use Weaver for
 
 motel does not use the Weaver CLI tool itself. It only consumes the
