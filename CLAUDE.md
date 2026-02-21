@@ -1,6 +1,6 @@
 # CLAUDE.md - motel
 
-Synthetic telemetry generator for OpenTelemetry.
+Synthetic OpenTelemetry generator.
 
 ## Core Standards
 
@@ -20,13 +20,31 @@ Synthetic telemetry generator for OpenTelemetry.
 ## File Paths & Structure
 
 ```
-build/          # Built binaries
-cmd/motel/      # CLI entry point and cobra commands
-pkg/synth/      # Simulation engine, topology, traffic, scenarios
-pkg/semconv/    # OpenTelemetry semantic convention registry
-third_party/    # Vendored semantic convention YAML data
-docs/           # Documentation, examples, demos, man pages
+build/              # Built binaries
+cmd/motel/          # CLI entry point and cobra commands
+pkg/synth/          # Simulation engine, topology, traffic, scenarios
+pkg/synth/traceimport/  # Import pipeline: parse → tree → stats → marshal → validate
+pkg/semconv/        # OpenTelemetry semantic convention registry
+third_party/        # Vendored semantic convention YAML data
+docs/               # Documentation, examples, demos, man pages
+docs/explanation/import-pipeline/  # Worked example of the import inference pipeline
+docs/how-to/        # How-to guides (e.g. model-your-services.md)
+docs/examples/      # Example topology YAML files
+docs/demos/         # Showboat demo scripts
+docs/reference/     # CLI reference
+docs/tutorials/     # Getting started tutorial
 ```
+
+## Key Concepts
+
+- **Topology**: YAML file defining services, operations, calls, and traffic. This is the established term — not "config" or "schema"
+- **Scenario**: Time-windowed overrides layered on top of a topology. Separate concept from topology
+- **Operation.Ref**: Pre-computed `"service.operation"` string set during `BuildTopology`. Use `op.Ref` instead of concatenating `op.Service.Name + "." + op.Name`
+
+## GitHub
+
+- `gh pr edit` hits GraphQL Projects Classic deprecation — use `gh api` REST endpoint instead
+- Never use `#N` in PR/issue comments — GitHub auto-links to issue numbers. Use plain numbered lists instead
 
 ## Code Quality
 
