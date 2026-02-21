@@ -131,7 +131,8 @@ func validateCmd() *cobra.Command {
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Configuration valid: %d %s, %d root %s\n\n"+
 				"To generate signals:\n"+
-				"  motel run --stdout %s\n",
+				"  motel run --stdout %s\n\n"+
+				"See docs/examples/ for topologies with scenarios, traffic patterns, and more.\n",
 				len(topo.Services), svcLabel, len(topo.Roots), rootLabel, args[0])
 			return nil
 		},
