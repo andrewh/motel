@@ -779,3 +779,277 @@ func TestProperty_Engine_ScenarioErrorRateOverride(t *testing.T) {
 		}
 	})
 }
+
+// --- Attribute generators ---
+
+func TestProperty_StaticValue_AlwaysReturnsSameValue(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		val := rapid.String().Draw(t, "val")
+		gen := &StaticValue{Value: val}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 100 {
+			got := gen.Generate(rng)
+			if got != val {
+				t.Fatalf("StaticValue returned %v, expected %v", got, val)
+			}
+		}
+	})
+}
+
+func TestProperty_WeightedChoice_OutputInChoices(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(1, 5).Draw(t, "nChoices")
+		values := make(map[string]int)
+		for i := range n {
+			key := fmt.Sprintf("choice%d", i)
+			weight := rapid.IntRange(1, 100).Draw(t, fmt.Sprintf("w%d", i))
+			values[key] = weight
+		}
+
+		gen, err := newWeightedChoice(values)
+		if err != nil {
+			t.Fatalf("newWeightedChoice: %v", err)
+		}
+
+		validChoices := make(map[any]bool)
+		for k := range values {
+			validChoices[k] = true
+		}
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 200 {
+			got := gen.Generate(rng)
+			if !validChoices[got] {
+				t.Fatalf("WeightedChoice returned %v, not in choices %v", got, validChoices)
+			}
+		}
+	})
+}
+
+func TestProperty_BoolValue_OutputIsBoolean(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		prob := rapid.Float64Range(0, 1).Draw(t, "prob")
+		gen := &BoolValue{Probability: prob}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 100 {
+			got := gen.Generate(rng)
+			if _, ok := got.(bool); !ok {
+				t.Fatalf("BoolValue returned %T, expected bool", got)
+			}
+		}
+	})
+}
+
+func TestProperty_BoolValue_ExtremesProbabilities(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		seed := genSeed(t)
+
+		// Probability 0 should always return false
+		rng0 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		gen0 := &BoolValue{Probability: 0}
+		for range 100 {
+			if gen0.Generate(rng0).(bool) {
+				t.Fatal("BoolValue with probability 0 returned true")
+			}
+		}
+
+		// Probability 1 should always return true
+		rng1 := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+		gen1 := &BoolValue{Probability: 1}
+		for range 100 {
+			if !gen1.Generate(rng1).(bool) {
+				t.Fatal("BoolValue with probability 1 returned false")
+			}
+		}
+	})
+}
+
+func TestProperty_RangeValue_WithinBounds(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		lo := rapid.Int64Range(-1000, 1000).Draw(t, "lo")
+		span := rapid.Int64Range(0, 2000).Draw(t, "span")
+		hi := lo + span
+
+		gen := &RangeValue{Min: lo, Max: hi}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 200 {
+			got := gen.Generate(rng).(int64)
+			if got < lo || got > hi {
+				t.Fatalf("RangeValue returned %d, outside [%d, %d]", got, lo, hi)
+			}
+		}
+	})
+}
+
+func TestProperty_RangeValue_SingleValue(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		val := rapid.Int64Range(-1000, 1000).Draw(t, "val")
+		gen := &RangeValue{Min: val, Max: val}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 50 {
+			got := gen.Generate(rng).(int64)
+			if got != val {
+				t.Fatalf("RangeValue [%d,%d] returned %d", val, val, got)
+			}
+		}
+	})
+}
+
+func TestProperty_SequenceValue_Monotonic(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		pattern := rapid.SampledFrom([]string{"req-{n}", "{n}", "id-{n}-end"}).Draw(t, "pattern")
+		gen := &SequenceValue{Pattern: pattern}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		prev := ""
+		for range 50 {
+			got := gen.Generate(rng).(string)
+			if got == prev {
+				t.Fatalf("SequenceValue produced duplicate: %q", got)
+			}
+			prev = got
+		}
+	})
+}
+
+func TestProperty_NormalValue_MeanConverges(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mean := rapid.Float64Range(-100, 100).Draw(t, "mean")
+		stddev := rapid.Float64Range(0.1, 10).Draw(t, "stddev")
+		gen := &NormalValue{Mean: mean, StdDev: stddev}
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		sum := 0.0
+		n := 10000
+		for range n {
+			sum += gen.Generate(rng).(float64)
+		}
+		sampleMean := sum / float64(n)
+
+		tolerance := stddev * 0.1 // 10% of stddev
+		if tolerance < 0.5 {
+			tolerance = 0.5
+		}
+		diff := sampleMean - mean
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > tolerance {
+			t.Fatalf("NormalValue mean did not converge: expected ~%f, got %f (tolerance %f)",
+				mean, sampleMean, tolerance)
+		}
+	})
+}
+
+// --- Distribution sampling ---
+
+func TestProperty_Distribution_SampleNonNegative(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		meanMs := rapid.IntRange(1, 1000).Draw(t, "meanMs")
+		stddevMs := rapid.IntRange(0, 500).Draw(t, "stddevMs")
+		dist := Distribution{
+			Mean:   time.Duration(meanMs) * time.Millisecond,
+			StdDev: time.Duration(stddevMs) * time.Millisecond,
+		}
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 500 {
+			d := dist.Sample(rng)
+			if d < 0 {
+				t.Fatalf("Distribution.Sample returned negative duration: %v", d)
+			}
+		}
+	})
+}
+
+func TestProperty_Distribution_ZeroStdDevReturnsMean(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		meanMs := rapid.IntRange(1, 10000).Draw(t, "meanMs")
+		dist := Distribution{Mean: time.Duration(meanMs) * time.Millisecond}
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		for range 100 {
+			d := dist.Sample(rng)
+			if d != dist.Mean {
+				t.Fatalf("zero stddev: expected %v, got %v", dist.Mean, d)
+			}
+		}
+	})
+}
+
+func TestProperty_Distribution_MeanConverges(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		meanMs := rapid.IntRange(50, 500).Draw(t, "meanMs")
+		stddevMs := rapid.IntRange(1, meanMs/5).Draw(t, "stddevMs")
+		dist := Distribution{
+			Mean:   time.Duration(meanMs) * time.Millisecond,
+			StdDev: time.Duration(stddevMs) * time.Millisecond,
+		}
+
+		seed := genSeed(t)
+		rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // property test
+
+		sum := 0.0
+		n := 10000
+		for range n {
+			sum += float64(dist.Sample(rng))
+		}
+		sampleMean := sum / float64(n)
+		expected := float64(dist.Mean)
+
+		tolerance := float64(dist.StdDev) * 0.1
+		if tolerance < float64(time.Millisecond) {
+			tolerance = float64(time.Millisecond)
+		}
+		diff := sampleMean - expected
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > tolerance {
+			t.Fatalf("Distribution mean did not converge: expected ~%v, got %v (diff %v, tolerance %v)",
+				dist.Mean, time.Duration(sampleMean), time.Duration(diff), time.Duration(tolerance))
+		}
+	})
+}
+
+func TestProperty_ParseDistribution_RoundTrip(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		meanMs := rapid.IntRange(1, 10000).Draw(t, "meanMs")
+		hasStdDev := rapid.Bool().Draw(t, "hasStdDev")
+
+		var dist Distribution
+		dist.Mean = time.Duration(meanMs) * time.Millisecond
+		if hasStdDev {
+			stddevMs := rapid.IntRange(1, 1000).Draw(t, "stddevMs")
+			dist.StdDev = time.Duration(stddevMs) * time.Millisecond
+		}
+
+		s := dist.String()
+		parsed, err := ParseDistribution(s)
+		if err != nil {
+			t.Fatalf("ParseDistribution(%q): %v", s, err)
+		}
+		if parsed.Mean != dist.Mean {
+			t.Fatalf("round-trip mean: %v != %v (string was %q)", parsed.Mean, dist.Mean, s)
+		}
+		if parsed.StdDev != dist.StdDev {
+			t.Fatalf("round-trip stddev: %v != %v (string was %q)", parsed.StdDev, dist.StdDev, s)
+		}
+	})
+}
