@@ -45,6 +45,11 @@ docs/tutorials/     # Getting started tutorial
 - **Scenario**: Time-windowed overrides layered on top of a topology. Separate concept from topology
 - **Operation.Ref**: Pre-computed `"service.operation"` string set during `BuildTopology`. Use `op.Ref` instead of concatenating `op.Service.Name + "." + op.Name`
 
+## Releases
+
+- Tag and release only for user-visible features or bug fixes, not for lint/docs/refactoring
+- GoReleaser runs via CI on tag push — updates GitHub release and Homebrew tap automatically
+
 ## GitHub
 
 - `gh pr edit` hits GraphQL Projects Classic deprecation — use `gh api` REST endpoint instead
