@@ -141,7 +141,7 @@ The initial property testing run found two bugs in `MarshalConfig`:
    per-minute format (`"12/m"`) with a `"1/m"` floor for extremely low rates.
 
 Both bugs would have caused `motel import` to produce topologies that
-`motel generate` then rejected — a round-trip failure that no existing
+`motel run` then rejected — a round-trip failure that no existing
 example-based test had caught.
 
 ## Generators
