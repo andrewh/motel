@@ -111,18 +111,10 @@ Compare what motel sent against what your backend received. motel prints a JSON 
 
 ```sh
 motel run --endpoint http://localhost:4318 --protocol http/protobuf \
-  --duration 2m docs/examples/stress-test.yaml
+  --duration 2m docs/examples/stress-test.yaml 2>&1 | tail -n 1 | jq '.spans'
 ```
 
-The summary looks like `{"traces":500,"spans":2000,...}`. Query your backend for the same time window and count the spans received. The difference is your data loss under that load profile.
-
-For a separate baseline count without involving the collector, run with `--stdout` and count lines (one per span):
-
-```sh
-motel run --stdout --duration 2m docs/examples/stress-test.yaml | wc -l
-```
-
-This tells you exactly how many spans motel produces at a given rate and duration.
+Query your backend for the same time window and count the spans received. The difference is your data loss under that load profile.
 
 ## Tips
 
