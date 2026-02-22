@@ -205,27 +205,26 @@ Watch for:
 
 To isolate the effect of a single attribute, run the topology twice — once with the high-cardinality attribute and once without — and compare the results in your backend.
 
-## Semantic conventions and correct placement
+## Auto-generating attributes with `domain`
 
-The `--semconv` flag helps ensure attributes are placed correctly according to OpenTelemetry semantic conventions. It validates that attribute names and placements match convention definitions.
+Instead of specifying every span attribute by hand, you can set the `domain` field on an operation and let motel generate attributes from OpenTelemetry semantic conventions automatically:
 
-```sh
-motel validate --semconv /path/to/semconv topology.yaml
+```yaml
+operations:
+  GET /users:
+    duration: 30ms +/- 10ms
+    domain: http
 ```
 
-The `--semconv` flag points to a directory containing semantic convention YAML files. motel loads the embedded OpenTelemetry conventions by default and merges any additional conventions you provide.
+motel ships with the standard OpenTelemetry semantic convention registry embedded. When you set `domain: http`, it looks up the `registry.http` group and generates attributes from it — choosing realistic values from enum members and examples in the convention definitions, and skipping deprecated attributes.
 
-This catches common mistakes:
-
-- Using a deprecated attribute name when a replacement exists
-- Placing an attribute at the wrong level (resource vs span)
-- Misspelling a well-known attribute name
-
-You can also use `--semconv` with `motel run` to validate at generation time:
+To add your own convention definitions (for organisation-specific attributes, for example), use the `--semconv` flag to point at a directory of additional YAML files in Weaver registry format:
 
 ```sh
-motel run --stdout --semconv /path/to/semconv --duration 5s topology.yaml
+motel run --stdout --semconv /path/to/custom-conventions --duration 5s topology.yaml
 ```
+
+motel merges your definitions with the embedded conventions. Any `domain` value that matches a group ID in your custom files will generate attributes from it.
 
 ## Further reading
 
