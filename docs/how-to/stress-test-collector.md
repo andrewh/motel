@@ -69,7 +69,7 @@ scenarios:
     at: +1m
     duration: 30s
     traffic:
-      rate: 2000/s
+      rate: 5000/s
       pattern: uniform
 ```
 
