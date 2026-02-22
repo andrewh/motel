@@ -107,22 +107,22 @@ If the queue fills and spans are dropped during a 15-second outage, your queue s
 
 ## 5. Measure data loss
 
-Compare what motel sent against what your backend received. Motel logs the total number of spans it generates:
+Compare what motel sent against what your backend received. motel prints a JSON summary to stderr when it finishes, including the total span count:
 
 ```sh
 motel run --endpoint http://localhost:4318 --protocol http/protobuf \
-  --duration 2m docs/examples/stress-test.yaml 2>&1 | grep spans
+  --duration 2m docs/examples/stress-test.yaml
 ```
 
-Then query your backend for the same time window and count the spans received. The difference is your data loss under that load profile.
+The summary looks like `{"traces":500,"spans":2000,...}`. Query your backend for the same time window and count the spans received. The difference is your data loss under that load profile.
 
-For precise counting, send traces to both the collector and stdout simultaneously using two collector receivers, then compare line counts:
+For a separate baseline count without involving the collector, run with `--stdout` and count lines (one per span):
 
 ```sh
 motel run --stdout --duration 2m docs/examples/stress-test.yaml | wc -l
 ```
 
-This gives you the exact number of spans motel produced. Compare against your backend's span count for the same period.
+This tells you exactly how many spans motel produces at a given rate and duration.
 
 ## Tips
 
