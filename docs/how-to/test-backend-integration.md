@@ -96,9 +96,15 @@ A common pattern is routing traces to different backends based on content — fo
 
 ### 1. Configure your collector
 
-Set up an OpenTelemetry Collector with routing logic. For example, a collector config that sends error spans to one backend and everything to another:
+Set up an OpenTelemetry Collector with routing logic. For example, a collector config that sends all traces to a primary backend and only error traces to a second backend:
 
 ```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
 exporters:
   otlphttp/primary:
     endpoint: http://primary-backend:4318
@@ -106,11 +112,11 @@ exporters:
     endpoint: http://errors-backend:4318
 
 processors:
-  filter/errors:
+  filter/errors-only:
     error_mode: ignore
     traces:
       span:
-        - 'status.code == STATUS_CODE_ERROR'
+        - 'status.code != STATUS_CODE_ERROR'
 
 service:
   pipelines:
@@ -119,9 +125,11 @@ service:
       exporters: [otlphttp/primary]
     traces/errors:
       receivers: [otlp]
-      processors: [filter/errors]
+      processors: [filter/errors-only]
       exporters: [otlphttp/errors]
 ```
+
+Both pipelines receive all traffic from the same OTLP receiver. The `filter/errors-only` processor drops non-error spans, so only error spans reach the errors backend.
 
 ### 2. Send traffic through the collector
 
@@ -159,9 +167,9 @@ services:
       varied-attributes:
         duration: 20ms +/- 5ms
         attributes:
-          http.method:
+          http.request.method:
             value: GET
-          http.status_code:
+          http.response.status_code:
             range: [200, 599]
           http.route:
             values: {"/api/users": 50, "/api/orders": 30, "/api/products": 20}
@@ -182,7 +190,7 @@ motel run --endpoint http://localhost:4318 --protocol http/protobuf \
 In your backend, verify:
 
 - Resource attributes appear at the service level (`deployment.environment`, `cloud.provider`)
-- Span attributes appear on individual spans (`http.method`, `http.status_code`)
+- Span attributes appear on individual spans (`http.request.method`, `http.response.status_code`)
 - Numeric ranges produce varied integer values, not strings
 - Weighted values produce the expected distribution (roughly 50/30/20 across routes)
 - Sequence values increment correctly (`req-1`, `req-2`, ...)
@@ -193,22 +201,12 @@ When migrating from one backend to another, use motel to send identical traffic 
 
 ### 1. Send the same traffic to both backends
 
-Run motel twice with the same topology and duration. Use `--stdout` to capture the data, then replay it to each backend:
-
-```sh
-motel run --stdout --duration 30s backend-test.yaml > traces.jsonl
-```
-
-Send to the old backend:
+Run motel twice with the same topology and duration — once against each backend:
 
 ```sh
 motel run --endpoint http://old-backend:4318 --protocol http/protobuf \
   --duration 30s backend-test.yaml
-```
 
-Send to the new backend:
-
-```sh
 motel run --endpoint http://new-backend:4318 --protocol http/protobuf \
   --duration 30s backend-test.yaml
 ```
