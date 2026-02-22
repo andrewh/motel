@@ -109,7 +109,7 @@ For a quick count, pipe motel's stdout output through `jq` to see the raw distri
 
 ```sh
 motel run --stdout --duration 15s docs/examples/tail-sampling-test.yaml | \
-  jq -r 'select(.ParentSpanID == "") | .Status.Code // "Unset"' | \
+  jq -r 'select(.Parent.SpanID == "0000000000000000") | .Status.Code // "Unset"' | \
   sort | uniq -c
 ```
 
@@ -176,7 +176,8 @@ Use the `--label-scenarios` flag to add `synth.scenario` attributes to spans, so
 ```sh
 motel run --stdout --duration 15s --label-scenarios \
   docs/examples/tail-sampling-test.yaml | \
-  jq -r '.Attributes["synth.scenario"] // "baseline"' | \
+  jq -r '(.Attributes[] | select(.Key == "synth.scenarios") |
+    .Value.Value | if length > 0 then join(",") else "none" end) // "none"' | \
   sort | uniq -c
 ```
 
