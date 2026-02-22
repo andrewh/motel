@@ -59,7 +59,7 @@ processors:
       - context: span
         statements:
           # Rename camelCase attribute to dotted convention
-          - set(attributes["http.response.status_code"], attributes["httpStatusCode"])
+          - set(attributes["http.response.status_code"], Int(attributes["httpStatusCode"]))
             where attributes["httpStatusCode"] != nil
           - delete_key(attributes, "httpStatusCode")
             where attributes["http.response.status_code"] != nil
@@ -121,6 +121,7 @@ motel run --stdout --duration 5s docs/examples/ottl-transforms.yaml \
 # Send through collector, capture its debug output
 otelcol-contrib --config collector-ottl.yaml 2> collector-output.txt &
 COLLECTOR_PID=$!
+sleep 2
 motel run --endpoint localhost:4317 --protocol grpc \
   --duration 5s docs/examples/ottl-transforms.yaml
 kill $COLLECTOR_PID
