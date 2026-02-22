@@ -65,7 +65,7 @@ scenarios:
         duration: 500ms +/- 100ms
 ```
 
-Add the scenario block to your topology file, or keep scenarios in a separate file and pass both to `motel run`.
+Add the scenario block to your topology file.
 
 ## Match scenario duration to alerting windows
 
