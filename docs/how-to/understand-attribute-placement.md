@@ -165,7 +165,7 @@ cache.hit:
 
 ## Test cardinality impact on your backend
 
-Combine these generators in a topology to simulate realistic and adversarial attribute patterns:
+Create a file called `cardinality-test.yaml` that combines these generators to simulate realistic and adversarial attribute patterns:
 
 ```yaml
 version: 1
@@ -230,5 +230,6 @@ motel run --stdout --semconv /path/to/semconv --duration 5s topology.yaml
 ## Further reading
 
 - [Model your services](model-your-services.md) — creating topology files from scratch or from traces
+- [DSL reference](../../cmd/motel/README.md) — full topology schema including attribute generators
 - [CLI reference](../reference/synth.md) — full list of flags and options
 - [Basic topology example](../examples/basic-topology.yaml) — a complete topology with resource and span attributes
