@@ -36,6 +36,14 @@ traffic:
 
 This sends 500 traces/s normally, spiking to 5,000 traces/s for 5 seconds every 30 seconds. Each trace produces multiple spans (one per operation in the call graph), so the actual span rate is several times higher.
 
+To visualise the traffic shape before sending it, use `motel preview`:
+
+```sh
+motel preview --duration 3m docs/examples/stress-test.yaml -o traffic.svg
+```
+
+![Traffic rate over time for stress-test.yaml](stress-test-traffic.svg)
+
 Run it for long enough to see multiple burst cycles:
 
 ```sh
