@@ -35,7 +35,7 @@ receivers:
 
 processors:
   tail_sampling:
-    decision_wait: 5s
+    decision_wait: 10s
     num_traces: 1000
     policies:
       # Keep all traces with errors
@@ -176,7 +176,8 @@ Use the `--label-scenarios` flag to add `synth.scenario` attributes to spans, so
 ```sh
 motel run --stdout --duration 15s --label-scenarios \
   docs/examples/tail-sampling-test.yaml | \
-  jq -r '(.Attributes[] | select(.Key == "synth.scenarios") |
+  jq -r 'select(.Parent.SpanID == "0000000000000000") |
+    (.Attributes[] | select(.Key == "synth.scenarios") |
     .Value.Value | if length > 0 then join(",") else "none" end) // "none"' | \
   sort | uniq -c
 ```
