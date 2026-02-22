@@ -114,9 +114,8 @@ exporters:
 processors:
   filter/errors-only:
     error_mode: ignore
-    traces:
-      span:
-        - 'status.code != STATUS_CODE_ERROR'
+    trace_conditions:
+      - 'span.status.code != STATUS_CODE_ERROR'
 
 service:
   pipelines:
