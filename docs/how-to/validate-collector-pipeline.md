@@ -129,7 +129,7 @@ motel run --endpoint localhost:4318 --signals traces,metrics,logs --duration 10s
 | `DEADLINE_EXCEEDED` | Network timeout, firewall, or DNS | Verify connectivity with curl |
 | `405 Method Not Allowed` | Protocol mismatch (gRPC vs HTTP) | Switch `--protocol` |
 | `certificate signed by unknown authority` | TLS certificate not trusted | Check TLS configuration |
-| `tls: first record does not look like a TLS handshake` | Sending TLS to a non-TLS endpoint | Use the correct scheme |
+| `tls: first record does not look like a TLS handshake` | Sending plaintext to a TLS-enabled endpoint | Use `https://` or configure TLS |
 | Motel succeeds but spans missing in backend | Collector pipeline misconfigured | Check collector logs and exporter config |
 
 ## Further reading
