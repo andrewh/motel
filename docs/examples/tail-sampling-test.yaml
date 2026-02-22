@@ -1,0 +1,114 @@
+# Topology that produces a mix of trace characteristics for testing
+# tail sampling policies: normal, slow, error, and VIP traces
+
+version: 1
+
+services:
+  api-gateway:
+    attributes:
+      deployment.environment: production
+      service.namespace: sampling-test
+    operations:
+      GET /search:
+        duration: 25ms +/- 8ms
+        error_rate: 0.5%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/search"
+          customer.tier:
+            values:
+              standard: 90
+              vip: 10
+        calls:
+          - search-service.query
+
+      POST /checkout:
+        duration: 80ms +/- 20ms
+        error_rate: 3%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/checkout"
+          customer.tier:
+            values:
+              standard: 85
+              vip: 15
+        calls:
+          - order-service.create
+          - payment-service.charge
+
+  search-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      query:
+        duration: 15ms +/- 5ms
+        error_rate: 0.2%
+        calls:
+          - database.query
+
+  order-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      create:
+        duration: 40ms +/- 12ms
+        error_rate: 1%
+        call_style: sequential
+        calls:
+          - database.query
+          - notification-service.send
+
+  payment-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      charge:
+        duration: 300ms +/- 80ms
+        error_rate: 4%
+        attributes:
+          payment.method:
+            values:
+              credit_card: 60
+              debit_card: 25
+              wallet: 15
+
+  notification-service:
+    attributes:
+      deployment.environment: production
+    operations:
+      send:
+        duration: 50ms +/- 15ms
+        error_rate: 0.5%
+
+  database:
+    attributes:
+      db.system: postgresql
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+
+traffic:
+  rate: 50/s
+
+scenarios:
+  # Intermittent slow database queries
+  - name: slow database
+    at: +3s
+    duration: 4s
+    override:
+      database.query:
+        duration: 800ms +/- 200ms
+
+  # Payment provider outage
+  - name: payment errors
+    at: +8s
+    duration: 3s
+    override:
+      payment-service.charge:
+        duration: 5000ms +/- 1000ms
+        error_rate: 40%
