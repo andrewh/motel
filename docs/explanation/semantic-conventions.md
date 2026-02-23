@@ -9,8 +9,7 @@ the OpenTelemetry project, separate from the SDK and collector SIGs.
 [Weaver](https://github.com/open-telemetry/weaver) is a toolkit for
 managing telemetry schemas built on semantic conventions. It validates
 registries, generates code and documentation from them, and can check
-emitted telemetry against a schema at runtime. Weaver defines the YAML
-registry format that the semantic conventions are published in.
+emitted telemetry against a schema at runtime.
 
 motel uses the semantic convention registry data — published in Weaver's
 YAML format — to generate realistic span attributes automatically.
