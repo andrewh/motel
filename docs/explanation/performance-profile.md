@@ -138,6 +138,16 @@ go tool pprof http://localhost:6060/debug/pprof/heap
 curl 'http://localhost:6060/debug/pprof/goroutine?debug=2'
 ```
 
+To generate a flamegraph from a live run:
+
+```sh
+# Save a 30-second CPU profile
+curl -o cpu.prof 'http://localhost:6060/debug/pprof/profile?seconds=30'
+
+# Convert to flamegraph (requires flamegraph.pl and stackcollapse-go.pl)
+go tool pprof -raw cpu.prof | stackcollapse-go.pl | flamegraph.pl > flamegraph.svg
+```
+
 ## Recommendations
 
 - For collector stress testing, 5,000-10,000 traces/s is safe with OTLP
