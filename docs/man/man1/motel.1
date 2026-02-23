@@ -148,6 +148,41 @@ Optional list of time\-windowed overrides. Each scenario has a \fBname\fR,
 \fBat\fR (start offset), \fBduration\fR, and an \fBoverride\fR block that
 modifies operation behaviour while active.
 .PP
+A minimal topology using all four keys:
+.PP
+.RS
+.nf
+version: 1
+
+services:
+  gateway:
+    operations:
+      GET /search:
+        duration: 50ms +/\- 15ms
+        error_rate: 0.5%
+        calls:
+          \- backend.query
+
+  backend:
+    operations:
+      query:
+        duration: 10ms +/\- 3ms
+        error_rate: 0.1%
+
+traffic:
+  rate: 100/s
+
+scenarios:
+  \- name: slow database
+    at: +2m
+    duration: 5m
+    override:
+      backend.query:
+        duration: 500ms +/\- 100ms
+        error_rate: 10%
+.fi
+.RE
+.PP
 See the full DSL reference in the project repository.
 .SH EXAMPLES
 Validate a topology:
