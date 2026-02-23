@@ -44,19 +44,35 @@ Most allocation comes from the OTel SDK, not from motel's engine code:
 
 ## CPU hot paths
 
-From a 5-second CPU profile of `BenchmarkWalkTrace`:
+From a CPU profile of `BenchmarkWalkTrace` (4-service topology, noop exporter):
 
-| Function                           | Cumulative CPU |
-|------------------------------------|----------------|
-| `Engine.walkTrace`                 | 35%            |
-| `Engine.executeCall`               | 26%            |
-| OTel `(*tracer).Start`            | 16%            |
-| OTel `(*tracer).newSpan`          | 10%            |
-| OTel `SetAttributes`              | 6%             |
-| GC                                 | 5%             |
+![CPU flamegraph from BenchmarkWalkTrace](benchmark-flamegraph.svg)
+
+The flamegraph shows `walkTrace` and `executeCall` as the widest application
+frames, with the OTel SDK (`(*tracer).Start`, `newRecordingSpan`,
+`SetAttributes`) underneath. Runtime and GC are visible but modest.
+
+To reproduce this flamegraph:
+
+```sh
+go test -run=NONE -bench=BenchmarkWalkTrace -benchtime=5s \
+  -cpuprofile=cpu.prof ./pkg/synth/
+go tool pprof -raw cpu.prof | stackcollapse-go.pl | flamegraph.pl > flamegraph.svg
+```
+
+Sample `pprof -text` output from the same profile:
+
+```
+      flat  flat%   sum%        cum   cum%
+     0.24s  2.11% 46.52%         4s 35.24%  synth.(*Engine).walkTrace
+     0.03s  0.26% 46.78%      2.91s 25.64%  synth.(*Engine).executeCall
+     0.05s  0.44% 47.22%      1.76s 15.51%  sdk/trace.(*tracer).Start
+     0.25s  2.20% 49.43%      1.15s 10.13%  sdk/trace.(*tracer).newSpan
+     0.17s  1.50% 54.01%      0.67s  5.90%  sdk/trace.(*recordingSpan).SetAttributes
+```
 
 The engine's own logic (`walkTrace` + `executeCall`) accounts for about 60% of
-CPU, with the OTel SDK taking the remaining 40%. GC pressure is modest at 5%.
+CPU, with the OTel SDK taking the remaining 40%. GC pressure is modest at ~5%.
 
 ## stdout vs OTLP export
 
