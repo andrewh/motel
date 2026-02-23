@@ -1,18 +1,27 @@
-.TH MOTEL 1 "2026-02-20" "Motel" "User Commands"
+.TH MOTEL 1 "2026-02-23" "Motel" "User Commands"
 .SH NAME
-motel \- topology\-driven synthetic OTLP trace generator
+motel \- synthetic OpenTelemetry generator
 .SH SYNOPSIS
 .B motel validate
-\fIconfig.yaml\fR
+[\fB\-\-semconv\fR \fIdir\fR]
+\fItopology.yaml\fR
 .PP
 .B motel run
 [\fIflags\fR]
-\fIconfig.yaml\fR
+\fItopology.yaml\fR
 .PP
 .B motel import
 [\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR]
 [\fB\-\-min\-traces\fR \fIN\fR]
 [\fIfile\fR]
+.PP
+.B motel preview
+[\fB\-\-duration\fR \fIduration\fR]
+[\fB\-o\fR \fIfile\fR]
+\fItopology.yaml\fR
+.PP
+.B motel completion
+\fIbash\fR|\fIzsh\fR|\fIfish\fR|\fIpowershell\fR
 .PP
 .B motel version
 .SH DESCRIPTION
@@ -29,12 +38,16 @@ errors from the configured distributions.
 .SS validate
 Check a topology file for errors. Prints a summary on success or a precise
 error message on failure.
+.TP
+.B \-\-semconv
+\fIdir\fR
+Directory of additional semantic convention YAML files to load.
 .SS run
 Generate synthetic signals from a topology.
 .TP
 .B \-\-duration
 \fIduration\fR
-Override simulation duration (default: from config, or 1m).
+Simulation duration, e.g. 10s, 5m, 1h (default: 1m).
 .TP
 .B \-\-endpoint
 \fIhost:port\fR
@@ -59,6 +72,17 @@ Safety limit for deep topologies (default: 10000).
 .TP
 .B \-\-stdout
 Emit signals to stdout as JSON instead of sending to an endpoint.
+.TP
+.B \-\-label\-scenarios
+Add a \fBsynth.scenarios\fR attribute to spans listing active scenario names.
+.TP
+.B \-\-semconv
+\fIdir\fR
+Directory of additional semantic convention YAML files to load.
+.TP
+.B \-\-pprof
+\fIaddr\fR
+Start a pprof HTTP server on this address (e.g. :6060) for profiling.
 .SS import
 Infer a topology from existing trace data. Reads from \fIfile\fR or stdin if
 no file is given. Output is a YAML topology written to stdout.
@@ -70,6 +94,20 @@ Input format (default: auto). The auto detector examines the first line.
 .B \-\-min\-traces
 \fIN\fR
 Minimum traces for statistical accuracy; warns if fewer (default: 1).
+.SS preview
+Render the traffic rate over time as an SVG chart. Useful for visualising how
+traffic and scenarios interact before running a simulation.
+.TP
+.B \-\-duration
+\fIduration\fR
+Preview duration (default: inferred from topology).
+.TP
+.BR \-o ", " \-\-output
+\fIfile\fR
+Output file path (default: stdout).
+.SS completion
+Generate shell autocompletion scripts for bash, zsh, fish, or powershell.
+See \fBmotel completion \-\-help\fR for installation instructions.
 .SS version
 Print the build version and exit.
 .SH OUTPUT FORMAT
@@ -123,6 +161,14 @@ Import a topology from trace data:
 .RS
 .nf
 motel import traces.jsonl > inferred\-topology.yaml
+.fi
+.RE
+.PP
+Preview traffic rate as SVG:
+.PP
+.RS
+.nf
+motel preview \-o traffic.svg topology.yaml
 .fi
 .RE
 .SH FILES
