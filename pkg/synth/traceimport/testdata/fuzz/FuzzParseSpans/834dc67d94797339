@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"api\"}}]},\"scopeSpans\":[{\"scope\":{\"name=w,t\"d0I0\"PGt\"e\"a:,\"\"B1NnDs10g0xiCiB{\"n,\"m00}QdIDg\"Tia0as0n:GU\"rgiDo\"oecaN\"T:7Q0w0,iM\":r\"mp\"ssan\"axA\"\"0e\"E\"00B0=A[4\"pmIUs\"n0n,ApAUQ0t0\"eUp=d:nBna:o\":AaJIe700000000030000000\",\"status\":{},\"attributes\":[{\"key\":\"http.method\",\"value\":{\"stringValue\":\"GET\"}},{\"key\":\"count\",\"value\":{\"intValue\":\"42\"}},{\"key\":\"ok\",\"value\":{\"boolValue\":true}}]}]}]}]}")

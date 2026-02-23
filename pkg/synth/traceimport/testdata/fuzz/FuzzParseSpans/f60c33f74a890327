@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Name\":\"op\",\"SpanContext\":{\"TraceID\":\"aaa\",\"SpanID\":\"bbb\"},\"Parent\":{\"TraceID\":\"aaa\",\"SpanID\":\"0000000000000000\"},\"StartTime\":\"2024-01-01T00:00:00Z\",\"EndTime\":\"2024-01-01T00:00:01Z\",\"Attributes\":[],\"StnstrumentationScope\":{\"Name\":\"svc\"}}")

@@ -1,0 +1,393 @@
+# Internal gateway pattern with async trace propagation
+#
+# Models a common microservice architecture where:
+# - An external gateway reverse-proxies to an API service
+# - All service-to-service calls route through an internal gateway
+# - The internal gateway adds a span at every hop and retries on failure
+# - SNS/SQS messaging propagates traceparent, stitching async work
+#   into the originating trace
+#
+# The internal gateway doubles trace depth (caller → gateway → callee)
+# and retries at the gateway layer multiply the span count at every level.
+# Combined with async fan-out, the worst-case span count reaches tens of
+# thousands even with modest retry budgets.
+#
+# The default check limits (depth 10, spans 10000) will fail on this
+# topology — use the raised limits below:
+#
+# motel check --max-depth 30 --max-spans 200000 docs/examples/internal-gateway.yaml
+
+version: 1
+
+services:
+  # External reverse proxy
+  edge-gateway:
+    operations:
+      proxy:
+        duration: 2ms +/- 1ms
+        calls:
+          - target: api-service.handle
+            retries: 2
+
+  # Internal gateway — every service-to-service call routes through here
+  internal-gateway:
+    operations:
+      route-to-order:
+        duration: 1ms +/- 500us
+        calls:
+          - target: order-service.create
+            retries: 2
+      route-to-payment:
+        duration: 1ms +/- 500us
+        calls:
+          - target: payment-service.charge
+            retries: 2
+      route-to-fraud:
+        duration: 1ms +/- 500us
+        calls:
+          - target: fraud-service.check
+            retries: 2
+      route-to-inventory:
+        duration: 1ms +/- 500us
+        calls:
+          - target: inventory-service.reserve
+            retries: 2
+      route-to-shipping:
+        duration: 1ms +/- 500us
+        calls:
+          - target: shipping-service.calculate
+            retries: 2
+      route-to-tax:
+        duration: 1ms +/- 500us
+        calls:
+          - target: tax-service.compute
+            retries: 2
+      route-to-loyalty:
+        duration: 1ms +/- 500us
+        calls:
+          - target: loyalty-service.apply
+            retries: 2
+      route-to-notification:
+        duration: 1ms +/- 500us
+        calls:
+          - target: notification-service.send
+            retries: 2
+      route-to-audit:
+        duration: 1ms +/- 500us
+        calls:
+          - target: audit-service.log
+            retries: 2
+      route-to-warehouse:
+        duration: 1ms +/- 500us
+        calls:
+          - target: warehouse-service.allocate
+            retries: 2
+      route-to-pricing:
+        duration: 1ms +/- 500us
+        calls:
+          - target: pricing-service.quote
+            retries: 2
+      route-to-customer:
+        duration: 1ms +/- 500us
+        calls:
+          - target: customer-service.lookup
+            retries: 2
+      route-to-product:
+        duration: 1ms +/- 500us
+        calls:
+          - target: product-service.get
+            retries: 2
+      route-to-coupon:
+        duration: 1ms +/- 500us
+        calls:
+          - target: coupon-service.validate
+            retries: 2
+      route-to-address:
+        duration: 1ms +/- 500us
+        calls:
+          - target: address-service.resolve
+            retries: 2
+      route-to-email:
+        duration: 1ms +/- 500us
+        calls:
+          - target: email-service.send
+            retries: 2
+      route-to-fulfilment:
+        duration: 1ms +/- 500us
+        calls:
+          - target: fulfilment-worker.process
+            retries: 2
+      route-to-invoice:
+        duration: 1ms +/- 500us
+        calls:
+          - target: invoice-worker.generate
+            retries: 2
+      route-to-analytics:
+        duration: 1ms +/- 500us
+        calls:
+          - target: analytics-worker.ingest
+            retries: 2
+      route-to-returns:
+        duration: 1ms +/- 500us
+        calls:
+          - target: returns-worker.process
+            retries: 2
+
+  # Synchronous services
+
+  api-service:
+    operations:
+      handle:
+        duration: 5ms +/- 2ms
+        error_rate: 2%
+        calls:
+          - target: internal-gateway.route-to-customer
+          - target: internal-gateway.route-to-order
+            retries: 1
+          - target: internal-gateway.route-to-audit
+
+  order-service:
+    operations:
+      create:
+        duration: 15ms +/- 5ms
+        error_rate: 3%
+        calls:
+          - target: internal-gateway.route-to-product
+          - target: internal-gateway.route-to-coupon
+          - target: internal-gateway.route-to-payment
+            retries: 1
+          - target: internal-gateway.route-to-inventory
+            retries: 1
+          - target: internal-gateway.route-to-shipping
+          - target: internal-gateway.route-to-tax
+          - target: internal-gateway.route-to-loyalty
+          - target: sns-order-created.publish
+
+  payment-service:
+    operations:
+      charge:
+        duration: 50ms +/- 20ms
+        error_rate: 5%
+        calls:
+          - target: internal-gateway.route-to-fraud
+          - target: internal-gateway.route-to-audit
+
+  fraud-service:
+    operations:
+      check:
+        duration: 30ms +/- 10ms
+        error_rate: 3%
+        calls:
+          - target: internal-gateway.route-to-customer
+
+  inventory-service:
+    operations:
+      reserve:
+        duration: 10ms +/- 3ms
+        error_rate: 3%
+        calls:
+          - target: internal-gateway.route-to-warehouse
+          - target: internal-gateway.route-to-product
+
+  warehouse-service:
+    operations:
+      allocate:
+        duration: 20ms +/- 5ms
+        error_rate: 5%
+        calls:
+          - target: internal-gateway.route-to-address
+
+  shipping-service:
+    operations:
+      calculate:
+        duration: 12ms +/- 4ms
+        error_rate: 2%
+        calls:
+          - target: internal-gateway.route-to-pricing
+          - target: internal-gateway.route-to-address
+
+  pricing-service:
+    operations:
+      quote:
+        duration: 8ms +/- 3ms
+        error_rate: 2%
+
+  tax-service:
+    operations:
+      compute:
+        duration: 10ms +/- 3ms
+        error_rate: 1%
+        calls:
+          - target: internal-gateway.route-to-address
+
+  loyalty-service:
+    operations:
+      apply:
+        duration: 8ms +/- 3ms
+        error_rate: 2%
+        calls:
+          - target: internal-gateway.route-to-customer
+
+  customer-service:
+    operations:
+      lookup:
+        duration: 5ms +/- 2ms
+        error_rate: 1%
+
+  product-service:
+    operations:
+      get:
+        duration: 4ms +/- 2ms
+        error_rate: 1%
+
+  coupon-service:
+    operations:
+      validate:
+        duration: 6ms +/- 2ms
+        error_rate: 2%
+
+  address-service:
+    operations:
+      resolve:
+        duration: 8ms +/- 3ms
+        error_rate: 2%
+
+  notification-service:
+    operations:
+      send:
+        duration: 5ms +/- 2ms
+        error_rate: 1%
+        calls:
+          - target: internal-gateway.route-to-email
+
+  email-service:
+    operations:
+      send:
+        duration: 10ms +/- 5ms
+        error_rate: 3%
+
+  audit-service:
+    operations:
+      log:
+        duration: 3ms +/- 1ms
+        error_rate: 1%
+
+  # Async: SNS topics and SQS queues
+  # traceparent propagated in message attributes
+
+  sns-order-created:
+    operations:
+      publish:
+        duration: 2ms +/- 1ms
+        calls:
+          - target: sqs-fulfilment.receive
+          - target: sqs-invoice.receive
+          - target: sqs-analytics.receive
+          - target: sqs-returns.receive
+          - target: sqs-notification.receive
+
+  sqs-fulfilment:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-fulfilment
+
+  sqs-invoice:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-invoice
+
+  sqs-analytics:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-analytics
+
+  sqs-returns:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-returns
+
+  sqs-notification:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-notification
+
+  # Async workers
+
+  fulfilment-worker:
+    operations:
+      process:
+        duration: 20ms +/- 5ms
+        error_rate: 3%
+        calls:
+          - target: internal-gateway.route-to-inventory
+            retries: 1
+          - target: internal-gateway.route-to-warehouse
+          - target: internal-gateway.route-to-shipping
+          - target: internal-gateway.route-to-notification
+          - target: sns-fulfilment-complete.publish
+
+  invoice-worker:
+    operations:
+      generate:
+        duration: 15ms +/- 5ms
+        error_rate: 2%
+        calls:
+          - target: internal-gateway.route-to-payment
+          - target: internal-gateway.route-to-tax
+          - target: internal-gateway.route-to-customer
+          - target: internal-gateway.route-to-notification
+
+  analytics-worker:
+    operations:
+      ingest:
+        duration: 10ms +/- 3ms
+        error_rate: 1%
+        calls:
+          - target: internal-gateway.route-to-customer
+          - target: internal-gateway.route-to-product
+
+  returns-worker:
+    operations:
+      process:
+        duration: 15ms +/- 5ms
+        error_rate: 2%
+        calls:
+          - target: internal-gateway.route-to-inventory
+          - target: internal-gateway.route-to-payment
+          - target: internal-gateway.route-to-notification
+
+  # Second-level async: fulfilment triggers shipping and loyalty
+  sns-fulfilment-complete:
+    operations:
+      publish:
+        duration: 2ms +/- 1ms
+        calls:
+          - target: sqs-shipping-confirm.receive
+          - target: sqs-loyalty-credit.receive
+
+  sqs-shipping-confirm:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-shipping
+
+  sqs-loyalty-credit:
+    operations:
+      receive:
+        duration: 50ms +/- 20ms
+        calls:
+          - target: internal-gateway.route-to-loyalty
+
+traffic:
+  rate: 50/s

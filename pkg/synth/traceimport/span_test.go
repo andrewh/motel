@@ -133,6 +133,73 @@ func TestParseSpans_AutoDetect(t *testing.T) {
 	assert.Equal(t, "op", spans[0].Operation)
 }
 
+func TestDetectFormat_PrettyPrintedOTLP(t *testing.T) {
+	input := "{\n  \"resourceSpans\": []\n}"
+	format, err := detectFormat([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, FormatOTLP, format)
+}
+
+func TestDetectFormat_PrettyPrintedStdouttrace(t *testing.T) {
+	input := "{\n  \"SpanContext\": {\"TraceID\": \"abc\"}\n}"
+	format, err := detectFormat([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, FormatStdouttrace, format)
+}
+
+func TestDetectFormat_MultilineUnknown(t *testing.T) {
+	input := "{\n  \"other\": true\n}"
+	_, err := detectFormat([]byte(input))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot detect format")
+}
+
+func TestDetectFormat_MultilineInvalidJSON(t *testing.T) {
+	input := "not json\nbut has multiple lines"
+	_, err := detectFormat([]byte(input))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot detect format")
+}
+
+func TestParseSpans_UnknownFormat(t *testing.T) {
+	_, err := ParseSpans(strings.NewReader("{}"), "badformat")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown format")
+}
+
+func TestParseStdouttrace_ServiceFallback(t *testing.T) {
+	line := `{"Name":"op","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[{"Key":"synth.service","Value":{"Type":"STRING","Value":"fallback-svc"}}],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":""}}`
+
+	spans, err := ParseSpans(strings.NewReader(line), FormatStdouttrace)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.Equal(t, "fallback-svc", spans[0].Service)
+}
+
+func TestParseStdouttrace_MultipleSpans(t *testing.T) {
+	lines := strings.Join([]string{
+		`{"Name":"root","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		"",
+		`{"Name":"child","SpanContext":{"TraceID":"t1","SpanID":"s2"},"Parent":{"TraceID":"t1","SpanID":"s1"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+	}, "\n")
+
+	spans, err := ParseSpans(strings.NewReader(lines), FormatStdouttrace)
+	require.NoError(t, err)
+	require.Len(t, spans, 2)
+}
+
+func TestParseStdouttrace_InvalidJSON(t *testing.T) {
+	_, err := ParseSpans(strings.NewReader("not json"), FormatStdouttrace)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "line 1")
+}
+
+func TestParseStdouttrace_BlankLinesOnly(t *testing.T) {
+	_, err := ParseSpans(strings.NewReader("\n\n\n"), FormatStdouttrace)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no spans found")
+}
+
 func TestIsZeroID(t *testing.T) {
 	assert.True(t, isZeroID("0000000000000000"))
 	assert.True(t, isZeroID("00"))

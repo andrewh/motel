@@ -1,5 +1,4 @@
 // Tests for the motel CLI commands
-// Validates validate, version, and run subcommands
 package main
 
 import (
@@ -7,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -463,5 +463,292 @@ func TestCheckEndpoint(t *testing.T) {
 		err := root.Execute()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector")
+	})
+}
+
+func TestCheckCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("passing checks", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "PASS  max-depth:")
+		assert.Contains(t, out.String(), "PASS  max-fan-out:")
+		assert.Contains(t, out.String(), "PASS  max-spans:")
+		assert.Contains(t, out.String(), "path:")
+		assert.Contains(t, out.String(), "worst:")
+	})
+
+	t.Run("failing depth limit", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--max-depth", "0", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "one or more checks failed")
+		assert.Contains(t, out.String(), "FAIL  max-depth:")
+	})
+
+	t.Run("failing fan-out limit", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    operations:
+      request:
+        duration: 5ms
+        calls:
+          - target: backend.op
+            count: 5
+  backend:
+    operations:
+      op:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--max-fan-out", "1", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, out.String(), "FAIL  max-fan-out:")
+	})
+
+	t.Run("failing spans limit", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--max-spans", "1", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, out.String(), "FAIL  max-spans:")
+	})
+
+	t.Run("static only with samples 0", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--samples", "0", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "static worst-case")
+		assert.NotContains(t, out.String(), "observed")
+	})
+
+	t.Run("with seed for reproducibility", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+
+		run := func() string {
+			root := rootCmd()
+			root.SetArgs([]string{"check", "--seed", "42", path})
+			var out bytes.Buffer
+			root.SetOut(&out)
+			err := root.Execute()
+			require.NoError(t, err)
+			return out.String()
+		}
+		assert.Equal(t, run(), run())
+	})
+
+	t.Run("max-spans-per-trace flag", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--max-spans-per-trace", "2", "--seed", "1", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "observed")
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"check", "/nonexistent.yaml"})
+
+		err := root.Execute()
+		require.Error(t, err)
+	})
+
+	t.Run("no args", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"check"})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing topology file")
+	})
+
+	t.Run("negative limit rejected", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--max-depth", "-1", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "non-negative")
+	})
+
+	t.Run("invalid config", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: bad
+traffic:
+  rate: 10/s
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+	})
+
+	t.Run("validation error", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        calls:
+          - nonexistent.op
+traffic:
+  rate: 10/s
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown operation")
+	})
+
+	t.Run("semconv flag", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--semconv", "/nonexistent", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not exist")
+	})
+}
+
+func TestImportCommand(t *testing.T) {
+	t.Parallel()
+
+	stdouttraceSpans := strings.Join([]string{
+		`{"Name":"request","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:00.050Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"gateway"}}`,
+		`{"Name":"query","SpanContext":{"TraceID":"t1","SpanID":"s2"},"Parent":{"TraceID":"t1","SpanID":"s1"},"StartTime":"2024-01-01T00:00:00.010Z","EndTime":"2024-01-01T00:00:00.040Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"db"}}`,
+	}, "\n")
+
+	t.Run("from file", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "traces.jsonl")
+		require.NoError(t, os.WriteFile(path, []byte(stdouttraceSpans), 0o600))
+
+		root := rootCmd()
+		root.SetArgs([]string{"import", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "gateway:")
+		assert.Contains(t, out.String(), "db:")
+	})
+
+	t.Run("explicit format", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "traces.jsonl")
+		require.NoError(t, os.WriteFile(path, []byte(stdouttraceSpans), 0o600))
+
+		root := rootCmd()
+		root.SetArgs([]string{"import", "--format", "stdouttrace", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "gateway:")
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"import", "/nonexistent/traces.json"})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "opening input")
+	})
+
+	t.Run("empty file", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "empty.jsonl")
+		require.NoError(t, os.WriteFile(path, []byte(""), 0o600))
+
+		root := rootCmd()
+		root.SetArgs([]string{"import", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no spans found")
+		assert.Contains(t, err.Error(), "motel import")
+	})
+
+	t.Run("min-traces flag warns", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "traces.jsonl")
+		require.NoError(t, os.WriteFile(path, []byte(stdouttraceSpans), 0o600))
+
+		root := rootCmd()
+		root.SetArgs([]string{"import", "--min-traces", "10", path})
+		var out, stderr bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&stderr)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, stderr.String(), "only 1 trace")
 	})
 }

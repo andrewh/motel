@@ -15,6 +15,15 @@ motel \- synthetic OpenTelemetry generator
 [\fB\-\-min\-traces\fR \fIN\fR]
 [\fIfile\fR]
 .PP
+.B motel check
+[\fB\-\-max\-depth\fR \fIN\fR]
+[\fB\-\-max\-fan\-out\fR \fIN\fR]
+[\fB\-\-max\-spans\fR \fIN\fR]
+[\fB\-\-samples\fR \fIN\fR]
+[\fB\-\-seed\fR \fIN\fR]
+[\fB\-\-semconv\fR \fIdir\fR]
+\fItopology.yaml\fR
+.PP
 .B motel preview
 [\fB\-\-duration\fR \fIduration\fR]
 [\fB\-\-output\fR \fIfile\fR]
@@ -95,6 +104,38 @@ Input format (default: auto). The auto detector examines the first line.
 .B \-\-min\-traces
 \fIN\fR
 Minimum traces for statistical accuracy; warns if fewer (default: 1).
+.SS check
+Run structural checks on a topology. Computes worst\-case trace depth,
+fan\-out per span, and total spans per trace using static graph analysis,
+then validates these against configurable limits. Optionally runs sampled
+exploration to measure empirical values.
+.PP
+Exits with code 0 if all checks pass, 1 if any check fails.
+.TP
+.B \-\-max\-depth
+\fIN\fR
+Fail if worst\-case trace depth exceeds this (default: 10).
+.TP
+.B \-\-max\-fan\-out
+\fIN\fR
+Fail if worst\-case children per span exceeds this (default: 100).
+.TP
+.B \-\-max\-spans
+\fIN\fR
+Fail if worst\-case spans per trace exceeds this (default: 10000).
+.TP
+.B \-\-samples
+\fIN\fR
+Number of sampled traces for empirical measurement (default: 1000).
+Set to 0 to skip sampling.
+.TP
+.B \-\-seed
+\fIN\fR
+Random seed for reproducibility. When 0 (default), a random seed is used.
+.TP
+.B \-\-semconv
+\fIdir\fR
+Directory of additional semantic convention YAML files to load.
 .SS preview
 Render the traffic rate over time as an SVG chart. Useful for visualising how
 traffic and scenarios interact before running a simulation.
@@ -217,6 +258,22 @@ motel import traces.jsonl > inferred\-topology.yaml
 .fi
 .RE
 .PP
+Check a topology for span explosions:
+.PP
+.RS
+.nf
+motel check topology.yaml
+.fi
+.RE
+.PP
+Fail if trace depth exceeds 5:
+.PP
+.RS
+.nf
+motel check \-\-max\-depth 5 topology.yaml
+.fi
+.RE
+.PP
 Preview traffic rate as SVG:
 .PP
 .RS
@@ -230,7 +287,7 @@ motel preview \-o traffic.svg topology.yaml
 Successful execution.
 .TP
 .B 1
-An error occurred (invalid topology, unreachable endpoint, etc.).
+An error occurred (invalid topology, unreachable endpoint, failed check, etc.).
 .SH SEE ALSO
 .UR https://github.com/andrewh/motel
 Project repository and full documentation

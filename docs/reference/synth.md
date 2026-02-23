@@ -54,6 +54,27 @@ motel run --stdout --duration 5s topology.yaml > spans.jsonl 2> stats.json
 
 The stdout format is the same format accepted by `motel import`, so you can round-trip: generate traces, then infer a topology from them.
 
+### check
+
+Run structural checks on a topology before sending traffic.
+
+```sh
+motel check <topology.yaml> [flags]
+```
+
+Computes worst-case trace depth, fan-out per span, and total spans per trace using static graph analysis. Optionally runs sampled exploration with the engine to measure empirical values. Exits with code 0 if all checks pass, 1 if any check fails.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--max-depth` | int | 10 | Fail if worst-case trace depth exceeds this |
+| `--max-fan-out` | int | 100 | Fail if worst-case children per span exceeds this |
+| `--max-spans` | int | 10000 | Fail if worst-case spans per trace exceeds this |
+| `--samples` | int | 1000 | Sampled traces for empirical measurement (0 to skip) |
+| `--seed` | uint | 0 | Random seed for reproducibility (0 = random) |
+| `--semconv` | string | | Directory of additional semantic convention YAML files |
+
+Output is one line per check showing PASS/FAIL, the measured value, and the limit. Depth checks include the worst-case path; fan-out checks identify the worst operation; span checks show both static worst-case and observed values from sampling.
+
 ### import
 
 Infer a topology from existing trace data.
