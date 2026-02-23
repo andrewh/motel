@@ -51,7 +51,7 @@ Simulation duration, e.g. 10s, 5m, 1h (default: 1m).
 .TP
 .B \-\-endpoint
 \fIhost:port\fR
-OTLP endpoint (e.g. localhost:4318). Required unless \fB\-\-stdout\fR is set.
+OTLP endpoint (default: localhost:4318). Ignored when \fB\-\-stdout\fR is set.
 .TP
 .B \-\-protocol
 \fIhttp/protobuf\fR|\fIgrpc\fR
@@ -59,7 +59,7 @@ OTLP protocol (default: http/protobuf).
 .TP
 .B \-\-signals
 \fIsignals\fR
-Comma\-separated signals to emit: traces, metrics, logs (default: traces).
+Comma\-separated signals to emit: traces,metrics,logs (default: traces).
 .TP
 .B \-\-slow\-threshold
 \fIduration\fR
@@ -68,7 +68,7 @@ Only has an effect when \fBlogs\fR is included in \fB\-\-signals\fR.
 .TP
 .B \-\-max\-spans\-per\-trace
 \fIN\fR
-Safety limit for deep topologies (default: 10000).
+Safety limit for deep topologies (default: 10000). Pass 0 to use the default.
 .TP
 .B \-\-stdout
 Emit signals to stdout as JSON instead of sending to an endpoint.
@@ -175,3 +175,7 @@ motel preview \-o traffic.svg topology.yaml
 .TP
 .I docs/examples/*.yaml
 Example topology files included with the project.
+.SH SEE ALSO
+.UR https://github.com/andrewh/motel
+Project repository and full documentation
+.UE
