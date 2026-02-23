@@ -18,16 +18,21 @@ YAML format — to generate realistic span attributes automatically.
 ## What motel takes from the registry
 
 motel vendors the upstream semantic convention YAML files in
-`third_party/semconv/model/`. These files describe hundreds of attributes
-across domains like HTTP, database, messaging, RPC, and others.
+`third_party/semconv/model/` (currently v1.39.0, tracked in
+`third_party/semconv/VERSION`). These files describe hundreds of
+attributes across domains like HTTP, database, messaging, RPC, and others.
 
 The `pkg/semconv` package parses these files into a `Registry` that indexes
-groups and attributes by ID and domain. The `pkg/semconv/generate.go` module
-then creates attribute generators from the registry definitions:
+groups and attributes by ID and domain. Attribute generators are then
+created from the registry definitions:
 
-- **Enum attributes** produce values sampled from the defined members
-- **String, int, double** attributes produce realistic placeholder values
+- **Enum attributes** sample uniformly from the non-deprecated members
+- **String, int, double** attributes sample from the definition's example
+  values, falling back to a static default when no examples are defined
 - **Boolean attributes** produce true/false with equal probability
+
+Deprecated attributes are silently skipped. Template and array attribute
+types are not yet supported and are also skipped.
 
 ## The domain field
 
@@ -55,13 +60,17 @@ The embedded conventions cover the upstream OTel standard, but
 organisations often define their own semantic conventions for internal
 services or business-specific attributes.
 
-Currently, custom definitions can be added at compile time by vendoring
-additional registry YAML files into `third_party/semconv/model/`.
-They'll be embedded in the binary alongside the upstream definitions.
+To load additional definitions at runtime, pass a directory of registry
+YAML files with the `--semconv` flag:
 
-Runtime customisation — pointing motel at a local directory or a remote
-registry without recompiling — is tracked in
-[issue 28](https://github.com/andrewh/motel/issues/28).
+    motel run --semconv ./my-conventions/ topology.yaml
+
+The directory structure mirrors the embedded registry — each subdirectory
+becomes a domain. User-provided definitions are merged with the embedded
+defaults, so custom domains work alongside the upstream ones.
+
+Alternatively, definitions can be vendored at compile time into
+`third_party/semconv/model/` to embed them in the binary.
 
 ## What motel does not use Weaver for
 
