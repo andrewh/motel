@@ -51,7 +51,8 @@ Simulation duration, e.g. 10s, 5m, 1h (default: 1m).
 .TP
 .B \-\-endpoint
 \fIhost:port\fR
-OTLP endpoint (default: localhost:4318). Ignored when \fB\-\-stdout\fR is set.
+OTLP endpoint (default: localhost:4318 for http/protobuf, localhost:4317 for
+grpc). Ignored when \fB\-\-stdout\fR is set.
 .TP
 .B \-\-protocol
 \fIhttp/protobuf\fR|\fIgrpc\fR
@@ -128,9 +129,26 @@ motel run \-\-stdout config.yaml > spans.jsonl 2> stats.json
 .PP
 The stdout format is the same format accepted by \fBmotel import\fR.
 .SH TOPOLOGY DSL
-The topology file requires \fBversion: 1\fR and defines services, operations,
-traffic, and optional scenarios. See the full DSL reference in the project
-README.
+The topology file has four top\-level keys:
+.TP
+.B version
+Schema version (required). Currently must be \fB1\fR.
+.TP
+.B services
+Map of service names to their operations. Each operation defines a duration,
+optional error rate, optional attributes, and optional calls to other
+operations.
+.TP
+.B traffic
+Controls how often root operations are invoked. Accepts a \fBrate\fR
+(e.g. \fB100/s\fR).
+.TP
+.B scenarios
+Optional list of time\-windowed overrides. Each scenario has a \fBname\fR,
+\fBat\fR (start offset), \fBduration\fR, and an \fBoverride\fR block that
+modifies operation behaviour while active.
+.PP
+See the full DSL reference in the project repository.
 .SH EXAMPLES
 Validate a topology:
 .PP
@@ -171,6 +189,13 @@ Preview traffic rate as SVG:
 motel preview \-o traffic.svg topology.yaml
 .fi
 .RE
+.SH EXIT STATUS
+.TP
+.B 0
+Successful execution.
+.TP
+.B 1
+An error occurred (invalid topology, unreachable endpoint, etc.).
 .SH FILES
 .TP
 .I docs/examples/*.yaml
