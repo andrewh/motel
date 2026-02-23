@@ -57,6 +57,7 @@ func rootCmd() *cobra.Command {
 	root.AddCommand(runCmd())
 	root.AddCommand(validateCmd())
 	root.AddCommand(importCmd())
+	root.AddCommand(previewCmd())
 	root.AddCommand(versionCmd())
 
 	return root

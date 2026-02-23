@@ -292,7 +292,7 @@ the importer cannot determine from trace data alone:
 - **Scenario overrides** — there's no way to know which behaviour changes
   are intentional vs normal operation
 - **Traffic patterns** — only the average rate is computed, not whether
-  it's uniform, diurnal, poisson, or bursty
+  it's uniform, diurnal, or bursty
 - **Queue depth, circuit breakers, backpressure** — these are simulation
   parameters, not observable from traces
 - **Attribute distributions** — only constant attributes are detected.

@@ -85,8 +85,16 @@ motel validate my-topology.yaml
 Generate a short burst and inspect the output:
 
 ```sh
-motel run --stdout --duration 2s my-topology.yaml | \
+motel run --stdout --duration 2s my-topology.yaml |
   jq -r .Name | sort | uniq -c | sort -rn
+
+  48 query
+  48 list
+  48 GET /products
+  46 POST /orders
+  46 insert
+  46 create
+  46 charge
 ```
 
 Check that the operation names and relative counts look right. Adjust durations and error rates until the traces look realistic.

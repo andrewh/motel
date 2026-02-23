@@ -172,7 +172,7 @@ Controls trace arrival rate.
 | Field             | Type   | Description |
 |------------------|--------|-------------|
 | `rate`            | string | Base rate, e.g. `50/s`, `3000/m` |
-| `pattern`         | string | `uniform` (default), `diurnal`, `poisson`, `bursty`, `custom` |
+| `pattern`         | string | `uniform` (default), `diurnal`, `bursty`, `custom` |
 | `burst_multiplier`| float  | Rate multiplier during bursts (bursty only, default: 5) |
 | `burst_interval`  | string | Time between burst starts (bursty only, default: 5m) |
 | `burst_duration`  | string | Length of each burst (bursty only, default: 30s) |

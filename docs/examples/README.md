@@ -13,7 +13,7 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 | File | Description |
 |------|-------------|
 | `basic-topology.yaml` | Five-service topology with attributes, weighted status codes, and a scenario. Best starting point. |
-| `traffic-patterns.yaml` | Minimal two-service topology for comparing traffic arrival models (uniform, diurnal, poisson, bursty). |
+| `traffic-patterns.yaml` | Minimal two-service topology for comparing traffic arrival models (uniform, diurnal, bursty). |
 | `scenario-override.yaml` | Three overlapping scenarios with priority stacking, attribute overrides, and traffic rate changes. |
 | `cascading-failure.yaml` | Timeout and retry through a three-tier chain during scenario-driven database degradation. |
 | `circuit-breaker.yaml` | Scenario `add_calls`/`remove_calls` for circuit-breaker fallback patterns. |

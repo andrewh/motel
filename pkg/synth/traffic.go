@@ -1,5 +1,5 @@
 // Traffic pattern implementations for synthetic load generation
-// Provides uniform, diurnal, poisson, bursty, and custom arrival rate models
+// Provides uniform, diurnal, bursty, and custom arrival rate models
 package synth
 
 import (
@@ -71,14 +71,12 @@ func newBasePattern(cfg TrafficConfig) (TrafficPattern, error) {
 		return &UniformPattern{BaseRate: baseRate}, nil
 	case "diurnal":
 		return newDiurnalPattern(baseRate, cfg)
-	case "poisson":
-		return &PoissonPattern{BaseRate: baseRate}, nil
 	case "bursty":
 		return newBurstyPattern(baseRate, cfg)
 	case "custom":
 		return newCustomPattern(baseRate, cfg)
 	default:
-		return nil, fmt.Errorf("unknown traffic pattern %q, supported: uniform, diurnal, poisson, bursty, custom", pattern)
+		return nil, fmt.Errorf("unknown traffic pattern %q, supported: uniform, diurnal, bursty, custom", pattern)
 	}
 }
 
@@ -192,16 +190,6 @@ func (p *DiurnalPattern) Rate(elapsed time.Duration) float64 {
 	hours := elapsed.Hours()
 	factor := mid + amplitude*math.Sin(2*math.Pi*(hours-periodHours/4)/periodHours)
 	return p.BaseRate * factor
-}
-
-// PoissonPattern generates a constant mean rate (Poisson arrivals are modelled
-// in the engine's scheduling, not in the rate curve).
-type PoissonPattern struct {
-	BaseRate float64
-}
-
-func (p *PoissonPattern) Rate(_ time.Duration) float64 {
-	return p.BaseRate
 }
 
 // BurstyPattern alternates between a base rate and periodic high-rate bursts.

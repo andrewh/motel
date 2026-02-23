@@ -1491,7 +1491,7 @@ func TestProperty_BurstyPattern_RateAlternates(t *testing.T) {
 
 func TestProperty_TrafficPattern_NonNegativeRate(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		patternName := rapid.SampledFrom([]string{"uniform", "diurnal", "poisson"}).Draw(t, "pattern")
+		patternName := rapid.SampledFrom([]string{"uniform", "diurnal"}).Draw(t, "pattern")
 		rate := rapid.IntRange(1, 1000).Draw(t, "rate")
 
 		tcfg := TrafficConfig{
