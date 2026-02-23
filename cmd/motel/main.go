@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
+	"net/http"
+	_ "net/http/pprof" //nolint:gosec // pprof endpoint is opt-in via --pprof flag
 	"os"
 	"os/signal"
 	"strings"
@@ -74,6 +76,7 @@ func runCmd() *cobra.Command {
 		maxSpansPerTrace int
 		semconvDir       string
 		labelScenarios   bool
+		pprofAddr        string
 	)
 
 	cmd := &cobra.Command{
@@ -99,6 +102,7 @@ func runCmd() *cobra.Command {
 				maxSpansPerTrace: maxSpansPerTrace,
 				semconvDir:       semconvDir,
 				labelScenarios:   labelScenarios,
+				pprofAddr:        pprofAddr,
 			})
 		},
 	}
@@ -112,6 +116,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, "maximum spans per trace (0 = default 10000)")
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
+	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
 
 	return cmd
 }
@@ -227,6 +232,7 @@ type runOptions struct {
 	maxSpansPerTrace int
 	semconvDir       string
 	labelScenarios   bool
+	pprofAddr        string
 }
 
 var validSignals = map[string]bool{
@@ -300,6 +306,15 @@ func checkEndpoint(endpoint, protocol, configPath string) error {
 }
 
 func runGenerate(ctx context.Context, configPath string, opts runOptions) error {
+	if opts.pprofAddr != "" {
+		go func() {
+			fmt.Fprintf(os.Stderr, "pprof server listening on %s\n", opts.pprofAddr)
+			if err := http.ListenAndServe(opts.pprofAddr, nil); err != nil { //nolint:gosec // pprof server is opt-in via flag
+				fmt.Fprintf(os.Stderr, "pprof server error: %v\n", err)
+			}
+		}()
+	}
+
 	cfg, err := synth.LoadConfig(configPath)
 	if err != nil {
 		return err
