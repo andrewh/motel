@@ -179,7 +179,7 @@ func renderSVG(w io.Writer, samples []rateSample, scenarios []synth.Scenario, ti
 	b.WriteString(fmt.Sprintf(`<text x="%d" y="24" class="title">%s</text>`, marginLeft, xmlEscape(title)))
 	b.WriteString("\n")
 
-	// Scenario shading
+	// Scenario shading (labels rendered later, after the rate line)
 	for _, sc := range scenarios {
 		x := marginLeft + int(float64(plotWidth)*float64(sc.Start)/float64(totalDuration))
 		w := int(float64(plotWidth) * float64(sc.End-sc.Start) / float64(totalDuration))
@@ -187,8 +187,6 @@ func renderSVG(w io.Writer, samples []rateSample, scenarios []synth.Scenario, ti
 			w = 1
 		}
 		b.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d" class="scenario-rect"/>`, x, marginTop, w, plotHeight))
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf(`<text x="%d" y="%d" class="scenario-label">%s</text>`, x+2, marginTop+12, xmlEscape(sc.Name)))
 		b.WriteString("\n")
 	}
 
@@ -232,6 +230,15 @@ func renderSVG(w io.Writer, samples []rateSample, scenarios []synth.Scenario, ti
 	}
 	b.WriteString(fmt.Sprintf(`<polyline points="%s" class="rate-line"/>`, points.String()))
 	b.WriteString("\n")
+
+	// Scenario labels (rendered after rate line so text is not obscured)
+	const scenarioLabelHeight = 12
+	for i, sc := range scenarios {
+		x := marginLeft + int(float64(plotWidth)*float64(sc.Start)/float64(totalDuration))
+		y := marginTop + 12 + i*scenarioLabelHeight
+		b.WriteString(fmt.Sprintf(`<text x="%d" y="%d" class="scenario-label">%s</text>`, x+2, y, xmlEscape(sc.Name)))
+		b.WriteString("\n")
+	}
 
 	// Plot area border
 	b.WriteString(fmt.Sprintf(`<rect x="%d" y="%d" width="%d" height="%d" fill="none" stroke="#ccc" stroke-width="1"/>`, marginLeft, marginTop, plotWidth, plotHeight))

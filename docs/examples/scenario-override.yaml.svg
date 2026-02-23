@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+<style>
+  text { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; fill: #333; }
+  .title { font-size: 14px; font-weight: 600; }
+  .axis-label { font-size: 11px; }
+  .tick-label { font-size: 10px; fill: #666; }
+  .grid { stroke: #e0e0e0; stroke-width: 1; }
+  .rate-line { fill: none; stroke: #2563eb; stroke-width: 1.5; stroke-linejoin: round; }
+  .scenario-rect { fill: #f59e0b; fill-opacity: 0.15; stroke: #f59e0b; stroke-width: 1; stroke-opacity: 0.4; }
+  .scenario-label { font-size: 9px; fill: #92400e; }
+</style>
+<rect width="800" height="400" fill="white"/>
+<text x="70" y="24" class="title">scenario-override.yaml</text>
+<rect x="306" y="40" width="355" height="310" class="scenario-rect"/>
+<rect x="425" y="40" width="236" height="310" class="scenario-rect"/>
+<rect x="306" y="40" width="473" height="310" class="scenario-rect"/>
+<line x1="70" y1="350" x2="780" y2="350" class="grid"/>
+<text x="64" y="354" text-anchor="end" class="tick-label">0</text>
+<line x1="70" y1="288" x2="780" y2="288" class="grid"/>
+<text x="64" y="292" text-anchor="end" class="tick-label">44.0</text>
+<line x1="70" y1="226" x2="780" y2="226" class="grid"/>
+<text x="64" y="230" text-anchor="end" class="tick-label">88.0</text>
+<line x1="70" y1="164" x2="780" y2="164" class="grid"/>
+<text x="64" y="168" text-anchor="end" class="tick-label">132.0</text>
+<line x1="70" y1="102" x2="780" y2="102" class="grid"/>
+<text x="64" y="106" text-anchor="end" class="tick-label">176.0</text>
+<line x1="70" y1="40" x2="780" y2="40" class="grid"/>
+<text x="64" y="44" text-anchor="end" class="tick-label">220.0</text>
+<text x="70" y="370" text-anchor="middle" class="tick-label">0</text>
+<text x="171" y="370" text-anchor="middle" class="tick-label">0s</text>
+<text x="272" y="370" text-anchor="middle" class="tick-label">1s</text>
+<text x="374" y="370" text-anchor="middle" class="tick-label">2s</text>
+<text x="475" y="370" text-anchor="middle" class="tick-label">3s</text>
+<text x="577" y="370" text-anchor="middle" class="tick-label">4s</text>
+<text x="678" y="370" text-anchor="middle" class="tick-label">5s</text>
+<text x="780" y="370" text-anchor="middle" class="tick-label">6s</text>
+<text x="425" y="392" text-anchor="middle" class="axis-label">elapsed time</text>
+<text x="16" y="195" text-anchor="middle" transform="rotate(-90,16,195)" class="axis-label">traces/s</text>
+<polyline points="70.0,279.5 188.3,279.5 306.7,68.2 425.0,68.2 543.3,68.2 661.7,68.2 780.0,279.5" class="rate-line"/>
+<text x="308" y="52" class="scenario-label">database degradation</text>
+<text x="427" y="64" class="scenario-label">error spike</text>
+<text x="308" y="76" class="scenario-label">load spike</text>
+<rect x="70" y="40" width="710" height="310" fill="none" stroke="#ccc" stroke-width="1"/>
+</svg>

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,5 +268,57 @@ func TestRenderSVG(t *testing.T) {
 		err := renderSVG(&buf, samples, nil, "test<>&.yaml")
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "test&lt;&gt;&amp;.yaml")
+	})
+
+	t.Run("scenario labels are staggered vertically", func(t *testing.T) {
+		t.Parallel()
+		samples := []rateSample{
+			{Elapsed: 0, Rate: 100},
+			{Elapsed: 10 * time.Second, Rate: 100},
+		}
+		scenarioCfg := synth.TrafficConfig{Rate: "500/s", Pattern: "uniform"}
+		scenarioTraffic, err := synth.NewTrafficPattern(scenarioCfg)
+		require.NoError(t, err)
+
+		scenarios := []synth.Scenario{
+			{Name: "alpha", Start: 1 * time.Second, End: 5 * time.Second, Traffic: scenarioTraffic},
+			{Name: "beta", Start: 2 * time.Second, End: 6 * time.Second, Traffic: scenarioTraffic},
+		}
+		var buf bytes.Buffer
+		err = renderSVG(&buf, samples, scenarios, "test.yaml")
+		require.NoError(t, err)
+
+		svg := buf.String()
+		assert.Contains(t, svg, "alpha")
+		assert.Contains(t, svg, "beta")
+
+		// Labels should have different y positions (staggered by 12px each)
+		alphaY := fmt.Sprintf(`y="%d"`, marginTop+12)
+		betaY := fmt.Sprintf(`y="%d"`, marginTop+12+12)
+		assert.Contains(t, svg, alphaY)
+		assert.Contains(t, svg, betaY)
+	})
+
+	t.Run("scenario labels render after rate line", func(t *testing.T) {
+		t.Parallel()
+		samples := []rateSample{
+			{Elapsed: 0, Rate: 100},
+			{Elapsed: 10 * time.Second, Rate: 100},
+		}
+		scenarioCfg := synth.TrafficConfig{Rate: "500/s", Pattern: "uniform"}
+		scenarioTraffic, err := synth.NewTrafficPattern(scenarioCfg)
+		require.NoError(t, err)
+
+		scenarios := []synth.Scenario{
+			{Name: "spike", Start: 1 * time.Second, End: 5 * time.Second, Traffic: scenarioTraffic},
+		}
+		var buf bytes.Buffer
+		err = renderSVG(&buf, samples, scenarios, "test.yaml")
+		require.NoError(t, err)
+
+		svg := buf.String()
+		polylineIdx := strings.Index(svg, "rate-line")
+		labelIdx := strings.Index(svg, "spike")
+		assert.Greater(t, labelIdx, polylineIdx, "scenario label should appear after polyline in SVG")
 	})
 }
