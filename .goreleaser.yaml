@@ -26,6 +26,9 @@ archives:
   - formats: ['tar.gz']
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - src: docs/man/man1/motel.1
+        dst: man/man1
 
 checksum:
   name_template: 'checksums.txt'
@@ -40,6 +43,7 @@ brews:
     license: Apache-2.0
     install: |
       bin.install "motel"
+      man1.install "man/man1/motel.1"
 
 changelog:
   sort: asc
