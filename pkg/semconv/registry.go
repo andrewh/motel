@@ -1,5 +1,5 @@
 // Registry loads and indexes OTel semantic convention groups and attributes
-// from Weaver registry YAML files.
+// from OpenTelemetry semantic convention YAML files.
 package semconv
 
 import (
