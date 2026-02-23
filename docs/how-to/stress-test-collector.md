@@ -147,4 +147,5 @@ This gives you the exact number of spans motel produced. Compare against your ba
 ## Further reading
 
 - [Example topology: stress-test.yaml](../examples/stress-test.yaml) — the topology used in this guide
+- [Performance profile](../explanation/performance-profile.md) — motel's own throughput ceiling and per-span cost
 - [CLI reference](../reference/synth.md) — all CLI flags and output formats
