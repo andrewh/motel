@@ -76,7 +76,7 @@ Use cases:
 - **Test observability pipelines** — feed realistic traces into collectors,
   backends, or dashboards without deploying services
 - **Load test** — generate trace traffic at controlled rates with configurable
-  patterns (uniform, diurnal, bursty, poisson, custom)
+  patterns (uniform, diurnal, bursty, custom)
 - **Demo and prototype** — show what your system's telemetry will look like
   before building it
 - **Import real traces** — `motel import` infers a topology from existing trace

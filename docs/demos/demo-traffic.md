@@ -80,36 +80,6 @@ motel run --stdout --duration 1s /tmp/diurnal.yaml 2>&1 >/dev/null | tail -1 | j
 rate near 25/s (0.5x trough): true
 ```
 
-## Poisson pattern
-
-Constant mean rate with Poisson-distributed inter-arrival times. Over a full run, the throughput matches uniform, but individual intervals vary randomly. [Is it possible to better visualise these? Use a well-supported terminal graph library for Go](feature://)
-
-```bash
-cat > /tmp/poisson.yaml << 'EOF'
-version: 1
-services:
-  api:
-    operations:
-      request:
-        duration: 10ms +/- 3ms
-        calls:
-          - db.query
-  db:
-    operations:
-      query:
-        duration: 5ms +/- 2ms
-traffic:
-  rate: 50/s
-  pattern: poisson
-EOF
-motel run --stdout --duration 1s /tmp/poisson.yaml 2>&1 >/dev/null | tail -1 | jq -r \
-  '"rate within 20% of 50/s: \(.traces_per_second >= 40 and .traces_per_second <= 60)"'
-```
-
-```output
-rate within 20% of 50/s: true
-```
-
 ## Bursty pattern
 
 Alternates between the base rate and 5x bursts. Bursts last 30 seconds every 5 minutes. Since the burst window starts at second 0, a short run experiences the full burst multiplier.
@@ -140,12 +110,12 @@ motel run --stdout --duration 1s /tmp/bursty.yaml 2>&1 >/dev/null | tail -1 | jq
 rate above 150/s (5x burst): true
 ```
 
-## Comparing all four
+## Comparing all three
 
 Running the same topology with each pattern shows how arrival models affect throughput. The `--duration` flag overrides any config-level duration setting.
 
 ```bash
-for p in uniform diurnal poisson bursty; do
+for p in uniform diurnal bursty; do
 cat > /tmp/cmp-${p}.yaml << EOF
 version: 1
 services:
@@ -166,18 +136,15 @@ EOF
 done
 U=$(motel run --stdout --duration 1s /tmp/cmp-uniform.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
 D=$(motel run --stdout --duration 1s /tmp/cmp-diurnal.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
-P=$(motel run --stdout --duration 1s /tmp/cmp-poisson.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
 B=$(motel run --stdout --duration 1s /tmp/cmp-bursty.yaml 2>&1 >/dev/null | tail -1 | jq '.traces_per_second')
-jq -rn --argjson u "$U" --argjson d "$D" --argjson p "$P" --argjson b "$B" '
+jq -rn --argjson u "$U" --argjson d "$D" --argjson b "$B" '
   "bursty > uniform: \($b > $u)",
-  "diurnal < uniform: \($d < $u)",
-  "poisson close to uniform: \((($p - $u) | fabs) < 20)"'
+  "diurnal < uniform: \($d < $u)"'
 ```
 
 ```output
 bursty > uniform: true
 diurnal < uniform: true
-poisson close to uniform: true
 ```
 
-The four patterns cover common load testing scenarios: steady state (uniform), natural traffic cycles (diurnal), realistic arrival randomness (poisson), and sudden traffic spikes (bursty).
+The three patterns cover common load testing scenarios: steady state (uniform), natural traffic cycles (diurnal), and sudden traffic spikes (bursty).

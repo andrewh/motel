@@ -34,13 +34,6 @@ func TestNewTrafficPattern(t *testing.T) {
 		assert.IsType(t, &DiurnalPattern{}, p)
 	})
 
-	t.Run("poisson", func(t *testing.T) {
-		t.Parallel()
-		p, err := NewTrafficPattern(TrafficConfig{Rate: "100/s", Pattern: "poisson"})
-		require.NoError(t, err)
-		assert.IsType(t, &PoissonPattern{}, p)
-	})
-
 	t.Run("bursty", func(t *testing.T) {
 		t.Parallel()
 		p, err := NewTrafficPattern(TrafficConfig{Rate: "100/s", Pattern: "bursty"})
@@ -305,15 +298,6 @@ func TestDiurnalPattern(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "period")
 	})
-}
-
-func TestPoissonPattern(t *testing.T) {
-	t.Parallel()
-	p := &PoissonPattern{BaseRate: 100}
-
-	// Rate should always equal the base rate (Poisson arrival times vary, not the rate itself)
-	assert.InDelta(t, 100.0, p.Rate(0), 0.001)
-	assert.InDelta(t, 100.0, p.Rate(5*time.Minute), 0.001)
 }
 
 func TestBurstyPattern(t *testing.T) {
