@@ -1,19 +1,25 @@
-# How motel uses OTel Weaver
+# How motel uses OTel semantic conventions
 
-[Weaver](https://github.com/open-telemetry/weaver) is an OpenTelemetry tool
-for managing semantic conventions. It defines a YAML registry format that
-describes attributes, their types, allowed values, and which signal types they
-apply to.
+[Semantic conventions](https://github.com/open-telemetry/semantic-conventions)
+are an OpenTelemetry standard that defines a common set of attributes for
+telemetry data — their names, types, allowed values, and which signal types
+they apply to. Semantic conventions are maintained by a dedicated SIG within
+the OpenTelemetry project, separate from the SDK and collector SIGs.
 
-motel uses Weaver's registry data to generate realistic span attributes
-automatically.
+[Weaver](https://github.com/open-telemetry/weaver) is a toolkit for
+managing telemetry schemas built on semantic conventions. It validates
+registries, generates code and documentation from them, and can check
+emitted telemetry against a schema at runtime. Weaver defines the YAML
+registry format that the semantic conventions are published in.
 
-## What motel takes from Weaver
+motel uses the semantic convention registry data — published in Weaver's
+YAML format — to generate realistic span attributes automatically.
+
+## What motel takes from the registry
 
 motel vendors the upstream semantic convention YAML files in
-`third_party/semconv/model/`. These files use Weaver's registry format and
-describe hundreds of attributes across domains like HTTP, database, messaging,
-RPC, and others.
+`third_party/semconv/model/`. These files describe hundreds of attributes
+across domains like HTTP, database, messaging, RPC, and others.
 
 The `pkg/semconv` package parses these files into a `Registry` that indexes
 groups and attributes by ID and domain. The `pkg/semconv/generate.go` module
@@ -50,20 +56,21 @@ organisations often define their own semantic conventions for internal
 services or business-specific attributes.
 
 Currently, custom definitions can be added at compile time by vendoring
-additional Weaver registry YAML files into `third_party/semconv/model/`.
+additional registry YAML files into `third_party/semconv/model/`.
 They'll be embedded in the binary alongside the upstream definitions.
 
 Runtime customisation — pointing motel at a local directory or a remote
-Weaver registry server without recompiling — is tracked in
+registry without recompiling — is tracked in
 [issue 28](https://github.com/andrewh/motel/issues/28).
 
 ## What motel does not use Weaver for
 
 motel does not use the Weaver CLI tool itself. It only consumes the
-registry YAML data that Weaver defines and manages. motel has its own
-YAML parser (`pkg/semconv`) that reads the subset of the registry format
-it needs (groups, attributes, types, enum members).
+semantic convention YAML data that happens to be published in Weaver's
+registry format. motel has its own YAML parser (`pkg/semconv`) that reads
+the subset of the format it needs (groups, attributes, types, enum
+members).
 
 motel also does not use Weaver's code generation, validation, or schema
-comparison features. The relationship is data-only: Weaver defines the
-attribute catalogue, motel reads it.
+comparison features. The relationship is data-only: the semantic
+conventions SIG defines the attribute catalogue, motel reads it.
