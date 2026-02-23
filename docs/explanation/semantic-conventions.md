@@ -71,14 +71,9 @@ defaults, so custom domains work alongside the upstream ones.
 Alternatively, definitions can be vendored at compile time into
 `third_party/semconv/model/` to embed them in the binary.
 
-## What motel does not use Weaver for
+## How motel parses the registry
 
-motel does not use the Weaver CLI tool itself. It only consumes the
-semantic convention YAML data. motel has its own YAML parser
-(`pkg/semconv`) that reads
-the subset of the format it needs (groups, attributes, types, enum
-members).
-
-motel also does not use Weaver's code generation, validation, or schema
-comparison features. The relationship is data-only: the semantic
-conventions SIG defines the attribute catalogue, motel reads it.
+motel has its own YAML parser (`pkg/semconv`) that reads the subset of
+the registry format it needs: groups, attributes, types, and enum
+members. It does not depend on Weaver or any external tooling at build
+time or runtime.
