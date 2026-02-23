@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"somet\x9d\xfd\xfd\xfdg\":\"else\"}")

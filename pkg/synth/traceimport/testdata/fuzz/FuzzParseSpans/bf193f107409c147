@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"s\xb4\xb4\xb4\xb4\xb4\xb4ng\":\"else\"}")

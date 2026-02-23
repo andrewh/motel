@@ -130,3 +130,52 @@ func TestImport_EmptyInput(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no spans found")
 }
+
+func TestValidateRoundTrip_ValidYAML(t *testing.T) {
+	yaml := []byte(`version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`)
+	err := validateRoundTrip(yaml)
+	require.NoError(t, err)
+}
+
+func TestValidateRoundTrip_InvalidYAML(t *testing.T) {
+	err := validateRoundTrip([]byte(`not: valid: yaml: [[[`))
+	require.Error(t, err)
+}
+
+func TestValidateRoundTrip_BadConfig(t *testing.T) {
+	yaml := []byte(`version: 1
+services:
+  svc:
+    operations:
+      op:
+        duration: 10ms
+        calls:
+          - nonexistent.op
+traffic:
+  rate: 10/s
+`)
+	err := validateRoundTrip(yaml)
+	require.Error(t, err)
+}
+
+func TestImport_MinTracesWarning(t *testing.T) {
+	line := `{"Name":"op","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:00.010Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`
+
+	var warnings bytes.Buffer
+	_, err := Import(strings.NewReader(line), Options{
+		Format:    FormatStdouttrace,
+		MinTraces: 5,
+		Warnings:  &warnings,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, warnings.String(), "only 1 trace")
+	assert.Contains(t, warnings.String(), "requested minimum: 5")
+}
