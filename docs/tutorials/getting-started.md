@@ -131,11 +131,11 @@ You can pipe the output through `jq` to explore:
 
 ```sh
 # Count spans per operation
-motel run --stdout --duration 2s my-topology.yaml 2>/dev/null | \
+motel run --stdout --duration 2s my-topology.yaml 2>/dev/null |
   jq -r .Name | sort | uniq -c | sort -rn
 
 # Show trace IDs and their operation names
-motel run --stdout --duration 1s my-topology.yaml 2>/dev/null | \
+motel run --stdout --duration 1s my-topology.yaml 2>/dev/null |
   jq -r '[.SpanContext.TraceID[:8], .Name] | @tsv'
 ```
 
