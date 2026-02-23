@@ -17,7 +17,7 @@ motel \- synthetic OpenTelemetry generator
 .PP
 .B motel preview
 [\fB\-\-duration\fR \fIduration\fR]
-[\fB\-o\fR \fIfile\fR]
+[\fB\-\-output\fR \fIfile\fR]
 \fItopology.yaml\fR
 .PP
 .B motel completion
@@ -26,14 +26,14 @@ motel \- synthetic OpenTelemetry generator
 .B motel version
 .SH DESCRIPTION
 .B motel
-generates realistic distributed traces from a YAML topology definition. No
-server or live services are required \(em describe the behaviour of your system
-and motel derives telemetry from it.
+generates realistic OpenTelemetry signals (traces, metrics, and logs) from a
+YAML topology definition. No server or live services are required \(em describe
+the behaviour of your system and motel derives telemetry from it.
 .PP
-The topology DSL has three concepts: \fBservices\fR contain \fBoperations\fR
-which call other operations, and \fBscenarios\fR apply time\-windowed overrides.
-The engine walks the topology tree once per trace, sampling durations and
-errors from the configured distributions.
+A topology defines \fBservices\fR containing \fBoperations\fR which call other
+operations, a \fBtraffic\fR rate, and optional \fBscenarios\fR that apply
+time\-windowed overrides. The engine walks the topology tree once per trace,
+sampling durations and errors from the configured distributions.
 .SH COMMANDS
 .SS validate
 Check a topology file for errors. Prints a summary on success or a precise
@@ -238,4 +238,8 @@ Project repository and full documentation
 .PP
 .UR https://github.com/andrewh/motel/tree/main/docs/examples
 Example topology files
+.UE
+.SH BUGS
+Report bugs at
+.UR https://github.com/andrewh/motel/issues
 .UE
