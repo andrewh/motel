@@ -11,8 +11,8 @@ managing telemetry schemas built on semantic conventions. It validates
 registries, generates code and documentation from them, and can check
 emitted telemetry against a schema at runtime.
 
-motel uses the semantic convention registry data — published in Weaver's
-YAML format — to generate realistic span attributes automatically.
+motel uses the semantic convention registry data to generate realistic
+span attributes automatically.
 
 ## What motel takes from the registry
 
@@ -74,8 +74,8 @@ Alternatively, definitions can be vendored at compile time into
 ## What motel does not use Weaver for
 
 motel does not use the Weaver CLI tool itself. It only consumes the
-semantic convention YAML data that happens to be published in Weaver's
-registry format. motel has its own YAML parser (`pkg/semconv`) that reads
+semantic convention YAML data. motel has its own YAML parser
+(`pkg/semconv`) that reads
 the subset of the format it needs (groups, attributes, types, enum
 members).
 
