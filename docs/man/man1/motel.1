@@ -1,44 +1,58 @@
-.TH MOTEL 1 "2026-02-20" "Motel" "User Commands"
+.TH MOTEL 1 "2026-02-23" "Motel" "User Commands"
 .SH NAME
-motel \- topology\-driven synthetic OTLP trace generator
+motel \- synthetic OpenTelemetry generator
 .SH SYNOPSIS
 .B motel validate
-\fIconfig.yaml\fR
+[\fB\-\-semconv\fR \fIdir\fR]
+\fItopology.yaml\fR
 .PP
 .B motel run
 [\fIflags\fR]
-\fIconfig.yaml\fR
+\fItopology.yaml\fR
 .PP
 .B motel import
 [\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR]
 [\fB\-\-min\-traces\fR \fIN\fR]
 [\fIfile\fR]
 .PP
+.B motel preview
+[\fB\-\-duration\fR \fIduration\fR]
+[\fB\-\-output\fR \fIfile\fR]
+\fItopology.yaml\fR
+.PP
+.B motel completion
+\fIbash\fR|\fIzsh\fR|\fIfish\fR|\fIpowershell\fR
+.PP
 .B motel version
 .SH DESCRIPTION
 .B motel
-generates realistic distributed traces from a YAML topology definition. No
-server or live services are required \(em describe the behaviour of your system
-and motel derives telemetry from it.
+generates OpenTelemetry signals (traces, metrics, and logs) from a YAML
+topology definition. No server or live services are required \(em describe the
+behaviour of your system and motel derives telemetry from it.
 .PP
-The topology DSL has three concepts: \fBservices\fR contain \fBoperations\fR
-which call other operations, and \fBscenarios\fR apply time\-windowed overrides.
-The engine walks the topology tree once per trace, sampling durations and
-errors from the configured distributions.
+A topology defines \fBservices\fR containing \fBoperations\fR which call other
+operations, a \fBtraffic\fR rate, and optional \fBscenarios\fR that apply
+time\-windowed overrides. The engine walks the topology tree once per trace,
+sampling durations and errors from the configured distributions.
 .SH COMMANDS
 .SS validate
 Check a topology file for errors. Prints a summary on success or a precise
 error message on failure.
+.TP
+.B \-\-semconv
+\fIdir\fR
+Directory of additional semantic convention YAML files to load.
 .SS run
 Generate synthetic signals from a topology.
 .TP
 .B \-\-duration
 \fIduration\fR
-Override simulation duration (default: from config, or 1m).
+Simulation duration, e.g. 10s, 5m, 1h (default: 1m).
 .TP
 .B \-\-endpoint
 \fIhost:port\fR
-OTLP endpoint (e.g. localhost:4318). Required unless \fB\-\-stdout\fR is set.
+OTLP endpoint (default: localhost:4318 for http/protobuf, localhost:4317 for
+grpc). Ignored when \fB\-\-stdout\fR is set.
 .TP
 .B \-\-protocol
 \fIhttp/protobuf\fR|\fIgrpc\fR
@@ -46,7 +60,7 @@ OTLP protocol (default: http/protobuf).
 .TP
 .B \-\-signals
 \fIsignals\fR
-Comma\-separated signals to emit: traces, metrics, logs (default: traces).
+Comma\-separated signals to emit: traces,metrics,logs (default: traces).
 .TP
 .B \-\-slow\-threshold
 \fIduration\fR
@@ -55,10 +69,21 @@ Only has an effect when \fBlogs\fR is included in \fB\-\-signals\fR.
 .TP
 .B \-\-max\-spans\-per\-trace
 \fIN\fR
-Safety limit for deep topologies (default: 10000).
+Safety limit for deep topologies (default: 10000). Pass 0 to use the default.
 .TP
 .B \-\-stdout
 Emit signals to stdout as JSON instead of sending to an endpoint.
+.TP
+.B \-\-label\-scenarios
+Add a \fBsynth.scenarios\fR attribute to spans listing active scenario names.
+.TP
+.B \-\-semconv
+\fIdir\fR
+Directory of additional semantic convention YAML files to load.
+.TP
+.B \-\-pprof
+\fIaddr\fR
+Start a pprof HTTP server on this address (e.g. :6060) for profiling.
 .SS import
 Infer a topology from existing trace data. Reads from \fIfile\fR or stdin if
 no file is given. Output is a YAML topology written to stdout.
@@ -70,6 +95,20 @@ Input format (default: auto). The auto detector examines the first line.
 .B \-\-min\-traces
 \fIN\fR
 Minimum traces for statistical accuracy; warns if fewer (default: 1).
+.SS preview
+Render the traffic rate over time as an SVG chart. Useful for visualising how
+traffic and scenarios interact before running a simulation.
+.TP
+.B \-\-duration
+\fIduration\fR
+Preview duration (default: inferred from topology).
+.TP
+.BR \-o ", " \-\-output
+\fIfile\fR
+Output file path (default: stdout).
+.SS completion
+Generate shell autocompletion scripts for bash, zsh, fish, or powershell.
+See \fBmotel completion \-\-help\fR for installation instructions.
 .SS version
 Print the build version and exit.
 .SH OUTPUT FORMAT
@@ -90,9 +129,61 @@ motel run \-\-stdout config.yaml > spans.jsonl 2> stats.json
 .PP
 The stdout format is the same format accepted by \fBmotel import\fR.
 .SH TOPOLOGY DSL
-The topology file requires \fBversion: 1\fR and defines services, operations,
-traffic, and optional scenarios. See the full DSL reference in the project
-README.
+The topology file has four top\-level keys:
+.TP
+.B version
+Schema version (required). Currently must be \fB1\fR.
+.TP
+.B services
+Map of service names to their operations. Each operation defines a duration,
+optional error rate, optional attributes, and optional calls to other
+operations.
+.TP
+.B traffic
+Controls how often root operations are invoked. Accepts a \fBrate\fR
+(e.g. \fB100/s\fR).
+.TP
+.B scenarios
+Optional list of time\-windowed overrides. Each scenario has a \fBname\fR,
+\fBat\fR (start offset), \fBduration\fR, and an \fBoverride\fR block that
+modifies operation behaviour while active.
+.PP
+A minimal topology using all four keys:
+.PP
+.RS
+.nf
+version: 1
+
+services:
+  gateway:
+    operations:
+      GET /search:
+        duration: 50ms +/\- 15ms
+        error_rate: 0.5%
+        calls:
+          \- backend.query
+
+  backend:
+    operations:
+      query:
+        duration: 10ms +/\- 3ms
+        error_rate: 0.1%
+
+traffic:
+  rate: 100/s
+
+scenarios:
+  \- name: slow database
+    at: +2m
+    duration: 5m
+    override:
+      backend.query:
+        duration: 500ms +/\- 100ms
+        error_rate: 10%
+.fi
+.RE
+.PP
+See the full DSL reference in the project repository.
 .SH EXAMPLES
 Validate a topology:
 .PP
@@ -125,7 +216,30 @@ Import a topology from trace data:
 motel import traces.jsonl > inferred\-topology.yaml
 .fi
 .RE
-.SH FILES
+.PP
+Preview traffic rate as SVG:
+.PP
+.RS
+.nf
+motel preview \-o traffic.svg topology.yaml
+.fi
+.RE
+.SH EXIT STATUS
 .TP
-.I docs/examples/*.yaml
-Example topology files included with the project.
+.B 0
+Successful execution.
+.TP
+.B 1
+An error occurred (invalid topology, unreachable endpoint, etc.).
+.SH SEE ALSO
+.UR https://github.com/andrewh/motel
+Project repository and full documentation
+.UE
+.PP
+.UR https://github.com/andrewh/motel/tree/main/docs/examples
+Example topology files
+.UE
+.SH BUGS
+Report bugs at
+.UR https://github.com/andrewh/motel/issues
+.UE
