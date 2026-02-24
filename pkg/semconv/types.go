@@ -1,5 +1,5 @@
-// Package semconv loads and indexes OTel semantic convention definitions
-// from the OpenTelemetry semantic convention YAML format.
+// Type definitions for parsed semantic convention YAML data.
+
 package semconv
 
 import "fmt"

@@ -170,6 +170,7 @@ type UniformPattern struct {
 	BaseRate float64
 }
 
+// Rate returns the constant base rate regardless of elapsed time.
 func (p *UniformPattern) Rate(_ time.Duration) float64 {
 	return p.BaseRate
 }
@@ -183,6 +184,7 @@ type DiurnalPattern struct {
 	Period           time.Duration
 }
 
+// Rate returns the base rate scaled by a sine wave oscillating between trough and peak.
 func (p *DiurnalPattern) Rate(elapsed time.Duration) float64 {
 	mid := (p.PeakMultiplier + p.TroughMultiplier) / 2
 	amplitude := (p.PeakMultiplier - p.TroughMultiplier) / 2
@@ -200,6 +202,7 @@ type BurstyPattern struct {
 	BurstDuration   time.Duration
 }
 
+// Rate returns the burst rate during burst windows and the base rate otherwise.
 func (p *BurstyPattern) Rate(elapsed time.Duration) float64 {
 	cyclePos := elapsed % p.BurstInterval
 	if cyclePos < p.BurstDuration {

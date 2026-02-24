@@ -1,5 +1,6 @@
-// Simulation engine for walking the topology graph and emitting OTel spans
-// Span timestamps are synthetic (no per-span sleeping); the outer loop sleeps for rate control
+// Package synth generates synthetic OpenTelemetry signals from a topology graph.
+// It provides a simulation engine, traffic patterns, attribute generators,
+// and structural analysis tools for testing observability pipelines.
 package synth
 
 import (
