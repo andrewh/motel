@@ -12,7 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -2070,5 +2072,89 @@ func TestEngineLabelScenariosDisabled(t *testing.T) {
 	for _, attr := range spans[0].Attributes {
 		assert.NotEqual(t, "synth.scenarios", string(attr.Key),
 			"synth.scenarios should not be present when LabelScenarios is false")
+	}
+}
+
+func TestPerServiceResource(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "GET /users",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "backend.list"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "list",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	exporter := tracetest.NewInMemoryExporter()
+
+	providers := make(map[string]*sdktrace.TracerProvider, len(topo.Services))
+	for name := range topo.Services {
+		res, resErr := resource.Merge(
+			resource.Default(),
+			resource.NewSchemaless(attribute.String("service.name", name)),
+		)
+		require.NoError(t, resErr)
+		providers[name] = sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+			sdktrace.WithResource(res),
+		)
+	}
+	t.Cleanup(func() {
+		for _, tp := range providers {
+			_ = tp.Shutdown(context.Background())
+		}
+	})
+
+	engine := &Engine{
+		Topology: topo,
+		Tracers: func(name string) trace.Tracer {
+			return providers[name].Tracer(name)
+		},
+		Rng: rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
+	}
+
+	rootOp := topo.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+
+	for _, tp := range providers {
+		require.NoError(t, tp.ForceFlush(context.Background()))
+	}
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	for _, span := range spans {
+		var synthService, resourceService string
+		for _, attr := range span.Attributes {
+			if string(attr.Key) == "synth.service" {
+				synthService = attr.Value.AsString()
+			}
+		}
+		require.NotEmpty(t, synthService, "span should have synth.service attribute")
+
+		for _, attr := range span.Resource.Attributes() {
+			if string(attr.Key) == "service.name" {
+				resourceService = attr.Value.AsString()
+			}
+		}
+		assert.Equal(t, synthService, resourceService,
+			"resource service.name should match synth.service for span %s", span.Name)
 	}
 }
