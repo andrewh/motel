@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
@@ -33,6 +34,14 @@ func findMetric(rm metricdata.ResourceMetrics, name string) *metricdata.Metrics 
 	return nil
 }
 
+func testMeters(mp metric.MeterProvider, services ...string) map[string]metric.Meter {
+	m := make(map[string]metric.Meter, len(services))
+	for _, name := range services {
+		m[name] = mp.Meter("motel")
+	}
+	return m
+}
+
 func TestMetricObserverRequestCount(t *testing.T) {
 	t.Parallel()
 
@@ -40,7 +49,7 @@ func TestMetricObserverRequestCount(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "gateway"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
@@ -73,7 +82,7 @@ func TestMetricObserverDuration(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "backend"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
@@ -101,7 +110,7 @@ func TestMetricObserverErrorCount(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "svc"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
@@ -136,7 +145,7 @@ func TestMetricObserverAttributes(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "api"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
@@ -156,11 +165,10 @@ func TestMetricObserverAttributes(t *testing.T) {
 
 	dp := sum.DataPoints[0]
 	expected := attribute.NewSet(
-		attribute.String("service.name", "api"),
 		attribute.String("operation.name", "POST /orders"),
 	)
 	assert.True(t, dp.Attributes.Equals(&expected),
-		"metric attributes should contain service.name and operation.name")
+		"metric attributes should contain operation.name, got %v", dp.Attributes)
 }
 
 func TestMetricObserverSubMillisecondDuration(t *testing.T) {
@@ -170,7 +178,7 @@ func TestMetricObserverSubMillisecondDuration(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "svc"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
@@ -198,7 +206,7 @@ func TestMetricObserverNoErrorsWhenNoErrors(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	obs, err := NewMetricObserver(mp)
+	obs, err := NewMetricObserver(testMeters(mp, "svc"))
 	require.NoError(t, err)
 
 	obs.Observe(SpanInfo{
