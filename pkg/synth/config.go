@@ -4,6 +4,10 @@ package synth
 
 import (
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -12,6 +16,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxSourceBytes = 10 << 20 // 10 MB
 
 // CurrentVersion is the supported schema version for synth topology configs.
 const CurrentVersion = 1
@@ -176,9 +182,61 @@ func (r *RemoveCallConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// LoadConfig reads and parses a YAML configuration file.
-func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // user-supplied config path is expected
+// readSource fetches topology YAML from a URL or reads it from a local file.
+// URL fetches have a 10-second timeout and a 10 MB response body limit.
+func readSource(source string) ([]byte, error) {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		}
+		resp, err := client.Get(source) //nolint:gosec // user-supplied URL is expected
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s: %w", source, unwrapHTTPError(err))
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("fetching %s: HTTP %d", source, resp.StatusCode)
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading URL body: %w", err)
+		}
+		if int64(len(data)) > maxSourceBytes {
+			return nil, fmt.Errorf("fetching %s: response body exceeds %d bytes", source, maxSourceBytes)
+		}
+		return data, nil
+	}
+	return os.ReadFile(source) //nolint:gosec // user-supplied config path is expected
+}
+
+// unwrapHTTPError extracts a human-readable error from nested http/url/net errors.
+// Go's http.Client wraps errors as *url.Error → *net.OpError → syscall error,
+// producing messages like: Get "http://...": dial tcp [::1]:1: connect: connection refused.
+// This unwraps to the innermost message (e.g. "connection refused").
+func unwrapHTTPError(err error) error {
+	ue, ok := err.(*url.Error) //nolint:errorlint // deliberate type switch through layers
+	if !ok {
+		return err
+	}
+	if ue.Timeout() {
+		return fmt.Errorf("timed out after 10s")
+	}
+	err = ue.Err
+	if oe, ok := err.(*net.OpError); ok { //nolint:errorlint // deliberate type switch through layers
+		err = oe.Err
+	}
+	return err
+}
+
+// LoadConfig reads and parses a YAML topology from a file path or URL.
+func LoadConfig(source string) (*Config, error) {
+	data, err := readSource(source)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}

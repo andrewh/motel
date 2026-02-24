@@ -2,14 +2,25 @@
 
 Standalone CLI that generates realistic distributed traces from a YAML topology definition.
 
+## Topology source
+
+All commands that accept a topology (`validate`, `run`, `check`, `preview`) accept either a local file path or an HTTP/HTTPS URL:
+
+```sh
+motel validate topology.yaml
+motel validate https://example.com/topology.yaml
+```
+
+URL fetches have a 10-second timeout and a 10 MB response body limit. Redirects are followed up to 3 hops.
+
 ## Commands
 
 ### validate
 
-Check a topology file for errors without generating any output.
+Check a topology for errors without generating any output.
 
 ```sh
-motel validate <config.yaml>
+motel validate <topology.yaml | URL>
 ```
 
 Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root operations`) or a precise error on failure including the service name, operation name, and field.
@@ -19,7 +30,7 @@ Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root opera
 Generate synthetic signals from a topology definition.
 
 ```sh
-motel run <config.yaml> [flags]
+motel run <topology.yaml | URL> [flags]
 ```
 
 | Flag | Type | Default | Description |
@@ -59,7 +70,7 @@ The stdout format is the same format accepted by `motel import`, so you can roun
 Run structural checks on a topology before sending traffic.
 
 ```sh
-motel check <topology.yaml> [flags]
+motel check <topology.yaml | URL> [flags]
 ```
 
 Computes worst-case trace depth, fan-out per span, and total spans per trace using static graph analysis. Optionally runs sampled exploration with the engine to measure empirical values. Exits with code 0 if all checks pass, 1 if any check fails.

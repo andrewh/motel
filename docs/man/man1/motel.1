@@ -4,11 +4,11 @@ motel \- synthetic OpenTelemetry generator
 .SH SYNOPSIS
 .B motel validate
 [\fB\-\-semconv\fR \fIdir\fR]
-\fItopology.yaml\fR
+\fItopology.yaml\fR | \fIURL\fR
 .PP
 .B motel run
 [\fIflags\fR]
-\fItopology.yaml\fR
+\fItopology.yaml\fR | \fIURL\fR
 .PP
 .B motel import
 [\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR]
@@ -22,12 +22,12 @@ motel \- synthetic OpenTelemetry generator
 [\fB\-\-samples\fR \fIN\fR]
 [\fB\-\-seed\fR \fIN\fR]
 [\fB\-\-semconv\fR \fIdir\fR]
-\fItopology.yaml\fR
+\fItopology.yaml\fR | \fIURL\fR
 .PP
 .B motel preview
 [\fB\-\-duration\fR \fIduration\fR]
 [\fB\-\-output\fR \fIfile\fR]
-\fItopology.yaml\fR
+\fItopology.yaml\fR | \fIURL\fR
 .PP
 .B motel completion
 \fIbash\fR|\fIzsh\fR|\fIfish\fR|\fIpowershell\fR
@@ -43,6 +43,11 @@ A topology defines \fBservices\fR containing \fBoperations\fR which call other
 operations, a \fBtraffic\fR rate, and optional \fBscenarios\fR that apply
 time\-windowed overrides. The engine walks the topology tree once per trace,
 sampling durations and errors from the configured distributions.
+.PP
+All commands that accept a topology file (\fBvalidate\fR, \fBrun\fR,
+\fBcheck\fR, \fBpreview\fR) also accept an HTTP or HTTPS URL. URL fetches
+have a 10\-second timeout, a 10\ MB response body limit, and follow up to 3
+redirects.
 .SH COMMANDS
 .SS validate
 Check a topology file for errors. Prints a summary on success or a precise
@@ -279,6 +284,14 @@ Preview traffic rate as SVG:
 .RS
 .nf
 motel preview \-o traffic.svg topology.yaml
+.fi
+.RE
+.PP
+Validate a topology from a URL:
+.PP
+.RS
+.nf
+motel validate https://example.com/topology.yaml
 .fi
 .RE
 .SH EXIT STATUS

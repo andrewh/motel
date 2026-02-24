@@ -20,11 +20,14 @@ func checkCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "check <topology.yaml>",
+		Use:   "check <topology.yaml | URL>",
 		Short: "Run structural checks on a topology",
+		Long: "Run structural checks on a topology.\n\n" +
+			"The topology source can be a local file path or an HTTP/HTTPS URL.\n" +
+			"URL fetches have a 10-second timeout and a 10 MB response body limit.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("missing topology file\n\nUsage: motel check <topology.yaml>")
+				return fmt.Errorf("missing topology file or URL\n\nUsage: motel check <topology.yaml | URL>")
 			}
 			return cobra.ExactArgs(1)(cmd, args)
 		},

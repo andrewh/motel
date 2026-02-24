@@ -378,8 +378,8 @@ build/motel check 2>&1; echo "exit code: $?"
 ```
 
 ```output
-Error: missing topology file
+Error: missing topology file or URL
 
-Usage: motel check <topology.yaml>
+Usage: motel check <topology.yaml | URL>
 exit code: 1
 ```
