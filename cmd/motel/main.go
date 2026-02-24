@@ -371,6 +371,20 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 
 	// Create one tracer provider per service so each has the correct service.name resource.
 	providers := make(map[string]*sdktrace.TracerProvider, len(topo.Services))
+	defer func() {
+		seen := make(map[*sdktrace.TracerProvider]bool, len(providers))
+		for _, tp := range providers {
+			if seen[tp] {
+				continue
+			}
+			seen[tp] = true
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			if err := tp.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
+			}
+			cancel()
+		}
+	}()
 	if enabledSignals["traces"] {
 		for name := range topo.Services {
 			svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
@@ -391,20 +405,6 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			providers[name] = noopTP
 		}
 	}
-	defer func() {
-		seen := make(map[*sdktrace.TracerProvider]bool, len(providers))
-		for _, tp := range providers {
-			if seen[tp] {
-				continue
-			}
-			seen[tp] = true
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			if err := tp.Shutdown(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
-			}
-			cancel()
-		}
-	}()
 
 	var observers []synth.SpanObserver
 
@@ -448,10 +448,16 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	engine := &synth.Engine{
-		Topology:         topo,
-		Traffic:          traffic,
-		Scenarios:        scenarios,
-		Tracers:          func(name string) trace.Tracer { return providers[name].Tracer(name) },
+		Topology:  topo,
+		Traffic:   traffic,
+		Scenarios: scenarios,
+		Tracers: func(name string) trace.Tracer {
+			tp := providers[name]
+			if tp == nil {
+				panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
+			}
+			return tp.Tracer(name)
+		},
 		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:         duration,
 		Observers:        observers,
