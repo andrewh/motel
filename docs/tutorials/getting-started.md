@@ -151,6 +151,7 @@ This sends traces over HTTP to the OTLP endpoint. The collector receives them as
 
 ## Next steps
 
+- **[Visualise traces](../how-to/visualise-traces.md)** — set up Jaeger, Grafana + Tempo, or a hosted backend to see your traces
 - **[Example topologies](../examples/)** — ready-to-use YAML files covering error cascading, traffic patterns, scenarios, and more
 - **[motel reference](../reference/synth.md)** — CLI reference for all commands and flags
 - **[DSL reference](../../cmd/motel/README.md)** — full topology DSL reference

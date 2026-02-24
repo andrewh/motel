@@ -240,5 +240,6 @@ Run with the scenario and confirm both backends display the spike correctly in t
 
 ## Further reading
 
+- [Visualise traces](visualise-traces.md) — setting up Jaeger, Grafana + Tempo, or hosted backends to view traces
 - [Model your services](model-your-services.md) — creating and refining topologies
 - [CLI reference](../reference/synth.md) — all CLI flags and output formats

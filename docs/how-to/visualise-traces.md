@@ -1,0 +1,231 @@
+# Visualise Traces
+
+motel generates OTLP traces, but you need a backend to actually see them. This guide covers four options, from zero-setup terminal viewing to hosted platforms.
+
+All examples use the topology from the [getting started tutorial](../tutorials/getting-started.md). Save it as `my-topology.yaml` if you don't already have it:
+
+```yaml
+version: 1
+
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+        error_rate: 1%
+        calls:
+          - users.list
+
+  users:
+    operations:
+      list:
+        duration: 15ms +/- 5ms
+        error_rate: 0.5%
+
+traffic:
+  rate: 10/s
+```
+
+## otel-cli (terminal, zero setup)
+
+The quickest way to see traces is [otel-cli's TUI server](https://github.com/equinix-labs/otel-cli), which displays spans in your terminal with no external dependencies.
+
+In one terminal:
+
+```sh
+otel-cli server tui
+```
+
+In another:
+
+```sh
+motel run --endpoint localhost:4317 --protocol grpc --duration 5s my-topology.yaml
+```
+
+The TUI shows each span as it arrives — service name, operation, duration, and error status. Good for checking that a topology looks right before sending traffic elsewhere.
+
+See [Use motel with otel-cli](use-with-otel-cli.md) for more detail.
+
+## Jaeger (Docker, self-hosted)
+
+[Jaeger](https://www.jaegertracing.io/) is an open-source distributed tracing backend. Its all-in-one Docker image includes a collector, in-memory storage, and a web UI.
+
+### Prerequisites
+
+- Docker installed and running
+
+### Start Jaeger
+
+```sh
+docker run --rm -d --name jaeger \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:latest
+```
+
+This exposes:
+- `4317` — OTLP gRPC receiver
+- `4318` — OTLP HTTP receiver
+- `16686` — Jaeger UI
+
+### Send traces
+
+```sh
+motel run --endpoint localhost:4318 --protocol http/protobuf \
+  --duration 10s my-topology.yaml
+```
+
+### Inspect results
+
+Open <http://localhost:16686> in your browser. Select the `gateway` service from the dropdown and click **Find Traces**. Click a trace to see the waterfall view showing the call from `gateway` to `users`.
+
+![Jaeger trace waterfall](images/jaeger-trace-waterfall.png)
+
+Things to check:
+
+- Both services appear in the service dropdown
+- The trace waterfall shows `GET /users` as the root span with `list` as a child
+- Span durations fall within the configured ranges (30ms +/- 10ms for the gateway, 15ms +/- 5ms for users)
+- Some traces have error spans (1% on gateway, 0.5% on users)
+
+### Clean up
+
+```sh
+docker stop jaeger
+```
+
+## Grafana + Tempo (Docker Compose, self-hosted)
+
+[Grafana Tempo](https://grafana.com/oss/tempo/) is a trace backend that integrates with Grafana's Explore view. This setup uses Docker Compose to run Tempo and Grafana together.
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+
+### Create the configuration
+
+Create a directory for the compose project:
+
+```sh
+mkdir motel-tempo && cd motel-tempo
+```
+
+Create `tempo.yaml`:
+
+```yaml
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+```
+
+Create `docker-compose.yaml`:
+
+```yaml
+services:
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "3200:3200"
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+```
+
+Create `grafana-datasources.yaml`:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: true
+```
+
+### Start the stack
+
+```sh
+docker compose up -d
+```
+
+Wait a few seconds for Grafana and Tempo to start.
+
+### Send traces
+
+```sh
+motel run --endpoint localhost:4318 --protocol http/protobuf \
+  --duration 10s my-topology.yaml
+```
+
+### Inspect results
+
+Open <http://localhost:3000/explore> in your browser. Select **Tempo** as the data source, switch to the **Search** tab, and choose `gateway` from the service name dropdown. Run the query to see a list of traces. Click a trace to open the waterfall panel.
+
+![Grafana Tempo trace panel](images/grafana-tempo-trace-panel.png)
+
+### Clean up
+
+```sh
+docker compose down
+cd .. && rm -rf motel-tempo
+```
+
+## Hosted backends
+
+motel works with any OTLP-compatible backend — no motel-specific setup is needed. Point `--endpoint` at the backend's OTLP ingestion URL, set authentication headers via the standard `OTEL_EXPORTER_OTLP_HEADERS` environment variable, and traces appear in the backend's UI.
+
+```sh
+OTEL_EXPORTER_OTLP_HEADERS='x-api-key=YOUR_KEY' \
+  motel run --endpoint https://api.example.com:4318 \
+  --protocol http/protobuf \
+  --duration 10s my-topology.yaml
+```
+
+| Backend | OTLP ingestion docs |
+|---|---|
+| Honeycomb | [Honeycomb OTLP docs](https://docs.honeycomb.io/send-data/opentelemetry/) |
+| Datadog | [Datadog OTLP docs](https://docs.datadoghq.com/opentelemetry/interoperability/otlp_in_datadog_agent/) |
+| Grafana Cloud | [Grafana Cloud OTLP docs](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/) |
+| Dynatrace | [Dynatrace OTLP docs](https://docs.dynatrace.com/docs/extend-dynatrace/opentelemetry/getting-started/otlp-export) |
+| New Relic | [New Relic OTLP docs](https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-otlp/) |
+
+Each backend has its own authentication mechanism (API keys, tokens, headers). Check the linked docs for the specific headers and endpoint format required.
+
+## Further reading
+
+- [Use motel with otel-cli](use-with-otel-cli.md) — terminal trace viewing in detail
+- [Test backend integrations](test-backend-integration.md) — verifying backends accept and display traces correctly
+- [Model your services](model-your-services.md) — creating topology files
