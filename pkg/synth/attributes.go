@@ -20,7 +20,7 @@ type DistributionConfig struct {
 // AttributeValueConfig defines how an attribute value is generated from YAML.
 type AttributeValueConfig struct {
 	Value        any                 `yaml:"value,omitempty"`
-	Values       map[string]int      `yaml:"values,omitempty"`
+	Values       map[any]int         `yaml:"values,omitempty"`
 	Sequence     string              `yaml:"sequence,omitempty"`
 	Probability  *float64            `yaml:"probability,omitempty"`
 	Range        []int64             `yaml:"range,omitempty"`
@@ -167,29 +167,34 @@ func NewAttributeGenerator(cfg AttributeValueConfig) (AttributeGenerator, error)
 	return newWeightedChoice(cfg.Values)
 }
 
-func newWeightedChoice(values map[string]int) (*WeightedChoice, error) {
+func newWeightedChoice(values map[any]int) (*WeightedChoice, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("values must have at least one entry")
 	}
 
 	// Sort keys for deterministic ordering
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
+	type entry struct {
+		key    any
+		weight int
 	}
-	slices.Sort(keys)
+	entries := make([]entry, 0, len(values))
+	for k, w := range values {
+		entries = append(entries, entry{k, w})
+	}
+	slices.SortFunc(entries, func(a, b entry) int {
+		return strings.Compare(fmt.Sprint(a.key), fmt.Sprint(b.key))
+	})
 
-	choices := make([]any, 0, len(keys))
-	cumul := make([]int, 0, len(keys))
+	choices := make([]any, 0, len(entries))
+	cumul := make([]int, 0, len(entries))
 	total := 0
 
-	for _, k := range keys {
-		w := values[k]
-		if w <= 0 {
-			return nil, fmt.Errorf("weight for %q must be positive, got %d", k, w)
+	for _, e := range entries {
+		if e.weight <= 0 {
+			return nil, fmt.Errorf("weight for %v must be positive, got %d", e.key, e.weight)
 		}
-		total += w
-		choices = append(choices, k)
+		total += e.weight
+		choices = append(choices, e.key)
 		cumul = append(cumul, total)
 	}
 

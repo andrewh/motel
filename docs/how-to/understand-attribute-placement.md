@@ -28,7 +28,7 @@ services:
           http.request.method:
             value: GET
           http.response.status_code:
-            values: {"200": 95, "404": 3, "500": 2}
+            values: {200: 95, 404: 3, 500: 2}
 ```
 
 Resource attributes appear once per service resource in the exported telemetry. Span attributes appear on each individual span. This distinction matters for storage cost, query performance, and how your backend indexes data.
@@ -118,9 +118,9 @@ A `values` generator picks from a fixed set with weighted probability — cardin
 ```yaml
 http.response.status_code:
   values:
-    "200": 95
-    "404": 3
-    "500": 2
+    200: 95
+    404: 3
+    500: 2
 ```
 
 These are safe for most backends. The set of distinct values is small and bounded.
@@ -189,7 +189,7 @@ services:
           user.id:
             sequence: "user-{n}"
           http.response.status_code:
-            values: {"200": 90, "400": 5, "500": 5}
+            values: {200: 90, 400: 5, 500: 5}
           response.size:
             range: [100, 10000]
 

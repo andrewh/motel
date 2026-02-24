@@ -263,7 +263,7 @@ func TestEngineScenarioAttributeOverrides(t *testing.T) {
 				Name:     "op",
 				Duration: "10ms",
 				Attributes: map[string]AttributeValueConfig{
-					"status": {Values: map[string]int{"200": 1}},
+					"status": {Values: map[any]int{"200": 1}},
 					"keep":   {Value: "preserved"},
 				},
 			}},
@@ -476,7 +476,7 @@ func TestEngineOperationAttributes(t *testing.T) {
 				Duration: "10ms",
 				Attributes: map[string]AttributeValueConfig{
 					"http.route": {Value: "/api/v1/users"},
-					"status":     {Values: map[string]int{"200": 1}},
+					"status":     {Values: map[any]int{"200": 1}},
 				},
 			}},
 		}},

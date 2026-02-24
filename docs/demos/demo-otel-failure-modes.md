@@ -33,9 +33,9 @@ services:
             value: "/api/v1/users"
           http.response.status_code:
             values:
-              "200": 95
-              "404": 3
-              "500": 2
+              200: 95
+              404: 3
+              500: 2
           user.id:
             sequence: "user-{n}"
         calls:
@@ -50,9 +50,9 @@ services:
             value: "/api/v1/orders"
           http.response.status_code:
             values:
-              "201": 90
-              "400": 5
-              "500": 5
+              201: 90
+              400: 5
+              500: 5
         calls:
           - order-service.create
 

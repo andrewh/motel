@@ -191,7 +191,7 @@ traffic:
 		assert.Equal(t, "parallel", op.CallStyle)
 		require.Len(t, op.Attributes, 3)
 		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Value)
-		assert.Equal(t, map[string]int{"200": 95, "500": 5}, op.Attributes["http.response.status_code"].Values)
+		assert.Equal(t, map[any]int{"200": 95, "500": 5}, op.Attributes["http.response.status_code"].Values)
 		assert.Equal(t, "user-{n}", op.Attributes["user.id"].Sequence)
 	})
 
@@ -580,7 +580,7 @@ func TestValidateConfig(t *testing.T) {
 					Duration: "10ms",
 					Attributes: map[string]AttributeValueConfig{
 						"http.route":                {Value: "/api/v1/users"},
-						"http.response.status_code": {Values: map[string]int{"200": 95, "500": 5}},
+						"http.response.status_code": {Values: map[any]int{"200": 95, "500": 5}},
 						"user.id":                   {Sequence: "user-{n}"},
 					},
 				}},
@@ -782,7 +782,7 @@ func TestValidateConfig(t *testing.T) {
 			Override: map[string]OverrideConfig{
 				"svc.op": {
 					Attributes: map[string]AttributeValueConfig{
-						"status": {Values: map[string]int{"503": 80, "200": 20}},
+						"status": {Values: map[any]int{"503": 80, "200": 20}},
 					},
 				},
 			},
