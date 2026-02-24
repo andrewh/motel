@@ -1,4 +1,5 @@
 // Type definitions for parsed semantic convention YAML data.
+
 package semconv
 
 import "fmt"

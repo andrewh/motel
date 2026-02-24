@@ -35,9 +35,9 @@ type Format string
 
 // Supported trace input formats.
 const (
-	FormatAuto        Format = "auto"        // FormatAuto detects the format from the input.
-	FormatStdouttrace Format = "stdouttrace" // FormatStdouttrace is line-delimited JSON from the OTel stdout exporter.
-	FormatOTLP        Format = "otlp"        // FormatOTLP is OTLP protobuf JSON.
+	FormatAuto        Format = "auto"        // Detects the format from the input.
+	FormatStdouttrace Format = "stdouttrace" // Line-delimited JSON from the OTel stdout exporter.
+	FormatOTLP        Format = "otlp"        // OTLP protobuf JSON.
 )
 
 // maxInputSize is the maximum input size to prevent OOM on large trace exports.
