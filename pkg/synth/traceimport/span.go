@@ -33,10 +33,11 @@ type Span struct {
 // Format identifies the input trace format.
 type Format string
 
+// Supported trace input formats.
 const (
-	FormatAuto        Format = "auto"
-	FormatStdouttrace Format = "stdouttrace"
-	FormatOTLP        Format = "otlp"
+	FormatAuto        Format = "auto"        // FormatAuto detects the format from the input.
+	FormatStdouttrace Format = "stdouttrace" // FormatStdouttrace is line-delimited JSON from the OTel stdout exporter.
+	FormatOTLP        Format = "otlp"        // FormatOTLP is OTLP protobuf JSON.
 )
 
 // maxInputSize is the maximum input size to prevent OOM on large trace exports.

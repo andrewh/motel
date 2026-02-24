@@ -1,5 +1,6 @@
-// Top-level import pipeline: spans -> normalised -> trees -> stats -> YAML config
-// Wires together parsing, tree building, statistics, and serialisation
+// Package traceimport infers a motel topology from recorded trace data.
+// The pipeline parses spans, reconstructs trace trees, computes per-operation
+// statistics, and serialises the result as a topology YAML file.
 package traceimport
 
 import (

@@ -37,6 +37,7 @@ type StaticValue struct {
 	Value any
 }
 
+// Generate returns the static value unchanged.
 func (s *StaticValue) Generate(_ *rand.Rand) any {
 	return s.Value
 }
@@ -48,6 +49,7 @@ type WeightedChoice struct {
 	TotalWeight  int
 }
 
+// Generate picks a value at random according to the cumulative weights.
 func (w *WeightedChoice) Generate(rng *rand.Rand) any {
 	r := rng.IntN(w.TotalWeight)
 	for i, cw := range w.CumulWeights {
@@ -64,6 +66,7 @@ type SequenceValue struct {
 	counter atomic.Int64
 }
 
+// Generate returns the next value in the sequence, replacing {n} with an incrementing counter.
 func (s *SequenceValue) Generate(_ *rand.Rand) any {
 	n := s.counter.Add(1)
 	return strings.ReplaceAll(s.Pattern, "{n}", strconv.FormatInt(n, 10))
@@ -74,6 +77,7 @@ type BoolValue struct {
 	Probability float64
 }
 
+// Generate returns true with the configured probability.
 func (b *BoolValue) Generate(rng *rand.Rand) any {
 	return rng.Float64() < b.Probability
 }
@@ -84,6 +88,7 @@ type RangeValue struct {
 	Max int64
 }
 
+// Generate returns a uniformly random int64 within [Min, Max].
 func (r *RangeValue) Generate(rng *rand.Rand) any {
 	span := uint64(r.Max) - uint64(r.Min) + 1       //nolint:gosec // deliberate uint64 cast for overflow-safe range arithmetic
 	return int64(uint64(r.Min) + rng.Uint64N(span)) //nolint:gosec // result is within [Min, Max] by construction
@@ -95,6 +100,7 @@ type NormalValue struct {
 	StdDev float64
 }
 
+// Generate returns a normally distributed float64 with the configured mean and standard deviation.
 func (n *NormalValue) Generate(rng *rand.Rand) any {
 	return n.Mean + rng.NormFloat64()*n.StdDev
 }

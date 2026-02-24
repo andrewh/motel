@@ -21,10 +21,11 @@ const (
 // CircuitState represents the state of a circuit breaker.
 type CircuitState int
 
+// Circuit breaker states.
 const (
-	CircuitClosed CircuitState = iota
-	CircuitOpen
-	CircuitHalfOpen
+	CircuitClosed   CircuitState = iota // CircuitClosed allows all requests through.
+	CircuitOpen                         // CircuitOpen rejects all requests.
+	CircuitHalfOpen                     // CircuitHalfOpen allows a probe request to test recovery.
 )
 
 // SimulationState tracks cross-trace state for operations during a run.
