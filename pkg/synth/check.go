@@ -266,7 +266,7 @@ func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) Samp
 		rng := rand.New(rand.NewPCG(seed+uint64(i), 0)) //nolint:gosec // not security-sensitive
 		engine := &Engine{
 			Topology: topo,
-			Provider: tp,
+			Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 			Rng:      rng,
 		}
 

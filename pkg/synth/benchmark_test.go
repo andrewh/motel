@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func benchmarkTopology() *Config {
@@ -82,7 +83,7 @@ func BenchmarkWalkTrace(b *testing.B) {
 	rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for benchmarking
 	engine := &Engine{
 		Topology: topo,
-		Provider: tp,
+		Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:      rng,
 	}
 
@@ -185,7 +186,7 @@ func BenchmarkEngineRun(b *testing.B) {
 				engine := &Engine{
 					Topology: topo,
 					Traffic:  pattern,
-					Provider: tp,
+					Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 					Rng:      rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for benchmarking
 					Duration: 1 * time.Second,
 					State:    NewSimulationState(topo),
@@ -223,7 +224,7 @@ func BenchmarkStdoutVsNoop(b *testing.B) {
 			engine := &Engine{
 				Topology: topo,
 				Traffic:  pattern,
-				Provider: tp,
+				Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 				Rng:      rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for benchmarking
 				Duration: 1 * time.Second,
 				State:    NewSimulationState(topo),
@@ -250,7 +251,7 @@ func BenchmarkStdoutVsNoop(b *testing.B) {
 			engine := &Engine{
 				Topology: topo,
 				Traffic:  pattern,
-				Provider: tp,
+				Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 				Rng:      rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for benchmarking
 				Duration: 1 * time.Second,
 				State:    NewSimulationState(topo),

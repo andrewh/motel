@@ -35,6 +35,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -361,35 +362,54 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		}
 	}
 
-	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
+	baseRes, err := resource.Merge(resource.Default(), resource.NewSchemaless(
 		attribute.String("motel.version", version),
 	))
 	if err != nil {
 		return fmt.Errorf("creating resource: %w", err)
 	}
 
-	// Create tracer provider (no-op if traces not requested)
-	var tp *sdktrace.TracerProvider
+	// Create one tracer provider per service so each has the correct service.name resource.
+	providers := make(map[string]*sdktrace.TracerProvider, len(topo.Services))
 	if enabledSignals["traces"] {
-		tp, err = createTracerProvider(ctx, opts, res)
-		if err != nil {
-			return fmt.Errorf("creating tracer provider: %w", err)
+		for name := range topo.Services {
+			svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
+				attribute.String("service.name", name),
+			))
+			if resErr != nil {
+				return fmt.Errorf("creating resource for service %s: %w", name, resErr)
+			}
+			tp, tpErr := createTracerProvider(ctx, opts, svcRes)
+			if tpErr != nil {
+				return fmt.Errorf("creating tracer provider for service %s: %w", name, tpErr)
+			}
+			providers[name] = tp
 		}
 	} else {
-		tp = sdktrace.NewTracerProvider()
+		noopTP := sdktrace.NewTracerProvider()
+		for name := range topo.Services {
+			providers[name] = noopTP
+		}
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := tp.Shutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
+		seen := make(map[*sdktrace.TracerProvider]bool, len(providers))
+		for _, tp := range providers {
+			if seen[tp] {
+				continue
+			}
+			seen[tp] = true
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			if err := tp.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
+			}
+			cancel()
 		}
 	}()
 
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
-		mp, shutdownMP, mErr := createMeterProvider(ctx, opts, res)
+		mp, shutdownMP, mErr := createMeterProvider(ctx, opts, baseRes)
 		if mErr != nil {
 			return fmt.Errorf("creating meter provider: %w", mErr)
 		}
@@ -408,7 +428,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	if enabledSignals["logs"] {
-		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts, res)
+		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts, baseRes)
 		if lErr != nil {
 			return fmt.Errorf("creating logger provider: %w", lErr)
 		}
@@ -431,7 +451,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Topology:         topo,
 		Traffic:          traffic,
 		Scenarios:        scenarios,
-		Provider:         tp,
+		Tracers:          func(name string) trace.Tracer { return providers[name].Tracer(name) },
 		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:         duration,
 		Observers:        observers,

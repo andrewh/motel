@@ -287,7 +287,7 @@ func TestEngineQueueDepthRejection(t *testing.T) {
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
 
-	engine, exporter := newTestEngine(t, cfg)
+	engine, exporter, tp := newTestEngine(t, cfg)
 	engine.State = NewSimulationState(engine.Topology)
 
 	// Pre-fill the queue so the next request is rejected
@@ -298,7 +298,7 @@ func TestEngineQueueDepthRejection(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
 	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
@@ -341,7 +341,7 @@ func TestEngineCircuitBreakerIntegration(t *testing.T) {
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
 
-	engine, exporter := newTestEngine(t, cfg)
+	engine, exporter, tp := newTestEngine(t, cfg)
 	engine.State = NewSimulationState(engine.Topology)
 
 	rootOp := engine.Topology.Roots[0]
@@ -359,7 +359,7 @@ func TestEngineCircuitBreakerIntegration(t *testing.T) {
 	// Third call should be rejected (circuit is open)
 	var stats Stats
 	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	assert.Equal(t, int64(1), stats.CircuitBreakerTrips)
 
@@ -394,14 +394,14 @@ func TestEngineBackpressureIntegration(t *testing.T) {
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
 
-	engine, exporter := newTestEngine(t, cfg)
+	engine, exporter, tp := newTestEngine(t, cfg)
 	engine.State = NewSimulationState(engine.Topology)
 
 	rootOp := engine.Topology.Roots[0]
 
 	// First call: 10ms duration > 5ms threshold → backpressure activates
 	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans1 := exporter.GetSpans()
 	require.Len(t, spans1, 1)
@@ -410,7 +410,7 @@ func TestEngineBackpressureIntegration(t *testing.T) {
 	// Second call: backpressure should be active, amplifying duration
 	exporter.Reset()
 	engine.walkTrace(context.Background(), rootOp, time.Now(), time.Second, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans2 := exporter.GetSpans()
 	require.Len(t, spans2, 1)
@@ -435,13 +435,13 @@ func TestEngineStateNotCreatedWithoutConfig(t *testing.T) {
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
 
-	engine, exporter := newTestEngine(t, cfg)
+	engine, exporter, tp := newTestEngine(t, cfg)
 	// No state set — engine.State is nil
 
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
 	engine.walkTrace(context.Background(), rootOp, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
 	assert.Len(t, spans, 1, "should work normally without state")

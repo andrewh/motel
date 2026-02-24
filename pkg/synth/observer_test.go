@@ -73,7 +73,7 @@ func TestObserverCalledPerSpan(t *testing.T) {
 	engine := &Engine{
 		Topology:  topo,
 		Traffic:   pattern,
-		Provider:  tp,
+		Tracers:   func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 		Observers: []SpanObserver{obs},
 	}
@@ -121,7 +121,7 @@ func TestObserverReceivesCorrectMetadata(t *testing.T) {
 	engine := &Engine{
 		Topology:  topo,
 		Traffic:   pattern,
-		Provider:  tp,
+		Tracers:   func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 		Observers: []SpanObserver{obs},
 	}
@@ -183,7 +183,7 @@ func TestObserverDurationIsWallClock(t *testing.T) {
 	engine := &Engine{
 		Topology:  topo,
 		Traffic:   pattern,
-		Provider:  tp,
+		Tracers:   func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 		Observers: []SpanObserver{obs},
 	}
@@ -223,9 +223,9 @@ func TestObserverNotCalledWhenNone(t *testing.T) {
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
 
-	engine, exporter := newTestEngine(t, cfg)
+	engine, exporter, tp := newTestEngine(t, cfg)
 	engine.walkTrace(context.Background(), engine.Topology.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
-	require.NoError(t, engine.Provider.ForceFlush(context.Background()))
+	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
 	assert.Len(t, spans, 1, "engine without observers should still emit spans normally")
@@ -259,7 +259,7 @@ func TestMultipleObservers(t *testing.T) {
 	engine := &Engine{
 		Topology:  topo,
 		Traffic:   pattern,
-		Provider:  tp,
+		Tracers:   func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 		Observers: []SpanObserver{obs1, obs2},
 	}
@@ -299,7 +299,7 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 	engine := &Engine{
 		Topology:  topo,
 		Traffic:   pattern,
-		Provider:  tp,
+		Tracers:   func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:       rand.New(rand.NewPCG(42, 0)), //nolint:gosec // deterministic seed for testing
 		Observers: []SpanObserver{obs},
 	}
