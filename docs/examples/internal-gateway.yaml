@@ -13,13 +13,21 @@
 # thousands even with modest retry budgets.
 #
 # The default check limits (depth 10, spans 10000) will fail on this
-# topology — use the raised limits below:
+# topology — use raised limits:
 #
 # motel check --max-depth 30 --max-spans 200000 docs/examples/internal-gateway.yaml
 
 version: 1
 
 services:
+  # External client — represents a user or browser hitting the edge gateway
+  client:
+    operations:
+      request:
+        duration: 1ms +/- 500us
+        calls:
+          - target: edge-gateway.proxy
+
   # External reverse proxy
   edge-gateway:
     operations:
