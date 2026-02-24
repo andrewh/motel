@@ -134,7 +134,7 @@ http.request.method:
 
 ```yaml
 http.response.status_code:
-  values: { "200": 95, "404": 3, "500": 2 }
+  values: { 200: 95, 404: 3, 500: 2 }
 ```
 
 **`sequence`** — incrementing pattern (`{n}` replaced with counter)
