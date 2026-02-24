@@ -73,19 +73,6 @@ func percentileFromSorted(sorted []int, p float64) int {
 	return sorted[idx]
 }
 
-// percentile returns the value at the given percentile (0–100) using the
-// nearest-rank method. Returns 0 for empty input. The input slice is not
-// modified.
-func percentile(data []int, p float64) int {
-	if len(data) == 0 {
-		return 0
-	}
-	sorted := slices.Clone(data)
-	slices.Sort(sorted)
-	idx := max(int(math.Ceil(p/100*float64(len(sorted))))-1, 0)
-	return sorted[min(idx, len(sorted)-1)]
-}
-
 // CheckOptions configures the thresholds and sampling for Check.
 type CheckOptions struct {
 	MaxDepth         int

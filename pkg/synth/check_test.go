@@ -333,53 +333,53 @@ func TestCheck_EmptyTopology(t *testing.T) {
 
 // --- percentile and distribution tests ---
 
-func TestPercentile_Empty(t *testing.T) {
-	if got := percentile(nil, 50); got != 0 {
-		t.Fatalf("expected 0 for empty input, got %d", got)
+func TestSummarise_Empty(t *testing.T) {
+	s := summarise(nil)
+	if s.P50 != 0 || s.P95 != 0 || s.P99 != 0 || s.Max != 0 {
+		t.Fatalf("expected all zeros for empty input, got %+v", s)
 	}
 }
 
-func TestPercentile_SingleElement(t *testing.T) {
-	if got := percentile([]int{7}, 50); got != 7 {
-		t.Fatalf("expected 7, got %d", got)
-	}
-	if got := percentile([]int{7}, 99); got != 7 {
-		t.Fatalf("expected 7, got %d", got)
+func TestSummarise_SingleElement(t *testing.T) {
+	s := summarise([]int{7})
+	if s.P50 != 7 || s.P95 != 7 || s.P99 != 7 || s.Max != 7 {
+		t.Fatalf("expected all 7 for single element, got %+v", s)
 	}
 }
 
-func TestPercentile_Zero(t *testing.T) {
-	data := []int{3, 1, 4, 1, 5}
-	if got := percentile(data, 0); got != 1 {
+func TestPercentileFromSorted_Zero(t *testing.T) {
+	sorted := []int{1, 1, 3, 4, 5}
+	if got := percentileFromSorted(sorted, 0); got != 1 {
 		t.Fatalf("p0: expected minimum (1), got %d", got)
 	}
 }
 
-func TestPercentile_KnownDistribution(t *testing.T) {
+func TestSummarise_KnownDistribution(t *testing.T) {
 	// 1..100
 	data := make([]int, 100)
 	for i := range data {
 		data[i] = i + 1
 	}
-	if got := percentile(data, 50); got != 50 {
-		t.Fatalf("p50: expected 50, got %d", got)
+	s := summarise(data)
+	if s.P50 != 50 {
+		t.Fatalf("p50: expected 50, got %d", s.P50)
 	}
-	if got := percentile(data, 95); got != 95 {
-		t.Fatalf("p95: expected 95, got %d", got)
+	if s.P95 != 95 {
+		t.Fatalf("p95: expected 95, got %d", s.P95)
 	}
-	if got := percentile(data, 99); got != 99 {
-		t.Fatalf("p99: expected 99, got %d", got)
+	if s.P99 != 99 {
+		t.Fatalf("p99: expected 99, got %d", s.P99)
 	}
-	if got := percentile(data, 100); got != 100 {
-		t.Fatalf("p100: expected 100, got %d", got)
+	if s.Max != 100 {
+		t.Fatalf("max: expected 100, got %d", s.Max)
 	}
 }
 
-func TestPercentile_DoesNotMutateInput(t *testing.T) {
+func TestSummarise_DoesNotMutateInput(t *testing.T) {
 	data := []int{5, 3, 1, 4, 2}
 	orig := make([]int, len(data))
 	copy(orig, data)
-	_ = percentile(data, 50)
+	_ = summarise(data)
 	for i := range data {
 		if data[i] != orig[i] {
 			t.Fatalf("input was mutated at index %d: got %d, want %d", i, data[i], orig[i])
