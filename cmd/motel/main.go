@@ -81,11 +81,14 @@ func runCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run <topology.yaml>",
+		Use:   "run <topology.yaml | URL>",
 		Short: "Generate synthetic signals from a topology definition",
+		Long: "Generate synthetic signals from a topology definition.\n\n" +
+			"The topology source can be a local file path or an HTTP/HTTPS URL.\n" +
+			"URL fetches have a 10-second timeout and a 10 MB response body limit.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("missing topology file\n\nUsage: motel run <topology.yaml>")
+				return fmt.Errorf("missing topology file or URL\n\nUsage: motel run <topology.yaml | URL>")
 			}
 			return cobra.ExactArgs(1)(cmd, args)
 		},
@@ -126,11 +129,14 @@ func validateCmd() *cobra.Command {
 	var semconvDir string
 
 	cmd := &cobra.Command{
-		Use:   "validate <topology.yaml>",
+		Use:   "validate <topology.yaml | URL>",
 		Short: "Parse and validate a topology configuration",
+		Long: "Parse and validate a topology configuration.\n\n" +
+			"The topology source can be a local file path or an HTTP/HTTPS URL.\n" +
+			"URL fetches have a 10-second timeout and a 10 MB response body limit.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("missing topology file\n\nUsage: motel validate <topology.yaml>")
+				return fmt.Errorf("missing topology file or URL\n\nUsage: motel validate <topology.yaml | URL>")
 			}
 			return cobra.ExactArgs(1)(cmd, args)
 		},

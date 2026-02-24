@@ -1,8 +1,10 @@
 package synth
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +29,7 @@ traffic:
 	t.Run("loads config from HTTP URL", func(t *testing.T) {
 		t.Parallel()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(validYAML))
+			fmt.Fprint(w, validYAML)
 		}))
 		defer srv.Close()
 
@@ -55,5 +57,52 @@ traffic:
 		_, err := LoadConfig("http://127.0.0.1:1/topology.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "fetching URL")
+	})
+
+	t.Run("returns error when response exceeds size limit", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Write just over the 10 MB limit
+			padding := strings.Repeat("x", maxSourceBytes+1)
+			fmt.Fprint(w, padding)
+		}))
+		defer srv.Close()
+
+		_, err := LoadConfig(srv.URL + "/huge.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds")
+	})
+
+	t.Run("follows redirects up to limit", func(t *testing.T) {
+		t.Parallel()
+		hops := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hops++
+			if r.URL.Path == "/final" {
+				fmt.Fprint(w, validYAML)
+				return
+			}
+			http.Redirect(w, r, "/final", http.StatusFound)
+		}))
+		defer srv.Close()
+
+		cfg, err := LoadConfig(srv.URL + "/start")
+		require.NoError(t, err)
+		assert.Equal(t, 1, cfg.Version)
+		assert.Equal(t, 2, hops)
+	})
+
+	t.Run("returns error on too many redirects", func(t *testing.T) {
+		t.Parallel()
+		counter := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			counter++
+			http.Redirect(w, r, fmt.Sprintf("/hop%d", counter), http.StatusFound)
+		}))
+		defer srv.Close()
+
+		_, err := LoadConfig(srv.URL + "/start")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "redirect")
 	})
 }

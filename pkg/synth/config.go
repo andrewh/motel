@@ -181,9 +181,18 @@ func (r *RemoveCallConfig) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // readSource fetches topology YAML from a URL or reads it from a local file.
+// URL fetches have a 10-second timeout and a 10 MB response body limit.
 func readSource(source string) ([]byte, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		client := &http.Client{Timeout: 10 * time.Second}
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		}
 		resp, err := client.Get(source) //nolint:gosec // user-supplied URL is expected
 		if err != nil {
 			return nil, fmt.Errorf("fetching URL: %w", err)
@@ -192,14 +201,21 @@ func readSource(source string) ([]byte, error) {
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return nil, fmt.Errorf("fetching URL: HTTP %d", resp.StatusCode)
 		}
-		return io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes))
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading URL body: %w", err)
+		}
+		if int64(len(data)) > maxSourceBytes {
+			return nil, fmt.Errorf("fetching URL: response body exceeds %d bytes", maxSourceBytes)
+		}
+		return data, nil
 	}
 	return os.ReadFile(source) //nolint:gosec // user-supplied config path is expected
 }
 
 // LoadConfig reads and parses a YAML topology from a file path or URL.
-func LoadConfig(path string) (*Config, error) {
-	data, err := readSource(path)
+func LoadConfig(source string) (*Config, error) {
+	data, err := readSource(source)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
