@@ -6,6 +6,7 @@ import (
 	"context"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -15,14 +16,74 @@ import (
 
 // CheckResult holds the outcome of a single structural check.
 type CheckResult struct {
-	Name       string
-	Pass       bool
-	Limit      int
-	Actual     int
-	Sampled    *int
-	SamplesRun int
-	Path       []string
-	Ref        string
+	Name         string
+	Pass         bool
+	Limit        int
+	Actual       int
+	Sampled      *int
+	SamplesRun   int
+	Path         []string
+	Ref          string
+	Distribution *DistributionSummary
+}
+
+// DistributionSummary holds percentile statistics for a metric.
+type DistributionSummary struct {
+	P50 int
+	P95 int
+	P99 int
+	Max int
+}
+
+// SampleDistribution collects per-trace metric values across sampled runs.
+type SampleDistribution struct {
+	Depths  []int
+	Spans   []int
+	FanOuts []int
+}
+
+// Summary computes percentile summaries for each metric.
+func (d *SampleDistribution) Summary() (depth, spans, fanOut DistributionSummary) {
+	depth = summarise(d.Depths)
+	spans = summarise(d.Spans)
+	fanOut = summarise(d.FanOuts)
+	return depth, spans, fanOut
+}
+
+// summarise sorts a copy of data once and extracts p50/p95/p99/max.
+func summarise(data []int) DistributionSummary {
+	if len(data) == 0 {
+		return DistributionSummary{}
+	}
+	sorted := slices.Clone(data)
+	slices.Sort(sorted)
+	return DistributionSummary{
+		P50: percentileFromSorted(sorted, 50),
+		P95: percentileFromSorted(sorted, 95),
+		P99: percentileFromSorted(sorted, 99),
+		Max: sorted[len(sorted)-1],
+	}
+}
+
+// percentileFromSorted returns the value at the given percentile (0–100)
+// using the nearest-rank method. The input must be non-empty and sorted in
+// ascending order.
+func percentileFromSorted(sorted []int, p float64) int {
+	idx := max(int(math.Ceil(p/100*float64(len(sorted))))-1, 0)
+	return sorted[idx]
+}
+
+// percentile returns the value at the given percentile (0–100) using the
+// nearest-rank method. Returns 0 for empty input. The input slice is not
+// modified.
+func percentile(data []int, p float64) int {
+	if len(data) == 0 {
+		return 0
+	}
+	sorted := slices.Clone(data)
+	slices.Sort(sorted)
+	idx := max(int(math.Ceil(p/100*float64(len(sorted))))-1, 0)
+	return sorted[min(idx, len(sorted)-1)]
 }
 
 // CheckOptions configures the thresholds and sampling for Check.
@@ -37,10 +98,11 @@ type CheckOptions struct {
 
 // SampleResults holds empirical measurements from sampled trace generation.
 type SampleResults struct {
-	MaxDepth  int
-	MaxSpans  int
-	MaxFanOut int
-	TracesRun int
+	MaxDepth     int
+	MaxSpans     int
+	MaxFanOut    int
+	TracesRun    int
+	Distribution SampleDistribution
 }
 
 // maxSpansCap prevents overflow in worst-case span multiplication.
@@ -204,7 +266,13 @@ func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) Samp
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
-	var results SampleResults
+	results := SampleResults{
+		Distribution: SampleDistribution{
+			Depths:  make([]int, 0, n),
+			Spans:   make([]int, 0, n),
+			FanOuts: make([]int, 0, n),
+		},
+	}
 	for i := range n {
 		exporter.Reset()
 
@@ -224,8 +292,9 @@ func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) Samp
 		spans := exporter.GetSpans()
 		results.TracesRun++
 
-		if len(spans) > results.MaxSpans {
-			results.MaxSpans = len(spans)
+		nSpans := len(spans)
+		if nSpans > results.MaxSpans {
+			results.MaxSpans = nSpans
 		}
 
 		depth, fanOut := measureTrace(spans)
@@ -235,6 +304,10 @@ func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) Samp
 		if fanOut > results.MaxFanOut {
 			results.MaxFanOut = fanOut
 		}
+
+		results.Distribution.Depths = append(results.Distribution.Depths, depth)
+		results.Distribution.Spans = append(results.Distribution.Spans, nSpans)
+		results.Distribution.FanOuts = append(results.Distribution.FanOuts, fanOut)
 	}
 
 	return results
@@ -304,15 +377,24 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 		sampled = SampleTraces(topo, opts.Samples, opts.Seed, opts.MaxSpansPerTrace)
 	}
 
+	var depthDist, spansDist, fanOutDist *DistributionSummary
+	if opts.Samples > 0 {
+		dd, sd, fd := sampled.Distribution.Summary()
+		depthDist = &dd
+		spansDist = &sd
+		fanOutDist = &fd
+	}
+
 	results := make([]CheckResult, 0, 3)
 
 	depthResult := CheckResult{
-		Name:       "max-depth",
-		Pass:       staticDepth <= opts.MaxDepth,
-		Limit:      opts.MaxDepth,
-		Actual:     staticDepth,
-		SamplesRun: sampled.TracesRun,
-		Path:       depthPath,
+		Name:         "max-depth",
+		Pass:         staticDepth <= opts.MaxDepth,
+		Limit:        opts.MaxDepth,
+		Actual:       staticDepth,
+		SamplesRun:   sampled.TracesRun,
+		Path:         depthPath,
+		Distribution: depthDist,
 	}
 	if opts.Samples > 0 {
 		depthResult.Sampled = intPtr(sampled.MaxDepth)
@@ -320,12 +402,13 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 	results = append(results, depthResult)
 
 	fanOutResult := CheckResult{
-		Name:       "max-fan-out",
-		Pass:       staticFanOut <= opts.MaxFanOut,
-		Limit:      opts.MaxFanOut,
-		Actual:     staticFanOut,
-		SamplesRun: sampled.TracesRun,
-		Ref:        fanOutRef,
+		Name:         "max-fan-out",
+		Pass:         staticFanOut <= opts.MaxFanOut,
+		Limit:        opts.MaxFanOut,
+		Actual:       staticFanOut,
+		SamplesRun:   sampled.TracesRun,
+		Ref:          fanOutRef,
+		Distribution: fanOutDist,
 	}
 	if opts.Samples > 0 {
 		fanOutResult.Sampled = intPtr(sampled.MaxFanOut)
@@ -333,11 +416,12 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 	results = append(results, fanOutResult)
 
 	spansResult := CheckResult{
-		Name:       "max-spans",
-		Pass:       staticSpans <= opts.MaxSpans,
-		Limit:      opts.MaxSpans,
-		Actual:     staticSpans,
-		SamplesRun: sampled.TracesRun,
+		Name:         "max-spans",
+		Pass:         staticSpans <= opts.MaxSpans,
+		Limit:        opts.MaxSpans,
+		Actual:       staticSpans,
+		SamplesRun:   sampled.TracesRun,
+		Distribution: spansDist,
 	}
 	if opts.Samples > 0 {
 		spansResult.Sampled = intPtr(sampled.MaxSpans)

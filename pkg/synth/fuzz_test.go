@@ -121,6 +121,48 @@ func FuzzCheckMaxFanOutBounds(f *testing.F) {
 	}))
 }
 
+// FuzzDistributionOrdering uses coverage-guided fuzzing to verify that
+// percentile distributions are monotonic (p50 <= p95 <= p99 <= max) and
+// that max equals the running maximum from SampleTraces.
+func FuzzDistributionOrdering(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
+		cfg := genCheckConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+		if len(topo.Roots) == 0 {
+			t.Skip("no root operations")
+		}
+
+		sampled := SampleTraces(topo, 100, rapid.Uint64().Draw(t, "seed"), 0)
+		depthDist, spansDist, fanOutDist := sampled.Distribution.Summary()
+
+		for _, tc := range []struct {
+			name string
+			dist DistributionSummary
+			max  int
+		}{
+			{"depth", depthDist, sampled.MaxDepth},
+			{"spans", spansDist, sampled.MaxSpans},
+			{"fan-out", fanOutDist, sampled.MaxFanOut},
+		} {
+			if tc.dist.P50 > tc.dist.P95 {
+				t.Fatalf("%s: p50 (%d) > p95 (%d)", tc.name, tc.dist.P50, tc.dist.P95)
+			}
+			if tc.dist.P95 > tc.dist.P99 {
+				t.Fatalf("%s: p95 (%d) > p99 (%d)", tc.name, tc.dist.P95, tc.dist.P99)
+			}
+			if tc.dist.P99 > tc.dist.Max {
+				t.Fatalf("%s: p99 (%d) > max (%d)", tc.name, tc.dist.P99, tc.dist.Max)
+			}
+			if tc.dist.Max != tc.max {
+				t.Fatalf("%s: distribution max (%d) != MaxX (%d)", tc.name, tc.dist.Max, tc.max)
+			}
+		}
+	}))
+}
+
 // FuzzParseRate uses coverage-guided fuzzing to explore ParseRate
 // with regex-generated rate strings.
 func FuzzParseRate(f *testing.F) {

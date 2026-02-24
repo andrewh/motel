@@ -331,6 +331,89 @@ func TestCheck_EmptyTopology(t *testing.T) {
 	}
 }
 
+// --- percentile and distribution tests ---
+
+func TestPercentile_Empty(t *testing.T) {
+	if got := percentile(nil, 50); got != 0 {
+		t.Fatalf("expected 0 for empty input, got %d", got)
+	}
+}
+
+func TestPercentile_SingleElement(t *testing.T) {
+	if got := percentile([]int{7}, 50); got != 7 {
+		t.Fatalf("expected 7, got %d", got)
+	}
+	if got := percentile([]int{7}, 99); got != 7 {
+		t.Fatalf("expected 7, got %d", got)
+	}
+}
+
+func TestPercentile_Zero(t *testing.T) {
+	data := []int{3, 1, 4, 1, 5}
+	if got := percentile(data, 0); got != 1 {
+		t.Fatalf("p0: expected minimum (1), got %d", got)
+	}
+}
+
+func TestPercentile_KnownDistribution(t *testing.T) {
+	// 1..100
+	data := make([]int, 100)
+	for i := range data {
+		data[i] = i + 1
+	}
+	if got := percentile(data, 50); got != 50 {
+		t.Fatalf("p50: expected 50, got %d", got)
+	}
+	if got := percentile(data, 95); got != 95 {
+		t.Fatalf("p95: expected 95, got %d", got)
+	}
+	if got := percentile(data, 99); got != 99 {
+		t.Fatalf("p99: expected 99, got %d", got)
+	}
+	if got := percentile(data, 100); got != 100 {
+		t.Fatalf("p100: expected 100, got %d", got)
+	}
+}
+
+func TestPercentile_DoesNotMutateInput(t *testing.T) {
+	data := []int{5, 3, 1, 4, 2}
+	orig := make([]int, len(data))
+	copy(orig, data)
+	_ = percentile(data, 50)
+	for i := range data {
+		if data[i] != orig[i] {
+			t.Fatalf("input was mutated at index %d: got %d, want %d", i, data[i], orig[i])
+		}
+	}
+}
+
+func TestSampleTraces_PopulatesDistribution(t *testing.T) {
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	opB := &Operation{Service: s, Name: "B", Ref: "s.B",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opA := &Operation{Service: s, Name: "A", Ref: "s.A",
+		Duration: Distribution{Mean: 10 * time.Millisecond},
+		Calls:    []Call{{Operation: opB}}}
+	s.Operations["A"] = opA
+	s.Operations["B"] = opB
+
+	topo := &Topology{
+		Services: map[string]*Service{"s": s},
+		Roots:    []*Operation{opA},
+	}
+
+	results := SampleTraces(topo, 50, 42, 0)
+	if len(results.Distribution.Depths) != 50 {
+		t.Fatalf("expected 50 depth samples, got %d", len(results.Distribution.Depths))
+	}
+	if len(results.Distribution.Spans) != 50 {
+		t.Fatalf("expected 50 span samples, got %d", len(results.Distribution.Spans))
+	}
+	if len(results.Distribution.FanOuts) != 50 {
+		t.Fatalf("expected 50 fan-out samples, got %d", len(results.Distribution.FanOuts))
+	}
+}
+
 // --- Property tests: static bounds >= sampled observations ---
 //
 // Static analysis computes the worst case over all possible executions: it
@@ -489,6 +572,45 @@ func TestProperty_MaxFanOut_BoundsObserved(t *testing.T) {
 
 		if sampled.MaxFanOut > staticFanOut {
 			t.Fatalf("sampled fan-out %d exceeds static bound %d", sampled.MaxFanOut, staticFanOut)
+		}
+	})
+}
+
+func TestProperty_DistributionOrdering(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genCheckConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+		if len(topo.Roots) == 0 {
+			t.Skip("no root operations")
+		}
+
+		sampled := SampleTraces(topo, 100, rapid.Uint64().Draw(t, "seed"), 0)
+		depthDist, spansDist, fanOutDist := sampled.Distribution.Summary()
+
+		for _, tc := range []struct {
+			name string
+			dist DistributionSummary
+			max  int
+		}{
+			{"depth", depthDist, sampled.MaxDepth},
+			{"spans", spansDist, sampled.MaxSpans},
+			{"fan-out", fanOutDist, sampled.MaxFanOut},
+		} {
+			if tc.dist.P50 > tc.dist.P95 {
+				t.Fatalf("%s: p50 (%d) > p95 (%d)", tc.name, tc.dist.P50, tc.dist.P95)
+			}
+			if tc.dist.P95 > tc.dist.P99 {
+				t.Fatalf("%s: p95 (%d) > p99 (%d)", tc.name, tc.dist.P95, tc.dist.P99)
+			}
+			if tc.dist.P99 > tc.dist.Max {
+				t.Fatalf("%s: p99 (%d) > max (%d)", tc.name, tc.dist.P99, tc.dist.Max)
+			}
+			if tc.dist.Max != tc.max {
+				t.Fatalf("%s: distribution max (%d) != MaxX (%d)", tc.name, tc.dist.Max, tc.max)
+			}
 		}
 	})
 }

@@ -86,6 +86,12 @@ func checkCmd() *cobra.Command {
 				default:
 					_, _ = fmt.Fprintf(w, "%s  %s: %d (limit: %d)\n", status, r.Name, r.Actual, r.Limit)
 				}
+
+				if r.Distribution != nil {
+					d := r.Distribution
+					_, _ = fmt.Fprintf(w, "      p50: %d  p95: %d  p99: %d  max: %d  (%d samples)\n",
+						d.P50, d.P95, d.P99, d.Max, r.SamplesRun)
+				}
 			}
 
 			if anyFailed {
