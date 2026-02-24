@@ -2,28 +2,10 @@
 
 motel generates OTLP traces, but you need a backend to actually see them. This guide covers four options, from zero-setup terminal viewing to hosted platforms.
 
-All examples use the topology from the [getting started tutorial](../tutorials/getting-started.md). Save it as `my-topology.yaml` if you don't already have it:
+All examples use the [basic topology](../examples/basic-topology.yaml) — a five-service setup with a gateway, two backends, and two datastores. Copy it locally or pass the path directly:
 
-```yaml
-version: 1
-
-services:
-  gateway:
-    operations:
-      GET /users:
-        duration: 30ms +/- 10ms
-        error_rate: 1%
-        calls:
-          - users.list
-
-  users:
-    operations:
-      list:
-        duration: 15ms +/- 5ms
-        error_rate: 0.5%
-
-traffic:
-  rate: 10/s
+```sh
+cp docs/examples/basic-topology.yaml my-topology.yaml
 ```
 
 ## otel-cli (terminal, zero setup)
@@ -90,16 +72,16 @@ motel run --endpoint localhost:4318 --protocol http/protobuf \
 
 ### Inspect results
 
-Open <http://localhost:16686> in your browser. Select the `gateway` service from the dropdown and click **Find Traces**. Click a trace to see the waterfall view showing the call from `gateway` to `users`.
+Open <http://localhost:16686> in your browser. Select the `gateway` service from the dropdown and click **Find Traces**. Click a trace to see the waterfall view showing calls fanning out from `gateway` through the backend services to the datastores.
 
 ![Jaeger trace waterfall](images/jaeger-trace-waterfall.png)
 
 Things to check:
 
-- Both services appear in the service dropdown
-- The trace waterfall shows `GET /users` as the root span with `list` as a child
-- Span durations fall within the configured ranges (30ms +/- 10ms for the gateway, 15ms +/- 5ms for users)
-- Some traces have error spans (1% on gateway, 0.5% on users)
+- All five services appear in the service dropdown
+- `GET /users` traces show `gateway` → `user-service` → `postgres`
+- `POST /orders` traces show `gateway` → `order-service` → `postgres` + `redis` in parallel
+- Span durations fall within the configured ranges (e.g. 30ms +/- 10ms for `GET /users`)
 
 ### Clean up
 

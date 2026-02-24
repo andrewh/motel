@@ -4,6 +4,8 @@ package synth
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxSourceBytes = 10 << 20 // 10 MB
 
 // CurrentVersion is the supported schema version for synth topology configs.
 const CurrentVersion = 1
@@ -176,9 +180,26 @@ func (r *RemoveCallConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// LoadConfig reads and parses a YAML configuration file.
+// readSource fetches topology YAML from a URL or reads it from a local file.
+func readSource(source string) ([]byte, error) {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Get(source) //nolint:gosec // user-supplied URL is expected
+		if err != nil {
+			return nil, fmt.Errorf("fetching URL: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("fetching URL: HTTP %d", resp.StatusCode)
+		}
+		return io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes))
+	}
+	return os.ReadFile(source) //nolint:gosec // user-supplied config path is expected
+}
+
+// LoadConfig reads and parses a YAML topology from a file path or URL.
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // user-supplied config path is expected
+	data, err := readSource(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
