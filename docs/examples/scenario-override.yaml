@@ -12,8 +12,8 @@ services:
         attributes:
           http.response.status_code:
             values:
-              "200": 95
-              "500": 5
+              200: 95
+              500: 5
         calls:
           - database.query
 
@@ -48,8 +48,8 @@ scenarios:
         attributes:
           http.response.status_code:
             values:
-              "503": 80
-              "200": 20
+              503: 80
+              200: 20
 
   # Load spike: increase traffic rate during incident
   - name: load spike

@@ -169,7 +169,7 @@ func TestBuildTopology(t *testing.T) {
 					Duration: "10ms",
 					Attributes: map[string]AttributeValueConfig{
 						"http.route": {Value: "/api/v1/users"},
-						"status":     {Values: map[string]int{"200": 1}},
+						"status":     {Values: map[any]int{"200": 1}},
 						"req.id":     {Sequence: "req-{n}"},
 					},
 				}},

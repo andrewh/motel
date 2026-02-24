@@ -23,10 +23,10 @@ services:
           # Mixed naming: camelCase instead of dotted convention
           httpStatusCode:
             values:
-              "200": 85
-              "400": 8
-              "422": 4
-              "500": 3
+              200: 85
+              400: 8
+              422: 4
+              500: 3
           # Compound value that should be split into separate attributes
           request.metadata:
             values:
@@ -49,9 +49,9 @@ services:
             value: "/api/v1/products"
           httpStatusCode:
             values:
-              "200": 95
-              "404": 3
-              "500": 2
+              200: 95
+              404: 3
+              500: 2
           # Attribute that belongs on the service, not the span
           datacenter:
             value: dc-1

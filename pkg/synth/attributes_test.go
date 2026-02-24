@@ -116,7 +116,7 @@ func TestNewAttributeGenerator(t *testing.T) {
 	t.Run("weighted values", func(t *testing.T) {
 		t.Parallel()
 		gen, err := NewAttributeGenerator(AttributeValueConfig{
-			Values: map[string]int{"200": 95, "404": 3, "500": 2},
+			Values: map[any]int{"200": 95, "404": 3, "500": 2},
 		})
 		require.NoError(t, err)
 		assert.IsType(t, &WeightedChoice{}, gen)
@@ -142,7 +142,7 @@ func TestNewAttributeGenerator(t *testing.T) {
 		t.Parallel()
 		_, err := NewAttributeGenerator(AttributeValueConfig{
 			Value:  "static",
-			Values: map[string]int{"a": 1},
+			Values: map[any]int{"a": 1},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exactly one")
@@ -151,7 +151,7 @@ func TestNewAttributeGenerator(t *testing.T) {
 	t.Run("empty values map is error", func(t *testing.T) {
 		t.Parallel()
 		_, err := NewAttributeGenerator(AttributeValueConfig{
-			Values: map[string]int{},
+			Values: map[any]int{},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exactly one")
@@ -160,7 +160,7 @@ func TestNewAttributeGenerator(t *testing.T) {
 	t.Run("zero weight is error", func(t *testing.T) {
 		t.Parallel()
 		_, err := NewAttributeGenerator(AttributeValueConfig{
-			Values: map[string]int{"ok": 0},
+			Values: map[any]int{"ok": 0},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "positive")
@@ -169,7 +169,7 @@ func TestNewAttributeGenerator(t *testing.T) {
 	t.Run("negative weight is error", func(t *testing.T) {
 		t.Parallel()
 		_, err := NewAttributeGenerator(AttributeValueConfig{
-			Values: map[string]int{"ok": -1},
+			Values: map[any]int{"ok": -1},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "positive")

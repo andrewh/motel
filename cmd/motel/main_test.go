@@ -834,8 +834,7 @@ func TestShutdownAllConcurrent(t *testing.T) {
 }
 
 func TestShutdownAllErrorDoesNotBlock(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: swaps os.Stderr which is a global.
 	items := []*mockShutdownable{
 		{},
 		{shutdownFunc: func(ctx context.Context) error {
@@ -844,7 +843,6 @@ func TestShutdownAllErrorDoesNotBlock(t *testing.T) {
 		{},
 	}
 
-	// Capture stderr to verify error is logged.
 	origStderr := os.Stderr
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -865,7 +863,7 @@ func TestShutdownAllErrorDoesNotBlock(t *testing.T) {
 }
 
 func TestShutdownAllRespectsContext(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps os.Stderr which is a global.
 
 	items := []*mockShutdownable{
 		{},

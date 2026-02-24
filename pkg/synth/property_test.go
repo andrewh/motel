@@ -813,7 +813,7 @@ func TestProperty_StaticValue_AlwaysReturnsSameValue(t *testing.T) {
 func TestProperty_WeightedChoice_OutputInChoices(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(1, 5).Draw(t, "nChoices")
-		values := make(map[string]int)
+		values := make(map[any]int)
 		for i := range n {
 			key := fmt.Sprintf("choice%d", i)
 			weight := rapid.IntRange(1, 100).Draw(t, fmt.Sprintf("w%d", i))

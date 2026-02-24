@@ -26,7 +26,7 @@ func benchmarkTopology() *Config {
 					Attributes: map[string]AttributeValueConfig{
 						"http.method":      {Value: "GET"},
 						"http.route":       {Value: "/api/users"},
-						"http.status_code": {Values: map[string]int{"200": 90, "404": 5, "500": 5}},
+						"http.status_code": {Values: map[any]int{"200": 90, "404": 5, "500": 5}},
 					},
 					Calls: []CallConfig{{Target: "backend.query"}, {Target: "cache.get"}},
 				}},
@@ -38,7 +38,7 @@ func benchmarkTopology() *Config {
 					Duration: "15ms +/- 5ms",
 					Attributes: map[string]AttributeValueConfig{
 						"db.system":    {Value: "postgresql"},
-						"db.operation": {Values: map[string]int{"SELECT": 80, "INSERT": 15, "UPDATE": 5}},
+						"db.operation": {Values: map[any]int{"SELECT": 80, "INSERT": 15, "UPDATE": 5}},
 					},
 					Calls: []CallConfig{{Target: "database.execute"}},
 				}},
@@ -118,7 +118,7 @@ func BenchmarkAttributeGeneration(b *testing.B) {
 	})
 
 	b.Run("WeightedChoice", func(b *testing.B) {
-		gen, err := newWeightedChoice(map[string]int{"200": 90, "404": 5, "500": 5})
+		gen, err := newWeightedChoice(map[any]int{"200": 90, "404": 5, "500": 5})
 		if err != nil {
 			b.Fatal(err)
 		}

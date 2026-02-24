@@ -265,7 +265,7 @@ func TestBuildScenariosWithAttributes(t *testing.T) {
 		Override: map[string]OverrideConfig{
 			"svc.op": {
 				Attributes: map[string]AttributeValueConfig{
-					"http.status": {Values: map[string]int{"503": 80, "200": 20}},
+					"http.status": {Values: map[any]int{"503": 80, "200": 20}},
 				},
 			},
 		},
