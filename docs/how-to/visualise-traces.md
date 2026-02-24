@@ -2,10 +2,16 @@
 
 motel generates OTLP traces, but you need a backend to actually see them. This guide covers four options, from zero-setup terminal viewing to hosted platforms.
 
-All examples use the [basic topology](../examples/basic-topology.yaml) — a five-service setup with a gateway, two backends, and two datastores. Copy it locally or pass the path directly:
+All examples use the [basic topology](../examples/basic-topology.yaml) — a five-service setup with a gateway, two backends, and two datastores. If you have the source tree, copy it locally:
 
 ```sh
 cp docs/examples/basic-topology.yaml my-topology.yaml
+```
+
+Or fetch it directly from GitHub (motel accepts URLs anywhere a file path is accepted):
+
+```sh
+motel validate https://raw.githubusercontent.com/andrewh/motel/main/docs/examples/basic-topology.yaml
 ```
 
 ## otel-cli (terminal, zero setup)

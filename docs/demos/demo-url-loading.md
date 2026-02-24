@@ -1,9 +1,9 @@
-# Loading Topologies from URLs
+# motel: Loading Topologies from URLs
 
 *2026-02-24T13:44:42Z by Showboat 0.6.1*
 <!-- showboat-id: 673702d5-5bd8-4a83-a614-cc2ee3061f7e -->
 
-motel accepts `http://` and `https://` URLs anywhere a topology file path is accepted. This means `validate`, `check`, `run`, and `preview` all work with remote topologies — useful for sharing topologies via GitHub, internal servers, or any HTTP endpoint.
+motel accepts `http://` and `https://` URLs anywhere a topology file path is accepted (`validate`, `check`, `run`, and `preview`). This is useful for sharing topologies via GitHub, internal servers, or any HTTP endpoint. URL fetches have a 10-second timeout and a 10 MB response body limit.
 
 ## Local HTTP server
 
