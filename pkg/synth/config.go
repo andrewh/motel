@@ -5,7 +5,9 @@ package synth
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -195,22 +197,36 @@ func readSource(source string) ([]byte, error) {
 		}
 		resp, err := client.Get(source) //nolint:gosec // user-supplied URL is expected
 		if err != nil {
-			return nil, fmt.Errorf("fetching URL: %w", err)
+			return nil, fmt.Errorf("fetching %s: %w", source, unwrapHTTPError(err))
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("fetching URL: HTTP %d", resp.StatusCode)
+			return nil, fmt.Errorf("fetching %s: HTTP %d", source, resp.StatusCode)
 		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes+1))
 		if err != nil {
 			return nil, fmt.Errorf("reading URL body: %w", err)
 		}
 		if int64(len(data)) > maxSourceBytes {
-			return nil, fmt.Errorf("fetching URL: response body exceeds %d bytes", maxSourceBytes)
+			return nil, fmt.Errorf("fetching %s: response body exceeds %d bytes", source, maxSourceBytes)
 		}
 		return data, nil
 	}
 	return os.ReadFile(source) //nolint:gosec // user-supplied config path is expected
+}
+
+// unwrapHTTPError extracts a human-readable error from nested http/url/net errors.
+// Go's http.Client wraps errors as *url.Error → *net.OpError → syscall error,
+// producing messages like: Get "http://...": dial tcp [::1]:1: connect: connection refused.
+// This unwraps to the innermost message (e.g. "connection refused").
+func unwrapHTTPError(err error) error {
+	if ue, ok := err.(*url.Error); ok { //nolint:errorlint // deliberate type switch through layers
+		err = ue.Err
+	}
+	if oe, ok := err.(*net.OpError); ok { //nolint:errorlint // deliberate type switch through layers
+		err = oe.Err
+	}
+	return err
 }
 
 // LoadConfig reads and parses a YAML topology from a file path or URL.

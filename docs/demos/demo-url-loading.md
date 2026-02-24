@@ -102,14 +102,14 @@ build/motel validate http://localhost:18923/nonexistent.yaml 2>&1; echo "exit co
 ```
 
 ```output
-Error: reading config: fetching URL: HTTP 404
+Error: reading config: fetching http://localhost:18923/nonexistent.yaml: HTTP 404
 exit code: 1
 ```
 
 An unreachable server:
 
 ```bash
-build/motel validate http://localhost:1/topology.yaml 2>&1 | grep -c 'fetching URL'
+build/motel validate http://localhost:1/topology.yaml 2>&1 | grep -c 'connection refused'
 ```
 
 ```output

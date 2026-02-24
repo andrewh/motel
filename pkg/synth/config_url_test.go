@@ -56,7 +56,7 @@ traffic:
 		t.Parallel()
 		_, err := LoadConfig("http://127.0.0.1:1/topology.yaml")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "fetching URL")
+		assert.Contains(t, err.Error(), "connection refused")
 	})
 
 	t.Run("returns error when response exceeds size limit", func(t *testing.T) {
