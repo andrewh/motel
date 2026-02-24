@@ -31,6 +31,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -369,58 +371,35 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		return fmt.Errorf("creating resource: %w", err)
 	}
 
-	// Create one tracer provider per service so each has the correct service.name resource.
-	providers := make(map[string]*sdktrace.TracerProvider, len(topo.Services))
-	defer func() {
-		seen := make(map[*sdktrace.TracerProvider]bool, len(providers))
-		for _, tp := range providers {
-			if seen[tp] {
-				continue
-			}
-			seen[tp] = true
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			if err := tp.Shutdown(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
-			}
-			cancel()
+	// Build per-service resources and create signal providers.
+	// Each service gets its own providers with the correct service.name resource.
+	// Providers within each signal share a single exporter and processor.
+	serviceResources := make(map[string]*resource.Resource, len(topo.Services))
+	for name := range topo.Services {
+		svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
+			attribute.String("service.name", name),
+		))
+		if resErr != nil {
+			return fmt.Errorf("creating resource for service %s: %w", name, resErr)
 		}
-	}()
-	if enabledSignals["traces"] {
-		for name := range topo.Services {
-			svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
-				attribute.String("service.name", name),
-			))
-			if resErr != nil {
-				return fmt.Errorf("creating resource for service %s: %w", name, resErr)
-			}
-			tp, tpErr := createTracerProvider(ctx, opts, svcRes)
-			if tpErr != nil {
-				return fmt.Errorf("creating tracer provider for service %s: %w", name, tpErr)
-			}
-			providers[name] = tp
-		}
-	} else {
-		noopTP := sdktrace.NewTracerProvider()
-		for name := range topo.Services {
-			providers[name] = noopTP
-		}
+		serviceResources[name] = svcRes
 	}
+
+	traceProviders, shutdownTraces, err := createTraceProviders(ctx, opts, enabledSignals["traces"], serviceResources)
+	if err != nil {
+		return fmt.Errorf("creating trace providers: %w", err)
+	}
+	defer shutdownTraces()
 
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
-		mp, shutdownMP, mErr := createMeterProvider(ctx, opts, baseRes)
+		meters, shutdownMetrics, mErr := createMetricProviders(ctx, opts, serviceResources)
 		if mErr != nil {
-			return fmt.Errorf("creating meter provider: %w", mErr)
+			return fmt.Errorf("creating metric providers: %w", mErr)
 		}
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer cancel()
-			if err := shutdownMP(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down meter provider: %v\n", err)
-			}
-		}()
-		obs, mErr := synth.NewMetricObserver(mp)
+		defer shutdownMetrics()
+		obs, mErr := synth.NewMetricObserver(meters)
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
@@ -428,18 +407,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	if enabledSignals["logs"] {
-		lp, shutdownLP, lErr := createLoggerProvider(ctx, opts, baseRes)
+		loggers, shutdownLogs, lErr := createLogProviders(ctx, opts, serviceResources)
 		if lErr != nil {
-			return fmt.Errorf("creating logger provider: %w", lErr)
+			return fmt.Errorf("creating log providers: %w", lErr)
 		}
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer cancel()
-			if err := shutdownLP(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down logger provider: %v\n", err)
-			}
-		}()
-		observers = append(observers, synth.NewLogObserver(lp, opts.slowThreshold))
+		defer shutdownLogs()
+		observers = append(observers, synth.NewLogObserver(loggers, opts.slowThreshold))
 	}
 
 	duration := opts.duration
@@ -452,7 +425,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Traffic:   traffic,
 		Scenarios: scenarios,
 		Tracers: func(name string) trace.Tracer {
-			tp := providers[name]
+			tp := traceProviders[name]
 			if tp == nil {
 				panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
 			}
@@ -478,141 +451,204 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	return json.NewEncoder(os.Stderr).Encode(stats)
 }
 
-func createTracerProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdktrace.TracerProvider, error) {
-	if opts.stdout {
-		exporter, err := stdouttrace.New(stdouttrace.WithWriter(os.Stdout))
-		if err != nil {
-			return nil, err
+// createTraceProviders creates one TracerProvider per service sharing a single exporter
+// and processor. Returns a map of service name → provider and a shutdown function.
+func createTraceProviders(ctx context.Context, opts runOptions, enabled bool, resources map[string]*resource.Resource) (map[string]*sdktrace.TracerProvider, func(), error) {
+	providers := make(map[string]*sdktrace.TracerProvider, len(resources))
+	noopShutdown := func() {}
+
+	if !enabled {
+		noopTP := sdktrace.NewTracerProvider()
+		for name := range resources {
+			providers[name] = noopTP
 		}
-		return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter), sdktrace.WithResource(res)), nil
+		return providers, func() {
+			_ = noopTP.Shutdown(context.Background())
+		}, nil
 	}
 
+	exporter, err := createTraceExporter(ctx, opts)
+	if err != nil {
+		return nil, noopShutdown, err
+	}
+
+	var sp sdktrace.SpanProcessor
+	if opts.stdout {
+		sp = sdktrace.NewSimpleSpanProcessor(exporter)
+	} else {
+		sp = sdktrace.NewBatchSpanProcessor(exporter)
+	}
+
+	for name, res := range resources {
+		providers[name] = sdktrace.NewTracerProvider(
+			sdktrace.WithSpanProcessor(sp),
+			sdktrace.WithResource(res),
+		)
+	}
+
+	shutdown := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		// Shutting down any provider drains the shared processor and exporter.
+		// Subsequent provider shutdowns are no-ops on the already-stopped processor.
+		for _, tp := range providers {
+			if err := tp.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
+			}
+		}
+	}
+	return providers, shutdown, nil
+}
+
+func createTraceExporter(ctx context.Context, opts runOptions) (sdktrace.SpanExporter, error) {
+	if opts.stdout {
+		return stdouttrace.New(stdouttrace.WithWriter(os.Stdout))
+	}
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCProvider(ctx, opts.endpoint, res)
+		var grpcOpts []otlptracegrpc.Option
+		if opts.endpoint != "" {
+			grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(opts.endpoint), otlptracegrpc.WithInsecure())
+		}
+		return otlptracegrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
-		return createHTTPProvider(ctx, opts.endpoint, res)
+		var httpOpts []otlptracehttp.Option
+		if opts.endpoint != "" {
+			httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(opts.endpoint), otlptracehttp.WithInsecure())
+		}
+		return otlptracehttp.New(ctx, httpOpts...)
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", opts.protocol)
 	}
 }
 
-func createHTTPProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdktrace.TracerProvider, error) {
-	var httpOpts []otlptracehttp.Option
-	if endpoint != "" {
-		httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(endpoint), otlptracehttp.WithInsecure())
-	}
-	exporter, err := otlptracehttp.New(ctx, httpOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res)), nil
+// noopShutdownMetricExporter wraps a metric exporter to ignore Shutdown calls.
+// This allows multiple PeriodicReaders to share an exporter without the first
+// reader's shutdown closing it for the rest. The real exporter is shut down
+// separately after all providers are drained.
+type noopShutdownMetricExporter struct {
+	sdkmetric.Exporter
 }
 
-func createGRPCProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdktrace.TracerProvider, error) {
-	var grpcOpts []otlptracegrpc.Option
-	if endpoint != "" {
-		grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
-	}
-	exporter, err := otlptracegrpc.New(ctx, grpcOpts...)
+func (e *noopShutdownMetricExporter) Shutdown(context.Context) error { return nil }
+
+// createMetricProviders creates per-service meters sharing a single exporter.
+// Returns a map of service name → Meter and a shutdown function.
+func createMetricProviders(ctx context.Context, opts runOptions, resources map[string]*resource.Resource) (map[string]metric.Meter, func(), error) {
+	exporter, err := createMetricExporter(ctx, opts)
 	if err != nil {
-		return nil, err
+		return nil, func() {}, err
 	}
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res)), nil
-}
 
-type shutdownFunc func(ctx context.Context) error
+	wrapper := &noopShutdownMetricExporter{exporter}
+	providers := make([]*sdkmetric.MeterProvider, 0, len(resources))
+	meters := make(map[string]metric.Meter, len(resources))
 
-func createMeterProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
-	if opts.stdout {
-		exporter, err := stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
-		if err != nil {
-			return nil, nil, err
+	for name, res := range resources {
+		mp := sdkmetric.NewMeterProvider(
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(wrapper)),
+			sdkmetric.WithResource(res),
+		)
+		providers = append(providers, mp)
+		meters[name] = mp.Meter("motel")
+	}
+
+	shutdown := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		for _, mp := range providers {
+			if err := mp.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down meter provider: %v\n", err)
+			}
 		}
-		mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
-		return mp, mp.Shutdown, nil
+		if err := exporter.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "error shutting down metric exporter: %v\n", err)
+		}
 	}
+	return meters, shutdown, nil
+}
 
+func createMetricExporter(ctx context.Context, opts runOptions) (sdkmetric.Exporter, error) {
+	if opts.stdout {
+		return stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
+	}
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCMeterProvider(ctx, opts.endpoint, res)
-	case "http/protobuf", "":
-		return createHTTPMeterProvider(ctx, opts.endpoint, res)
-	default:
-		return nil, nil, fmt.Errorf("unsupported protocol %q for metrics", opts.protocol)
-	}
-}
-
-func createHTTPMeterProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
-	var httpOpts []otlpmetrichttp.Option
-	if endpoint != "" {
-		httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(endpoint), otlpmetrichttp.WithInsecure())
-	}
-	exporter, err := otlpmetrichttp.New(ctx, httpOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
-	return mp, mp.Shutdown, nil
-}
-
-func createGRPCMeterProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdkmetric.MeterProvider, shutdownFunc, error) {
-	var grpcOpts []otlpmetricgrpc.Option
-	if endpoint != "" {
-		grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(endpoint), otlpmetricgrpc.WithInsecure())
-	}
-	exporter, err := otlpmetricgrpc.New(ctx, grpcOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)), sdkmetric.WithResource(res))
-	return mp, mp.Shutdown, nil
-}
-
-func createLoggerProvider(ctx context.Context, opts runOptions, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
-	if opts.stdout {
-		exporter, err := stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
-		if err != nil {
-			return nil, nil, err
+		var grpcOpts []otlpmetricgrpc.Option
+		if opts.endpoint != "" {
+			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(opts.endpoint), otlpmetricgrpc.WithInsecure())
 		}
-		lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)), sdklog.WithResource(res))
-		return lp, lp.Shutdown, nil
+		return otlpmetricgrpc.New(ctx, grpcOpts...)
+	case "http/protobuf", "":
+		var httpOpts []otlpmetrichttp.Option
+		if opts.endpoint != "" {
+			httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(opts.endpoint), otlpmetrichttp.WithInsecure())
+		}
+		return otlpmetrichttp.New(ctx, httpOpts...)
+	default:
+		return nil, fmt.Errorf("unsupported protocol %q for metrics", opts.protocol)
+	}
+}
+
+// createLogProviders creates per-service loggers sharing a single exporter and processor.
+// Returns a map of service name → Logger and a shutdown function.
+func createLogProviders(ctx context.Context, opts runOptions, resources map[string]*resource.Resource) (map[string]log.Logger, func(), error) {
+	exporter, err := createLogExporter(ctx, opts)
+	if err != nil {
+		return nil, func() {}, err
 	}
 
+	var processor sdklog.Processor
+	if opts.stdout {
+		processor = sdklog.NewSimpleProcessor(exporter)
+	} else {
+		processor = sdklog.NewBatchProcessor(exporter)
+	}
+
+	loggers := make(map[string]log.Logger, len(resources))
+	providers := make([]*sdklog.LoggerProvider, 0, len(resources))
+
+	for name, res := range resources {
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithProcessor(processor),
+			sdklog.WithResource(res),
+		)
+		providers = append(providers, lp)
+		loggers[name] = lp.Logger("motel")
+	}
+
+	shutdown := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		for _, lp := range providers {
+			if err := lp.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down logger provider: %v\n", err)
+			}
+		}
+	}
+	return loggers, shutdown, nil
+}
+
+func createLogExporter(ctx context.Context, opts runOptions) (sdklog.Exporter, error) {
+	if opts.stdout {
+		return stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
+	}
 	switch opts.protocol {
 	case "grpc":
-		return createGRPCLoggerProvider(ctx, opts.endpoint, res)
+		var grpcOpts []otlploggrpc.Option
+		if opts.endpoint != "" {
+			grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(opts.endpoint), otlploggrpc.WithInsecure())
+		}
+		return otlploggrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
-		return createHTTPLoggerProvider(ctx, opts.endpoint, res)
+		var httpOpts []otlploghttp.Option
+		if opts.endpoint != "" {
+			httpOpts = append(httpOpts, otlploghttp.WithEndpoint(opts.endpoint), otlploghttp.WithInsecure())
+		}
+		return otlploghttp.New(ctx, httpOpts...)
 	default:
-		return nil, nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
+		return nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
 	}
-}
-
-func createHTTPLoggerProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
-	var httpOpts []otlploghttp.Option
-	if endpoint != "" {
-		httpOpts = append(httpOpts, otlploghttp.WithEndpoint(endpoint), otlploghttp.WithInsecure())
-	}
-	exporter, err := otlploghttp.New(ctx, httpOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)), sdklog.WithResource(res))
-	return lp, lp.Shutdown, nil
-}
-
-func createGRPCLoggerProvider(ctx context.Context, endpoint string, res *resource.Resource) (*sdklog.LoggerProvider, shutdownFunc, error) {
-	var grpcOpts []otlploggrpc.Option
-	if endpoint != "" {
-		grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(endpoint), otlploggrpc.WithInsecure())
-	}
-	exporter, err := otlploggrpc.New(ctx, grpcOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)), sdklog.WithResource(res))
-	return lp, lp.Shutdown, nil
 }
 
 func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {

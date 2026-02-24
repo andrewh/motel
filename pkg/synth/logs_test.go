@@ -40,20 +40,25 @@ func (e *memoryLogExporter) get() []sdklog.Record {
 	return out
 }
 
-func newTestLogObserver(t *testing.T, slowThreshold time.Duration) (*LogObserver, *memoryLogExporter) {
+func newTestLogObserver(t *testing.T, slowThreshold time.Duration, services ...string) (*LogObserver, *memoryLogExporter) {
 	t.Helper()
 	exporter := &memoryLogExporter{}
 	lp := sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)),
 	)
 	t.Cleanup(func() { _ = lp.Shutdown(context.Background()) })
-	return NewLogObserver(lp, slowThreshold), exporter
+
+	loggers := make(map[string]otellog.Logger, len(services))
+	for _, name := range services {
+		loggers[name] = lp.Logger("motel")
+	}
+	return NewLogObserver(loggers, slowThreshold), exporter
 }
 
 func TestLogObserverErrorSpan(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 0)
+	obs, exporter := newTestLogObserver(t, 0, "svc", "api")
 
 	obs.Observe(SpanInfo{
 		Service:   "svc",
@@ -73,7 +78,7 @@ func TestLogObserverErrorSpan(t *testing.T) {
 func TestLogObserverSlowSpan(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 100*time.Millisecond)
+	obs, exporter := newTestLogObserver(t, 100*time.Millisecond, "backend")
 
 	obs.Observe(SpanInfo{
 		Service:   "backend",
@@ -93,7 +98,7 @@ func TestLogObserverSlowSpan(t *testing.T) {
 func TestLogObserverBothErrorAndSlow(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 50*time.Millisecond)
+	obs, exporter := newTestLogObserver(t, 50*time.Millisecond, "svc")
 
 	obs.Observe(SpanInfo{
 		Service:   "svc",
@@ -117,7 +122,7 @@ func TestLogObserverBothErrorAndSlow(t *testing.T) {
 func TestLogObserverNormalSpan(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 1*time.Second)
+	obs, exporter := newTestLogObserver(t, 1*time.Second, "svc")
 
 	obs.Observe(SpanInfo{
 		Service:   "svc",
@@ -134,7 +139,7 @@ func TestLogObserverNormalSpan(t *testing.T) {
 func TestLogObserverNoSlowThreshold(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 0)
+	obs, exporter := newTestLogObserver(t, 0, "svc", "api")
 
 	obs.Observe(SpanInfo{
 		Service:   "svc",
@@ -151,7 +156,7 @@ func TestLogObserverNoSlowThreshold(t *testing.T) {
 func TestLogObserverAttributes(t *testing.T) {
 	t.Parallel()
 
-	obs, exporter := newTestLogObserver(t, 0)
+	obs, exporter := newTestLogObserver(t, 0, "svc", "api")
 
 	obs.Observe(SpanInfo{
 		Service:   "api",
@@ -169,6 +174,6 @@ func TestLogObserverAttributes(t *testing.T) {
 		attrMap[kv.Key] = kv.Value.AsString()
 		return true
 	})
-	assert.Equal(t, "api", attrMap["service.name"])
 	assert.Equal(t, "POST /orders", attrMap["operation.name"])
+	assert.Empty(t, attrMap["service.name"], "service.name should be on resource, not log attributes")
 }

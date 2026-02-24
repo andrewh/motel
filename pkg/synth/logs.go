@@ -12,23 +12,28 @@ import (
 
 // LogObserver emits log records for notable span events.
 type LogObserver struct {
-	logger        log.Logger
+	loggers       map[string]log.Logger
 	slowThreshold time.Duration
 }
 
-// NewLogObserver creates a LogObserver that emits logs via the given LoggerProvider.
+// NewLogObserver creates a LogObserver that emits logs via per-service loggers.
+// Each logger should come from a LoggerProvider whose resource has the correct service.name.
 // A slowThreshold of 0 disables slow span detection.
-func NewLogObserver(lp log.LoggerProvider, slowThreshold time.Duration) *LogObserver {
+func NewLogObserver(loggers map[string]log.Logger, slowThreshold time.Duration) *LogObserver {
 	return &LogObserver{
-		logger:        lp.Logger("motel"),
+		loggers:       loggers,
 		slowThreshold: slowThreshold,
 	}
 }
 
 // Observe emits log records for error spans and spans exceeding the slow threshold.
 func (l *LogObserver) Observe(info SpanInfo) {
+	logger := l.loggers[info.Service]
+	if logger == nil {
+		return
+	}
+
 	attrs := []log.KeyValue{
-		log.String("service.name", info.Service),
 		log.String("operation.name", info.Operation),
 	}
 
@@ -38,7 +43,7 @@ func (l *LogObserver) Observe(info SpanInfo) {
 		rec.SetSeverityText("ERROR")
 		rec.SetBody(log.StringValue(fmt.Sprintf("error in %s %s", info.Service, info.Operation)))
 		rec.AddAttributes(attrs...)
-		l.logger.Emit(context.Background(), rec)
+		logger.Emit(context.Background(), rec)
 	}
 
 	if l.slowThreshold > 0 && info.Duration > l.slowThreshold {
@@ -50,6 +55,6 @@ func (l *LogObserver) Observe(info SpanInfo) {
 			info.Service, info.Operation, info.Duration, l.slowThreshold,
 		)))
 		rec.AddAttributes(attrs...)
-		l.logger.Emit(context.Background(), rec)
+		logger.Emit(context.Background(), rec)
 	}
 }
