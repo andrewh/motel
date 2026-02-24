@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -489,13 +490,7 @@ func createTraceProviders(ctx context.Context, opts runOptions, enabled bool, re
 	shutdown := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		// Shutting down any provider drains the shared processor and exporter.
-		// Subsequent provider shutdowns are no-ops on the already-stopped processor.
-		for _, tp := range providers {
-			if err := tp.Shutdown(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down tracer provider: %v\n", err)
-			}
-		}
+		shutdownAll(shutdownCtx, mapValues(providers), "tracer provider")
 	}
 	return providers, shutdown, nil
 }
@@ -556,11 +551,7 @@ func createMetricProviders(ctx context.Context, opts runOptions, resources map[s
 	shutdown := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		for _, mp := range providers {
-			if err := mp.Shutdown(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down meter provider: %v\n", err)
-			}
-		}
+		shutdownAll(shutdownCtx, providers, "meter provider")
 		if err := exporter.Shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "error shutting down metric exporter: %v\n", err)
 		}
@@ -620,11 +611,7 @@ func createLogProviders(ctx context.Context, opts runOptions, resources map[stri
 	shutdown := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		for _, lp := range providers {
-			if err := lp.Shutdown(shutdownCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "error shutting down logger provider: %v\n", err)
-			}
-		}
+		shutdownAll(shutdownCtx, providers, "logger provider")
 	}
 	return loggers, shutdown, nil
 }
@@ -649,6 +636,34 @@ func createLogExporter(ctx context.Context, opts runOptions) (sdklog.Exporter, e
 	default:
 		return nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
 	}
+}
+
+// shutdownable is anything with a Shutdown method (TracerProvider, MeterProvider, LoggerProvider).
+type shutdownable interface {
+	Shutdown(context.Context) error
+}
+
+// shutdownAll shuts down all items concurrently within the given context.
+// Errors are logged to stderr individually; a slow item does not block others.
+func shutdownAll[S shutdownable](ctx context.Context, items []S, label string) {
+	var wg sync.WaitGroup
+	for _, item := range items {
+		wg.Go(func() {
+			if err := item.Shutdown(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "error shutting down %s: %v\n", label, err)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// mapValues returns the values of a map as a slice.
+func mapValues[K comparable, V any](m map[K]V) []V {
+	vals := make([]V, 0, len(m))
+	for _, v := range m {
+		vals = append(vals, v)
+	}
+	return vals
 }
 
 func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {

@@ -3,11 +3,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -768,4 +772,173 @@ func TestImportCommand(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, stderr.String(), "only 1 trace")
 	})
+}
+
+// mockShutdownable records shutdown calls and executes a configurable function.
+type mockShutdownable struct {
+	shutdownFunc func(context.Context) error
+	called       atomic.Bool
+	shutdownAt   atomic.Int64
+}
+
+func (m *mockShutdownable) Shutdown(ctx context.Context) error {
+	m.called.Store(true)
+	m.shutdownAt.Store(time.Now().UnixNano())
+	if m.shutdownFunc != nil {
+		return m.shutdownFunc(ctx)
+	}
+	return nil
+}
+
+func TestShutdownAllBasic(t *testing.T) {
+	t.Parallel()
+
+	items := make([]*mockShutdownable, 5)
+	for i := range items {
+		items[i] = &mockShutdownable{}
+	}
+
+	ctx := context.Background()
+	shutdownAll(ctx, items, "test")
+
+	for i, item := range items {
+		assert.True(t, item.called.Load(), "item %d was not shut down", i)
+	}
+}
+
+func TestShutdownAllConcurrent(t *testing.T) {
+	t.Parallel()
+
+	const n = 10
+	items := make([]*mockShutdownable, n)
+	for i := range items {
+		items[i] = &mockShutdownable{
+			shutdownFunc: func(ctx context.Context) error {
+				time.Sleep(100 * time.Millisecond)
+				return nil
+			},
+		}
+	}
+
+	start := time.Now()
+	shutdownAll(context.Background(), items, "test")
+	elapsed := time.Since(start)
+
+	// Sequential would take n*100ms = 1s. Concurrent should be ~100ms.
+	assert.Less(t, elapsed, 500*time.Millisecond,
+		"expected concurrent shutdown in ~100ms, got %v", elapsed)
+
+	for i, item := range items {
+		assert.True(t, item.called.Load(), "item %d was not shut down", i)
+	}
+}
+
+func TestShutdownAllErrorDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	items := []*mockShutdownable{
+		{},
+		{shutdownFunc: func(ctx context.Context) error {
+			return fmt.Errorf("provider broken")
+		}},
+		{},
+	}
+
+	// Capture stderr to verify error is logged.
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	shutdownAll(context.Background(), items, "test widget")
+
+	w.Close()
+	os.Stderr = origStderr
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	for i, item := range items {
+		assert.True(t, item.called.Load(), "item %d was not shut down", i)
+	}
+	assert.Contains(t, buf.String(), "error shutting down test widget")
+	assert.Contains(t, buf.String(), "provider broken")
+}
+
+func TestShutdownAllRespectsContext(t *testing.T) {
+	t.Parallel()
+
+	items := []*mockShutdownable{
+		{},
+		{shutdownFunc: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}},
+		{},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Capture stderr to suppress expected error log.
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	start := time.Now()
+	shutdownAll(ctx, items, "test")
+	elapsed := time.Since(start)
+
+	w.Close()
+	os.Stderr = origStderr
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	assert.Less(t, elapsed, time.Second,
+		"expected shutdownAll to return after context deadline, got %v", elapsed)
+
+	for i, item := range items {
+		assert.True(t, item.called.Load(), "item %d was not shut down", i)
+	}
+	assert.Contains(t, buf.String(), "context deadline exceeded")
+}
+
+func TestShutdownAllEmpty(t *testing.T) {
+	t.Parallel()
+
+	// Should not panic or hang.
+	shutdownAll(context.Background(), []*mockShutdownable{}, "test")
+}
+
+func TestMetricShutdownExporterOrder(t *testing.T) {
+	t.Parallel()
+
+	var exporterShutdownAt atomic.Int64
+	exporter := &mockShutdownable{
+		shutdownFunc: func(ctx context.Context) error {
+			exporterShutdownAt.Store(time.Now().UnixNano())
+			return nil
+		},
+	}
+
+	providers := make([]*mockShutdownable, 5)
+	for i := range providers {
+		providers[i] = &mockShutdownable{
+			shutdownFunc: func(ctx context.Context) error {
+				time.Sleep(50 * time.Millisecond)
+				return nil
+			},
+		}
+	}
+
+	// Replicate the metrics shutdown pattern: drain providers, then shut down exporter.
+	ctx := context.Background()
+	shutdownAll(ctx, providers, "meter provider")
+	_ = exporter.Shutdown(ctx)
+
+	exporterTime := exporterShutdownAt.Load()
+	for i, p := range providers {
+		assert.Less(t, p.shutdownAt.Load(), exporterTime,
+			"provider %d shut down after exporter", i)
+	}
 }
