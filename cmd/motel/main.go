@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // pprof endpoint is opt-in via --pprof flag
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -490,7 +492,7 @@ func createTraceProviders(ctx context.Context, opts runOptions, enabled bool, re
 	shutdown := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		shutdownAll(shutdownCtx, mapValues(providers), "tracer provider")
+		shutdownAll(shutdownCtx, slices.Collect(maps.Values(providers)), "tracer provider")
 	}
 	return providers, shutdown, nil
 }
@@ -655,15 +657,6 @@ func shutdownAll[S shutdownable](ctx context.Context, items []S, label string) {
 		})
 	}
 	wg.Wait()
-}
-
-// mapValues returns the values of a map as a slice.
-func mapValues[K comparable, V any](m map[K]V) []V {
-	vals := make([]V, 0, len(m))
-	for _, v := range m {
-		vals = append(vals, v)
-	}
-	return vals
 }
 
 func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {
