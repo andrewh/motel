@@ -220,9 +220,14 @@ func readSource(source string) ([]byte, error) {
 // producing messages like: Get "http://...": dial tcp [::1]:1: connect: connection refused.
 // This unwraps to the innermost message (e.g. "connection refused").
 func unwrapHTTPError(err error) error {
-	if ue, ok := err.(*url.Error); ok { //nolint:errorlint // deliberate type switch through layers
-		err = ue.Err
+	ue, ok := err.(*url.Error) //nolint:errorlint // deliberate type switch through layers
+	if !ok {
+		return err
 	}
+	if ue.Timeout() {
+		return fmt.Errorf("timed out after 10s")
+	}
+	err = ue.Err
 	if oe, ok := err.(*net.OpError); ok { //nolint:errorlint // deliberate type switch through layers
 		err = oe.Err
 	}

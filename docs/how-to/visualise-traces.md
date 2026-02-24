@@ -1,5 +1,7 @@
 # Visualise Traces
 
+> Images are coming soon.
+
 motel generates OTLP traces, but you need a backend to actually see them. This guide covers four options, from zero-setup terminal viewing to hosted platforms.
 
 All examples use the [basic topology](../examples/basic-topology.yaml) — a five-service setup with a gateway, two backends, and two datastores. If you have the source tree, copy it locally:
