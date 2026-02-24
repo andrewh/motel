@@ -52,12 +52,24 @@ See [Use motel with otel-cli](use-with-otel-cli.md) for more detail.
 
 ### Prerequisites
 
-- Docker installed and running
+- Docker or [Apple Container](https://github.com/apple/container) (macOS 26+, Apple silicon)
 
 ### Start Jaeger
 
+With Docker:
+
 ```sh
 docker run --rm -d --name jaeger \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:latest
+```
+
+With Apple Container:
+
+```sh
+container run --rm -d --name jaeger \
   -p 4317:4317 \
   -p 4318:4318 \
   -p 16686:16686 \
@@ -95,17 +107,23 @@ Things to check:
 docker stop jaeger
 ```
 
-## Grafana + Tempo (Docker Compose, self-hosted)
+Or with Apple Container:
 
-[Grafana Tempo](https://grafana.com/oss/tempo/) is a trace backend that integrates with Grafana's Explore view. This setup uses Docker Compose to run Tempo and Grafana together.
+```sh
+container stop jaeger
+```
+
+## Grafana + Tempo (self-hosted)
+
+[Grafana Tempo](https://grafana.com/oss/tempo/) is a trace backend that integrates with Grafana's Explore view. This setup runs Tempo and Grafana together so you can send traces to Tempo and visualise them in Grafana.
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
+- Docker (with Docker Compose) or [Apple Container](https://github.com/apple/container) (macOS 26+, Apple silicon)
 
 ### Create the configuration
 
-Create a directory for the compose project:
+Create a directory for the project:
 
 ```sh
 mkdir motel-tempo && cd motel-tempo
@@ -137,6 +155,21 @@ storage:
       path: /var/tempo/wal
 ```
 
+Create `grafana-datasources.yaml`:
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: true
+```
+
+### Start the stack with Docker Compose
+
 Create `docker-compose.yaml`:
 
 ```yaml
@@ -162,24 +195,36 @@ services:
       - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
 ```
 
-Create `grafana-datasources.yaml`:
-
-```yaml
-apiVersion: 1
-
-datasources:
-  - name: Tempo
-    type: tempo
-    access: proxy
-    url: http://tempo:3200
-    isDefault: true
-```
-
-### Start the stack
-
 ```sh
 docker compose up -d
 ```
+
+### Start the stack with Apple Container
+
+Apple Container does not have a compose equivalent, so start the containers individually on a shared network:
+
+```sh
+container network create motel-tempo
+
+container run --rm -d --name tempo \
+  --network motel-tempo \
+  -v ./tempo.yaml:/etc/tempo.yaml:ro \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 3200:3200 \
+  grafana/tempo:latest \
+  -config.file=/etc/tempo.yaml
+
+container run --rm -d --name grafana \
+  --network motel-tempo \
+  -e GF_AUTH_ANONYMOUS_ENABLED=true \
+  -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+  -v ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro \
+  -p 3000:3000 \
+  grafana/grafana:latest
+```
+
+The shared `motel-tempo` network lets Grafana reach Tempo by container name (`http://tempo:3200`), matching the datasource configuration.
 
 Wait a few seconds for Grafana and Tempo to start.
 
@@ -198,8 +243,18 @@ Open <http://localhost:3000/explore> in your browser. Select **Tempo** as the da
 
 ### Clean up
 
+With Docker Compose:
+
 ```sh
 docker compose down
+cd .. && rm -rf motel-tempo
+```
+
+With Apple Container:
+
+```sh
+container stop tempo grafana
+container network rm motel-tempo
 cd .. && rm -rf motel-tempo
 ```
 
