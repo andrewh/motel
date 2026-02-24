@@ -13,19 +13,23 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // DefaultMaxSpansPerTrace is the safety bound for span generation per trace.
 const DefaultMaxSpansPerTrace = 10_000
 
+// TracerSource returns a trace.Tracer for the named service.
+// The engine calls this for every span, so implementations should be cheap
+// (e.g. a map lookup or a method value on a single TracerProvider).
+type TracerSource func(serviceName string) trace.Tracer
+
 // Engine drives the trace generation simulation.
 type Engine struct {
 	Topology         *Topology
 	Traffic          TrafficPattern
 	Scenarios        []Scenario
-	Provider         *sdktrace.TracerProvider
+	Tracers          TracerSource
 	Rng              *rand.Rand
 	Duration         time.Duration
 	Observers        []SpanObserver
@@ -165,7 +169,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		return startTime, false
 	}
 	*spanCount++
-	tracer := e.Provider.Tracer(op.Service.Name)
+	tracer := e.Tracers(op.Service.Name)
 
 	// Determine effective duration, error rate, and attributes (apply overrides if active)
 	duration := op.Duration
@@ -343,7 +347,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 // emitRejectionSpan creates a short error span for a rejected request.
 func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, spanCount *int) (time.Time, bool) {
 	*spanCount++
-	tracer := e.Provider.Tracer(op.Service.Name)
+	tracer := e.Tracers(op.Service.Name)
 	endTime := startTime.Add(rejectionDuration)
 
 	kind := trace.SpanKindClient

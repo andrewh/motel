@@ -124,7 +124,7 @@ func walkOnce(t *rapid.T, cfg *Config) (*Topology, []tracetest.SpanStub, *Stats)
 
 	engine := &Engine{
 		Topology: topo,
-		Provider: tp,
+		Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 		Rng:      rng,
 	}
 
@@ -713,7 +713,7 @@ func TestProperty_Engine_ScenarioOverrideApplied(t *testing.T) {
 
 		engine := &Engine{
 			Topology: topo,
-			Provider: tp,
+			Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 			Rng:      rng,
 		}
 
@@ -770,7 +770,7 @@ func TestProperty_Engine_ScenarioErrorRateOverride(t *testing.T) {
 
 		engine := &Engine{
 			Topology: topo,
-			Provider: tp,
+			Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
 			Rng:      rng,
 		}
 
