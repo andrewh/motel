@@ -120,6 +120,21 @@ func TestNewAttributeGenerator(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.IsType(t, &WeightedChoice{}, gen)
+		wc := gen.(*WeightedChoice)
+		assert.Contains(t, wc.Choices, "200")
+	})
+
+	t.Run("weighted values with int keys", func(t *testing.T) {
+		t.Parallel()
+		gen, err := NewAttributeGenerator(AttributeValueConfig{
+			Values: map[any]int{200: 95, 404: 3, 500: 2},
+		})
+		require.NoError(t, err)
+		assert.IsType(t, &WeightedChoice{}, gen)
+		wc := gen.(*WeightedChoice)
+		assert.Contains(t, wc.Choices, 200)
+		assert.Contains(t, wc.Choices, 404)
+		assert.Contains(t, wc.Choices, 500)
 	})
 
 	t.Run("sequence", func(t *testing.T) {
