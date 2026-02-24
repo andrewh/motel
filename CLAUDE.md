@@ -36,6 +36,7 @@ docs/explanation/property-testing.md  # Property testing rationale, patterns, an
 docs/how-to/        # How-to guides (e.g. model-your-services.md)
 docs/examples/      # Example topology YAML files
 docs/demos/         # Showboat demo scripts
+docs/research/      # Related academic work and references
 docs/reference/     # CLI reference
 docs/tutorials/     # Getting started tutorial
 ```

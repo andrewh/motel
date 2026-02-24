@@ -555,6 +555,23 @@ traffic:
 		require.NoError(t, err)
 		assert.Contains(t, out.String(), "static worst-case")
 		assert.NotContains(t, out.String(), "observed")
+		assert.NotContains(t, out.String(), "p50:")
+	})
+
+	t.Run("percentile lines with samples", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--seed", "42", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "p50:")
+		assert.Contains(t, out.String(), "p95:")
+		assert.Contains(t, out.String(), "p99:")
+		assert.Contains(t, out.String(), "samples)")
 	})
 
 	t.Run("with seed for reproducibility", func(t *testing.T) {
