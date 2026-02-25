@@ -26,6 +26,12 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 | `stress-test.yaml` | High-volume bursty topology for stress-testing collector queues. |
 | `tail-sampling-test.yaml` | Mix of normal, slow, error, and VIP traces for testing tail sampling policies. |
 
+## Subdirectories
+
+| Directory | Description |
+|-----------|-------------|
+| [`dsb/`](dsb/) | DeathStarBench microservice topologies (Social Network, Hotel Reservation). |
+
 ## Further reading
 
 - [Getting started tutorial](../../docs/tutorials/getting-started.md)

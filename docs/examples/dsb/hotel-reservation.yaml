@@ -1,0 +1,267 @@
+# DeathStarBench Hotel Reservation topology
+# Models the 10-service Hotel Reservation application from:
+# Gan et al., "An Open-Source Benchmark Suite for Microservices and Their
+# Hardware-Software Implications for Cloud & Edge Systems", ASPLOS 2019.
+# https://doi.org/10.1145/3297858.3304013
+#
+# Service list and call graph verified against the DSB source:
+# https://github.com/delimitrou/DeathStarBench/tree/master/hotelReservation
+#
+# Seven entry points: search, recommend, reserve, login, review,
+# attractions (restaurants/museums/cinema split collapsed to one operation).
+# search fans out to geo + rate in parallel.
+# profile, rate, review, and reservation each check memcached before
+# falling back to mongodb.
+
+version: 1
+
+services:
+  frontend:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      GET /search:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/search"
+          http.response.status_code:
+            values:
+              200: 95
+              400: 3
+              500: 2
+        calls:
+          - search.nearby
+          - reservation.check
+          - profile.lookup
+      GET /recommend:
+        duration: 3ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/recommend"
+          http.response.status_code:
+            values:
+              200: 97
+              400: 2
+              500: 1
+        calls:
+          - recommendation.get
+          - profile.lookup
+      POST /reserve:
+        duration: 5ms +/- 2ms
+        error_rate: 0.2%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/reserve"
+          http.response.status_code:
+            values:
+              200: 90
+              400: 5
+              409: 3
+              500: 2
+        calls:
+          - user.authenticate
+          - reservation.make
+      POST /login:
+        duration: 3ms +/- 1ms
+        error_rate: 0.1%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/login"
+          http.response.status_code:
+            values:
+              200: 95
+              401: 4
+              500: 1
+        calls:
+          - user.authenticate
+      GET /review:
+        duration: 3ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/review"
+          http.response.status_code:
+            values:
+              200: 97
+              400: 2
+              500: 1
+        calls:
+          - user.authenticate
+          - review.get
+      GET /attractions:
+        duration: 3ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/attractions"
+          http.response.status_code:
+            values:
+              200: 97
+              400: 2
+              500: 1
+        calls:
+          - user.authenticate
+          - attractions.nearby
+
+  search:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      nearby:
+        duration: 8ms +/- 3ms
+        error_rate: 0.1%
+        call_style: parallel
+        calls:
+          - geo.locate
+          - rate.get
+
+  geo:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      locate:
+        duration: 15ms +/- 5ms
+        error_rate: 0.2%
+        calls:
+          - mongodb.find
+
+  rate:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      get:
+        duration: 6ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  profile:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      lookup:
+        duration: 6ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  recommendation:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      get:
+        duration: 10ms +/- 4ms
+        error_rate: 0.1%
+        calls:
+          - mongodb.find
+
+  reservation:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      check:
+        duration: 6ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+      make:
+        duration: 15ms +/- 5ms
+        error_rate: 0.5%
+        calls:
+          - memcached.get
+          - mongodb.insert
+
+  user:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      authenticate:
+        duration: 8ms +/- 3ms
+        error_rate: 0.3%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  review:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      get:
+        duration: 6ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  attractions:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      nearby:
+        duration: 8ms +/- 3ms
+        error_rate: 0.1%
+        calls:
+          - mongodb.find
+
+  mongodb:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+      db.system: mongodb
+    operations:
+      find:
+        duration: 8ms +/- 3ms
+        error_rate: 0.05%
+      insert:
+        duration: 12ms +/- 4ms
+        error_rate: 0.1%
+
+  memcached:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+      db.system: memcached
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.01%
+
+traffic:
+  rate: 100/s
+
+scenarios:
+  - name: geo service latency spike
+    at: +5m
+    duration: 10m
+    override:
+      geo.locate:
+        duration: 300ms +/- 80ms
+        error_rate: 8%
