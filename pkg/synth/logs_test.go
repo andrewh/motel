@@ -153,6 +153,29 @@ func TestLogObserverNoSlowThreshold(t *testing.T) {
 	assert.Empty(t, records, "slow detection should be disabled when threshold is 0")
 }
 
+func TestLogObserverTimestamp(t *testing.T) {
+	t.Parallel()
+
+	obs, exporter := newTestLogObserver(t, 10*time.Millisecond, "svc")
+	past := time.Now().Add(-1 * time.Hour)
+
+	obs.Observe(SpanInfo{
+		Service:   "svc",
+		Operation: "op",
+		Timestamp: past,
+		Duration:  100 * time.Millisecond,
+		IsError:   true,
+		Kind:      trace.SpanKindServer,
+	})
+
+	records := exporter.get()
+	require.Len(t, records, 2, "should emit both error and slow log records")
+	for _, r := range records {
+		assert.Equal(t, past, r.Timestamp(),
+			"log record timestamp should match the span timestamp")
+	}
+}
+
 func TestLogObserverAttributes(t *testing.T) {
 	t.Parallel()
 

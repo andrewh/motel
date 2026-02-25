@@ -334,6 +334,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		info := SpanInfo{
 			Service:   op.Service.Name,
 			Operation: op.Name,
+			Timestamp: startTime,
 			Duration:  endTime.Sub(startTime),
 			IsError:   isError,
 			Kind:      kind,
@@ -385,6 +386,7 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 		info := SpanInfo{
 			Service:   op.Service.Name,
 			Operation: op.Name,
+			Timestamp: startTime,
 			Duration:  rejectionDuration,
 			IsError:   true,
 			Kind:      kind,
