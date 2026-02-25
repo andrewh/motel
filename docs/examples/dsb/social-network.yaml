@@ -1,0 +1,276 @@
+# DeathStarBench Social Network topology
+# Models the 12-service Social Network application from:
+# Gan et al., "An Open-Source Benchmark Suite for Microservices and Their
+# Hardware-Software Implications for Cloud & Edge Systems", ASPLOS 2019.
+# https://doi.org/10.1145/3297858.3304013
+#
+# Three entry points: compose post, read home timeline, read user timeline.
+# compose-post fans out to multiple services, then writes to storage and
+# propagates to followers via social-graph and home-timeline.
+
+version: 1
+
+services:
+  nginx-frontend:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      POST /compose:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        attributes:
+          http.request.method:
+            value: POST
+          http.route:
+            value: "/api/v1/compose"
+          http.response.status_code:
+            values:
+              200: 95
+              400: 3
+              500: 2
+        calls:
+          - compose-post.compose
+      GET /home-timeline:
+        duration: 3ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/home-timeline"
+          http.response.status_code:
+            values:
+              200: 98
+              500: 2
+        calls:
+          - home-timeline.read
+      GET /user-timeline:
+        duration: 3ms +/- 1ms
+        error_rate: 0.05%
+        attributes:
+          http.request.method:
+            value: GET
+          http.route:
+            value: "/api/v1/user-timeline"
+          http.response.status_code:
+            values:
+              200: 98
+              500: 2
+        calls:
+          - user-timeline.read
+
+  compose-post:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      compose:
+        duration: 10ms +/- 3ms
+        error_rate: 0.2%
+        call_style: parallel
+        calls:
+          - unique-id.generate
+          - text.process
+          - media.store
+          - user.lookup
+        # Sequential writes after fan-out are modelled as a second entry point
+        # that compose calls after the parallel fan-out completes.
+      write:
+        duration: 5ms +/- 2ms
+        error_rate: 0.3%
+        calls:
+          - post-storage.write
+          - user-timeline.write
+          - target: social-graph.get-followers
+      propagate:
+        duration: 2ms +/- 1ms
+        error_rate: 0.1%
+        calls:
+          - home-timeline.write
+
+  unique-id:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      generate:
+        duration: 2ms +/- 1ms
+        error_rate: 0.01%
+
+  text:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      process:
+        duration: 8ms +/- 3ms
+        error_rate: 0.1%
+        calls:
+          - url-shorten.shorten
+          - user-mention.resolve
+
+  user-mention:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      resolve:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  url-shorten:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      shorten:
+        duration: 4ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  media:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      store:
+        duration: 15ms +/- 5ms
+        error_rate: 0.2%
+        calls:
+          - mongodb.insert
+
+  user:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      lookup:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  post-storage:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      write:
+        duration: 10ms +/- 3ms
+        error_rate: 0.3%
+        calls:
+          - memcached.set
+          - mongodb.insert
+      read:
+        duration: 6ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - memcached.get
+          - mongodb.find
+
+  user-timeline:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      write:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - redis.write
+      read:
+        duration: 4ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - redis.read
+          - post-storage.read
+
+  home-timeline:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      write:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - redis.write
+      read:
+        duration: 4ms +/- 2ms
+        error_rate: 0.1%
+        calls:
+          - redis.read
+          - post-storage.read
+
+  social-graph:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+    operations:
+      get-followers:
+        duration: 8ms +/- 3ms
+        error_rate: 0.1%
+        calls:
+          - redis.read
+          - mongodb.find
+
+  mongodb:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+      db.system: mongodb
+    operations:
+      find:
+        duration: 8ms +/- 3ms
+        error_rate: 0.05%
+      insert:
+        duration: 12ms +/- 4ms
+        error_rate: 0.1%
+
+  memcached:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+      db.system: memcached
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.01%
+      set:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.01%
+
+  redis:
+    attributes:
+      deployment.environment: production
+      service.namespace: deathstarbench
+      db.system: redis
+    operations:
+      read:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.01%
+      write:
+        duration: 2ms +/- 1ms
+        error_rate: 0.01%
+
+traffic:
+  rate: 100/s
+
+scenarios:
+  - name: compose fan-out overload
+    at: +5m
+    duration: 10m
+    override:
+      post-storage.write:
+        duration: 500ms +/- 100ms
+        error_rate: 15%
+      mongodb.insert:
+        duration: 200ms +/- 50ms
+        error_rate: 10%
