@@ -122,14 +122,16 @@ func walkOnce(t *rapid.T, cfg *Config) (*Topology, []tracetest.SpanStub, *Stats)
 	seed := genSeed(t)
 	rng := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // not used for security
 
+	offset := time.Duration(rapid.Int64Range(-int64(24*time.Hour), int64(24*time.Hour)).Draw(t, "timeOffset"))
 	engine := &Engine{
-		Topology: topo,
-		Tracers:  func(name string) trace.Tracer { return tp.Tracer(name) },
-		Rng:      rng,
+		Topology:   topo,
+		Tracers:    func(name string) trace.Tracer { return tp.Tracer(name) },
+		Rng:        rng,
+		TimeOffset: offset,
 	}
 
 	rootOp := topo.Roots[rng.IntN(len(topo.Roots))]
-	now := time.Now()
+	now := time.Now().Add(offset)
 	var stats Stats
 	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace)
 
