@@ -3,7 +3,7 @@
 *2026-02-25T08:34:44Z by Showboat 0.6.1*
 <!-- showboat-id: 74c2e19b-e96e-4f18-84df-aa7b7ecfd5fb -->
 
-The `--time-offset` flag shifts all span timestamps by a fixed duration. Negative values move timestamps into the past; positive values move them into the future. This is useful for testing late-arrival handling in collectors, retention policy enforcement in backends, backfill pipelines, and out-of-order ingestion.
+The `--time-offset` flag shifts all trace span and log record timestamps by a fixed duration. Negative values move timestamps into the past; positive values move them into the future. This is useful for testing late-arrival handling in collectors, retention policy enforcement in backends, backfill pipelines, and out-of-order ingestion.
 
 ## The topology
 
@@ -65,9 +65,25 @@ TOMORROW=$(date -u -v+1d +%Y-%m-%dT%H); build/motel run --stdout --duration 1s -
 starts with tomorrow: true
 ```
 
+## Log timestamps follow the offset
+
+When emitting logs alongside traces, log record timestamps are shifted by the same offset. The `--slow-threshold` flag triggers WARN-level log records for slow spans, making it easy to verify.
+
+```bash
+YESTERDAY=$(date -u -v-1d +%Y-%m-%dT%H); build/motel run --stdout --duration 1s --signals logs --slow-threshold 1ms --time-offset=-24h docs/examples/minimal.yaml 2>/dev/null | head -1 | jq -r --arg y "$YESTERDAY" '"log timestamp starts with yesterday: \(.Timestamp | startswith($y))"'
+```
+
+```output
+log timestamp starts with yesterday: true
+```
+
+## Metric timestamps are not shifted
+
+The OTel Metrics API does not support caller-supplied timestamps. Metric data points are timestamped at collection time by the SDK's PeriodicReader. This is a limitation of the [OTel metrics API spec](https://opentelemetry.io/docs/specs/otel/metrics/api/), not motel.
+
 ## Scenario timing is unaffected
 
-The offset only shifts exported span timestamps. Scenario activation still uses real wall-clock elapsed time. This means `--time-offset` changes what the outside world sees without altering which scenario overrides are active at any point during the run.
+The offset only shifts exported signal timestamps. Scenario activation still uses real wall-clock elapsed time. This means `--time-offset` changes what the outside world sees without altering which scenario overrides are active at any point during the run.
 
 ## Use cases
 
