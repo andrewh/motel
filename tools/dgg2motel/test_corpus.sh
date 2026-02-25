@@ -19,7 +19,7 @@ if [ ! -x "$MOTEL" ]; then
 fi
 
 temp_topo=""
-cleanup() { [ -n "$temp_topo" ] && rm -f "$temp_topo"; }
+cleanup() { [ -n "$temp_topo" ] && rm -f "$temp_topo"; true; }
 trap cleanup EXIT INT TERM
 
 check_pass=0
