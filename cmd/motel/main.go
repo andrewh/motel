@@ -84,6 +84,7 @@ func runCmd() *cobra.Command {
 		semconvDir       string
 		labelScenarios   bool
 		pprofAddr        string
+		timeOffset       time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -113,6 +114,7 @@ func runCmd() *cobra.Command {
 				semconvDir:       semconvDir,
 				labelScenarios:   labelScenarios,
 				pprofAddr:        pprofAddr,
+				timeOffset:       timeOffset,
 			})
 		},
 	}
@@ -127,6 +129,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
+	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span timestamps by this duration (e.g. -1h for past, 1h for future)")
 
 	return cmd
 }
@@ -246,6 +249,7 @@ type runOptions struct {
 	semconvDir       string
 	labelScenarios   bool
 	pprofAddr        string
+	timeOffset       time.Duration
 }
 
 var validSignals = map[string]bool{
@@ -440,6 +444,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		MaxSpansPerTrace: opts.maxSpansPerTrace,
 		State:            synth.NewSimulationState(topo),
 		LabelScenarios:   opts.labelScenarios,
+		TimeOffset:       opts.timeOffset,
 	}
 
 	// Handle OS signals for graceful shutdown

@@ -36,6 +36,7 @@ type Engine struct {
 	MaxSpansPerTrace int
 	State            *SimulationState
 	LabelScenarios   bool
+	TimeOffset       time.Duration
 }
 
 // Stats holds counters collected during a simulation run.
@@ -114,10 +115,13 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		// Pick a random root operation
 		root := e.Topology.Roots[e.Rng.IntN(len(e.Topology.Roots))]
 
-		// Walk the trace tree with a per-trace span counter
+		// Walk the trace tree with a per-trace span counter.
+		// Shift span start times by TimeOffset so exported timestamps appear
+		// in the past or future, while scenario timing uses real elapsed time.
+		spanStart := now.Add(e.TimeOffset)
 		spanLimit := e.maxSpansPerTrace()
 		spanCount := 0
-		_, rootErr := e.walkTrace(ctx, root, now, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit)
+		_, rootErr := e.walkTrace(ctx, root, spanStart, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++

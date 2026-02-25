@@ -2158,3 +2158,76 @@ func TestPerServiceResource(t *testing.T) {
 			"resource service.name should match synth.service for span %s", span.Name)
 	}
 }
+
+func TestEngineTimeOffset(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "1ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	t.Run("negative offset shifts spans into past", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter, tp := newTestEngine(t, cfg)
+		engine.TimeOffset = -1 * time.Hour
+		engine.Duration = 100 * time.Millisecond
+
+		before := time.Now()
+		_, err := engine.Run(context.Background())
+		require.NoError(t, err)
+		require.NoError(t, tp.ForceFlush(context.Background()))
+
+		spans := exporter.GetSpans()
+		require.NotEmpty(t, spans)
+		for _, s := range spans {
+			assert.True(t, s.StartTime.Before(before.Add(-30*time.Minute)),
+				"span start %v should be shifted ~1h into the past (before %v)", s.StartTime, before.Add(-30*time.Minute))
+		}
+	})
+
+	t.Run("positive offset shifts spans into future", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter, tp := newTestEngine(t, cfg)
+		engine.TimeOffset = 1 * time.Hour
+		engine.Duration = 100 * time.Millisecond
+
+		after := time.Now()
+		_, err := engine.Run(context.Background())
+		require.NoError(t, err)
+		require.NoError(t, tp.ForceFlush(context.Background()))
+
+		spans := exporter.GetSpans()
+		require.NotEmpty(t, spans)
+		for _, s := range spans {
+			assert.True(t, s.StartTime.After(after.Add(30*time.Minute)),
+				"span start %v should be shifted ~1h into the future (after %v)", s.StartTime, after.Add(30*time.Minute))
+		}
+	})
+
+	t.Run("zero offset leaves timestamps near now", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter, tp := newTestEngine(t, cfg)
+		engine.Duration = 100 * time.Millisecond
+
+		before := time.Now()
+		_, err := engine.Run(context.Background())
+		require.NoError(t, err)
+		require.NoError(t, tp.ForceFlush(context.Background()))
+
+		spans := exporter.GetSpans()
+		require.NotEmpty(t, spans)
+		for _, s := range spans {
+			assert.True(t, s.StartTime.After(before.Add(-time.Second)),
+				"span start %v should be near now", s.StartTime)
+			assert.True(t, s.StartTime.Before(before.Add(time.Minute)),
+				"span start %v should be near now", s.StartTime)
+		}
+	})
+}
