@@ -1,6 +1,7 @@
 # motel: Time Offset
 
-*2026-02-25T08:34:44Z by Showboat 0.6.1*
+_2026-02-25T08:34:44Z by Showboat 0.6.1_
+
 <!-- showboat-id: 74c2e19b-e96e-4f18-84df-aa7b7ecfd5fb -->
 
 The `--time-offset` flag shifts all trace span and log record timestamps by a fixed duration. Negative values move timestamps into the past; positive values move them into the future. This is useful for testing late-arrival handling in collectors, retention policy enforcement in backends, backfill pipelines, and out-of-order ingestion.
@@ -79,7 +80,7 @@ log timestamp starts with yesterday: true
 
 ## Metric timestamps are not shifted
 
-The OTel Metrics API does not support caller-supplied timestamps. Metric data points are timestamped at collection time by the SDK's PeriodicReader. This is a limitation of the [OTel metrics API spec](https://opentelemetry.io/docs/specs/otel/metrics/api/), not motel.
+The OpenTelemetry Metrics API does not support caller-supplied timestamps. Metric data points are timestamped at collection time by the SDK's PeriodicReader. This is a limitation of the [Metrics API spec](https://opentelemetry.io/docs/specs/otel/metrics/api/), and will be addressed for motel in [issue 99](https://github.com/andrewh/motel/issues/99).
 
 ## Scenario timing is unaffected
 
@@ -88,7 +89,6 @@ The offset only shifts exported signal timestamps. Scenario activation still use
 ## Use cases
 
 - **Late-arrival testing**: Use a negative offset to generate traces that arrive at a collector well after their timestamps, exercising late-arrival windows and out-of-order handling.
-- **Retention policy verification**: Produce traces with timestamps older than the configured retention period to confirm backends correctly expire or reject them.
+- **Retention policy verification**: Produce traces with timestamps older than the configured retention period to confirm a backend correctly expires or reject them.
 - **Backfill simulation**: Generate a batch of historical-looking traces to test ingestion pipelines that handle data from past time ranges.
 - **Clock skew modelling**: Apply a small offset to simulate services with drifted clocks, useful for testing timestamp reconciliation in distributed tracing.
-
