@@ -60,6 +60,9 @@ func NewMetricObserver(meters map[string]metric.Meter) (*MetricObserver, error) 
 }
 
 // Observe records metrics derived from the completed span.
+// Note: metric data points are timestamped at collection time by the OTel SDK's
+// PeriodicReader. The Metrics API does not support caller-supplied timestamps,
+// so Engine.TimeOffset has no effect on metric timestamps. See issue 99.
 func (m *MetricObserver) Observe(info SpanInfo) {
 	svc := m.services[info.Service]
 	if svc == nil {

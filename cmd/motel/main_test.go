@@ -901,6 +901,17 @@ func TestShutdownAllRespectsContext(t *testing.T) {
 	assert.Contains(t, buf.String(), "context deadline exceeded")
 }
 
+func TestRunCommandTimeOffset(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--time-offset", "-1h", path})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
 func TestShutdownAllEmpty(t *testing.T) {
 	t.Parallel()
 

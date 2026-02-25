@@ -39,6 +39,7 @@ func (l *LogObserver) Observe(info SpanInfo) {
 
 	if info.IsError {
 		var rec log.Record
+		rec.SetTimestamp(info.Timestamp)
 		rec.SetSeverity(log.SeverityError)
 		rec.SetSeverityText("ERROR")
 		rec.SetBody(log.StringValue(fmt.Sprintf("error in %s %s", info.Service, info.Operation)))
@@ -48,6 +49,7 @@ func (l *LogObserver) Observe(info SpanInfo) {
 
 	if l.slowThreshold > 0 && info.Duration > l.slowThreshold {
 		var rec log.Record
+		rec.SetTimestamp(info.Timestamp)
 		rec.SetSeverity(log.SeverityWarn)
 		rec.SetSeverityText("WARN")
 		rec.SetBody(log.StringValue(fmt.Sprintf(

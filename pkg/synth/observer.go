@@ -13,6 +13,7 @@ import (
 type SpanInfo struct {
 	Service   string
 	Operation string
+	Timestamp time.Time
 	Duration  time.Duration
 	IsError   bool
 	Kind      trace.SpanKind
