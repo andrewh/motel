@@ -43,6 +43,10 @@ type dggEdge struct {
 // motel topology structures — just enough to marshal YAML by hand
 // (avoids pulling in a YAML library for a standalone tool).
 
+// funcRE matches DGG node names with a _funcN suffix, e.g. "MS_normal+2.1_func2".
+// The greedy (.+) assumes _funcN only appears as a terminal suffix in DGG output.
+var funcRE = regexp.MustCompile(`^(.+)_(func\d+)$`)
+
 func main() {
 	fileFlag := flag.String("file", "", "single DGG JSON file to convert")
 	dirFlag := flag.String("dir", "", "directory tree of DGG JSON files to convert")
@@ -131,10 +135,9 @@ func convertOne(data []byte) (string, error) {
 	// Node names like "MS_normal+2.1_func2" split into base service "MS_normal+2.1"
 	// with operation "func2". The base node itself gets operation "handle".
 	type opInfo struct {
-		name     string
-		label    string
-		calls    []childEdge
-		protocol string // inbound protocol
+		name  string
+		label string
+		calls []childEdge
 	}
 	type svcInfo struct {
 		name string
@@ -142,18 +145,22 @@ func convertOne(data []byte) (string, error) {
 	}
 
 	services := make(map[string]*svcInfo)
+	cleanedNames := make(map[string]string) // cleaned name → raw DGG name (for collision detection)
 	var svcOrder []string
 
-	funcRE := regexp.MustCompile(`^(.+)_(func\d+)$`)
-
-	ensureService := func(baseName string) *svcInfo {
+	ensureService := func(baseName string) (*svcInfo, error) {
 		if s, ok := services[baseName]; ok {
-			return s
+			return s, nil
 		}
-		s := &svcInfo{name: cleanName(baseName)}
+		clean := cleanName(baseName)
+		if prev, exists := cleanedNames[clean]; exists {
+			return nil, fmt.Errorf("service name collision: %q and %q both map to %q", prev, baseName, clean)
+		}
+		cleanedNames[clean] = baseName
+		s := &svcInfo{name: clean}
 		services[baseName] = s
 		svcOrder = append(svcOrder, baseName)
-		return s
+		return s, nil
 	}
 
 	// Map each DGG node to a service + operation.
@@ -174,26 +181,23 @@ func convertOne(data []byte) (string, error) {
 			opName = "handle"
 		}
 
-		svc := ensureService(baseName)
+		svc, err := ensureService(baseName)
+		if err != nil {
+			return "", err
+		}
 		op := &opInfo{name: opName, label: n.Label}
 		svc.ops = append(svc.ops, op)
 		nodeToOp[n.Node] = op
 		nodeToSvc[n.Node] = baseName
 	}
 
-	// Wire up calls and inbound protocols.
+	// Wire up calls.
 	for _, e := range g.Edges {
 		if e.UM == "USER" {
-			if op, ok := nodeToOp[e.DM]; ok {
-				op.protocol = e.Compara
-			}
 			continue
 		}
 		if op, ok := nodeToOp[e.UM]; ok {
 			op.calls = append(op.calls, childEdge{e.DM, e})
-		}
-		if op, ok := nodeToOp[e.DM]; ok {
-			op.protocol = e.Compara
 		}
 	}
 
@@ -221,9 +225,11 @@ func convertOne(data []byte) (string, error) {
 			if len(op.calls) > 0 {
 				b.WriteString("        calls:\n")
 				for _, c := range op.calls {
-					targetSvcKey := nodeToSvc[c.child]
 					targetOp := nodeToOp[c.child]
-					targetSvc := services[targetSvcKey]
+					targetSvc := services[nodeToSvc[c.child]]
+					if targetOp == nil || targetSvc == nil {
+						continue
+					}
 					ref := targetSvc.name + "." + targetOp.name
 
 					if c.edge.Time > 1 {
@@ -247,10 +253,8 @@ func convertOne(data []byte) (string, error) {
 func cleanName(name string) string {
 	name = strings.TrimPrefix(name, "MS_")
 
-	// Strip the type prefix up to and including the first '+' or '.'
-	// e.g., "normal+2.1" → "svc-2-1", "Memcached.1" → "memcached-1"
-	//
-	// We keep the label prefix to disambiguate services of the same type.
+	// Lowercase and replace special characters with dashes.
+	// e.g., "normal+2.1" → "normal-2-1", "Memcached.1" → "memcached-1"
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, "+", "-")
 	name = strings.ReplaceAll(name, ".", "-")

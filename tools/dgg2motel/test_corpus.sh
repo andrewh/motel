@@ -26,6 +26,7 @@ check_pass=0
 check_fail=0
 run_pass=0
 run_fail=0
+run_timeout=0
 
 files=()
 while IFS= read -r f; do
@@ -65,7 +66,10 @@ for f in "${files[@]}"; do
         temp_topo=""
     fi
 
-    if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+    if [ "$rc" -eq 124 ]; then
+        echo "RUN TIMEOUT: $rel"
+        run_timeout=$((run_timeout + 1))
+    elif [ "$rc" -ne 0 ]; then
         echo "RUN FAIL ($rc): $rel"
         echo "$output" | tail -5 | sed 's/^/  /'
         run_fail=$((run_fail + 1))
@@ -77,8 +81,8 @@ done
 echo ""
 echo "=== results ==="
 echo "check: $check_pass pass, $check_fail fail"
-echo "run:   $run_pass pass, $run_fail fail"
+echo "run:   $run_pass pass, $run_fail fail, $run_timeout timeout"
 
-if [ "$check_fail" -gt 0 ] || [ "$run_fail" -gt 0 ]; then
+if [ "$check_fail" -gt 0 ] || [ "$run_fail" -gt 0 ] || [ "$run_timeout" -gt 0 ]; then
     exit 1
 fi
