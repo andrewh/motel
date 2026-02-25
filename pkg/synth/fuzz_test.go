@@ -163,6 +163,37 @@ func FuzzDistributionOrdering(f *testing.F) {
 	}))
 }
 
+// FuzzRealisticCheck uses coverage-guided fuzzing to verify that static bounds
+// hold for production-scale topologies generated from realistic distributions.
+func FuzzRealisticCheck(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
+		cfg := genRealisticConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+		if len(topo.Roots) == 0 {
+			t.Skip("no root operations")
+		}
+
+		staticDepth, _ := MaxDepth(topo)
+		staticFanOut, _ := MaxFanOut(topo)
+		staticSpans, _ := MaxSpans(topo)
+
+		sampled := SampleTraces(topo, 50, rapid.Uint64().Draw(t, "seed"), 0)
+
+		if sampled.MaxDepth > staticDepth {
+			t.Fatalf("sampled depth %d exceeds static bound %d", sampled.MaxDepth, staticDepth)
+		}
+		if sampled.MaxFanOut > staticFanOut {
+			t.Fatalf("sampled fan-out %d exceeds static bound %d", sampled.MaxFanOut, staticFanOut)
+		}
+		if sampled.MaxSpans > staticSpans {
+			t.Fatalf("sampled spans %d exceeds static bound %d", sampled.MaxSpans, staticSpans)
+		}
+	}))
+}
+
 // FuzzParseRate uses coverage-guided fuzzing to explore ParseRate
 // with regex-generated rate strings.
 func FuzzParseRate(f *testing.F) {

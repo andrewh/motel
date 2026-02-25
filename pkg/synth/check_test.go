@@ -430,6 +430,129 @@ func TestSampleTraces_PopulatesDistribution(t *testing.T) {
 // If the invariant breaks, either the static analysis undercounts or the engine
 // produces traces the static model doesn't account for — both are real defects.
 
+// genRealisticConfig generates topologies with shape distributions matching
+// production microservice call graphs, based on measurements from:
+//
+//	Du et al., "DGG: A Novel Framework for Microservice Call Graph
+//	Generation Based on Realistic Distributions" (ICWS 2024).
+//
+// Key distributions from the paper used here:
+//   - Call graph depth: >99.99% have depth ≤ 6, max observed ~15
+//   - Fan-out per service: 1–10 children (Alibaba), up to 50 (Meta)
+//   - Repeated calls (count): median 3–5, P99 reaches 374–469
+//   - 48.8% of services have >2 interfaces (operations)
+//
+// The generator builds a DAG by layering services into depth tiers:
+// tier 0 is roots, tier 1 is called by tier 0, etc. Each operation in
+// tier N calls operations in tier N+1 only, guaranteeing acyclicity.
+func genRealisticConfig(t *rapid.T) *Config {
+	type svcOp struct{ svc, op string }
+
+	nSvcs := rapid.IntRange(5, 50).Draw(t, "nSvcs")
+	depth := rapid.IntRange(1, 8).Draw(t, "depth")
+
+	svcNames := make([]string, nSvcs)
+	for i := range nSvcs {
+		svcNames[i] = fmt.Sprintf("svc%d", i)
+	}
+
+	// Assign each service to a depth tier. Tier 0 always has at least one service.
+	tiers := make([]int, nSvcs)
+	tiers[0] = 0
+	for i := 1; i < nSvcs; i++ {
+		tiers[i] = rapid.IntRange(0, depth).Draw(t, fmt.Sprintf("tier%d", i))
+	}
+
+	// Operations per service: 1–4, weighted so ~49% have >2 (matching 48.8%).
+	// Weights: P(1)=25%, P(2)=26%, P(3)=25%, P(4)=24% → ~49% have >2.
+	opsPerSvcGen := rapid.SampledFrom([]int{1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4,
+		1, 2, 3, 4})
+
+	// Build services and collect ops by tier
+	tierOps := make(map[int][]svcOp)
+	svcs := make([]ServiceConfig, nSvcs)
+	for i, svcName := range svcNames {
+		nOps := opsPerSvcGen.Draw(t, fmt.Sprintf("nOps%d", i))
+		ops := make([]OperationConfig, nOps)
+		for j := range nOps {
+			opName := fmt.Sprintf("op%d", j)
+			dur := genDurationString.Draw(t, fmt.Sprintf("dur%d_%d", i, j))
+			ops[j] = OperationConfig{
+				Name:     opName,
+				Duration: dur,
+			}
+			if rapid.Bool().Draw(t, fmt.Sprintf("hasErr%d_%d", i, j)) {
+				ops[j].ErrorRate = genErrorRateString.Draw(t, fmt.Sprintf("errRate%d_%d", i, j))
+			}
+			tierOps[tiers[i]] = append(tierOps[tiers[i]], svcOp{svcName, opName})
+		}
+		svcs[i] = ServiceConfig{Name: svcName, Operations: ops}
+	}
+
+	// Build a map from service name to its index in svcs for call wiring
+	svcIdx := make(map[string]int, nSvcs)
+	for i, name := range svcNames {
+		svcIdx[name] = i
+	}
+
+	// Fan-out per operation: 1–6, long-tailed (concentrated at low end).
+	// Weights approximate the Alibaba 1–10 range concentrated at 1–3.
+	fanOutGen := rapid.SampledFrom([]int{1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 6})
+
+	// Call count (repeats): usually 1, occasionally 2–5.
+	countGen := rapid.SampledFrom([]int{1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 5})
+
+	// Wire calls: each operation in tier N calls operations in tier N+1.
+	for tier := 0; tier < depth; tier++ {
+		targets := tierOps[tier+1]
+		if len(targets) == 0 {
+			continue
+		}
+		for _, caller := range tierOps[tier] {
+			si := svcIdx[caller.svc]
+			var oi int
+			for k, op := range svcs[si].Operations {
+				if op.Name == caller.op {
+					oi = k
+					break
+				}
+			}
+
+			fanOut := fanOutGen.Draw(t, fmt.Sprintf("fan%d_%s_%s", tier, caller.svc, caller.op))
+			nCalls := min(fanOut, len(targets))
+			if nCalls == 0 {
+				continue
+			}
+
+			shuffled := rapid.Permutation(targets).Draw(t, fmt.Sprintf("perm%d_%s_%s", tier, caller.svc, caller.op))
+			calls := make([]CallConfig, nCalls)
+			for c := range nCalls {
+				call := CallConfig{Target: shuffled[c].svc + "." + shuffled[c].op}
+
+				call.Count = countGen.Draw(t, fmt.Sprintf("cnt%d_%s_%s_%d", tier, caller.svc, caller.op, c))
+
+				if rapid.Bool().Draw(t, fmt.Sprintf("hasRetries%d_%s_%s_%d", tier, caller.svc, caller.op, c)) {
+					call.Retries = rapid.IntRange(1, 2).Draw(t, fmt.Sprintf("retries%d_%s_%s_%d", tier, caller.svc, caller.op, c))
+				}
+				if rapid.Bool().Draw(t, fmt.Sprintf("hasProb%d_%s_%s_%d", tier, caller.svc, caller.op, c)) {
+					call.Probability = rapid.Float64Range(0.1, 1.0).Draw(t, fmt.Sprintf("prob%d_%s_%s_%d", tier, caller.svc, caller.op, c))
+				}
+				if rapid.Bool().Draw(t, fmt.Sprintf("hasCond%d_%s_%s_%d", tier, caller.svc, caller.op, c)) {
+					call.Condition = rapid.SampledFrom([]string{"on-error", "on-success"}).Draw(t, fmt.Sprintf("cond%d_%s_%s_%d", tier, caller.svc, caller.op, c))
+				}
+
+				calls[c] = call
+			}
+			svcs[si].Operations[oi].Calls = calls
+		}
+	}
+
+	return &Config{
+		Services: svcs,
+		Traffic:  TrafficConfig{Rate: genRateString.Draw(t, "rate")},
+	}
+}
+
 // genCheckConfig generates a valid Config with count, retries, probability, and condition.
 func genCheckConfig(t *rapid.T) *Config {
 	type svcOp struct{ svc, op string }
@@ -611,6 +734,74 @@ func TestProperty_DistributionOrdering(t *testing.T) {
 			if tc.dist.Max != tc.max {
 				t.Fatalf("%s: distribution max (%d) != MaxX (%d)", tc.name, tc.dist.Max, tc.max)
 			}
+		}
+	})
+}
+
+// TestRealisticStaticBoundsHold verifies that for any generated topology using
+// production-scale distributions, Check() succeeds when given its own static
+// bounds as limits. This confirms MaxDepth, MaxFanOut, and MaxSpans are
+// self-consistent — the static analysis never underestimates.
+func TestRealisticStaticBoundsHold(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genRealisticConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+		if len(topo.Roots) == 0 {
+			t.Skip("no root operations")
+		}
+
+		staticDepth, _ := MaxDepth(topo)
+		staticFanOut, _ := MaxFanOut(topo)
+		staticSpans, _ := MaxSpans(topo)
+
+		results := Check(topo, CheckOptions{
+			MaxDepth:  staticDepth,
+			MaxFanOut: staticFanOut,
+			MaxSpans:  staticSpans,
+			Samples:   0,
+		})
+
+		for _, r := range results {
+			if !r.Pass {
+				t.Fatalf("check %s should pass with own static bounds (actual=%d, limit=%d)",
+					r.Name, r.Actual, r.Limit)
+			}
+		}
+	})
+}
+
+// TestRealisticSampledWithinStatic verifies that for any generated topology
+// using production-scale distributions, sampled observed values never exceed
+// the static worst-case bounds. This is the key invariant from the existing
+// per-metric property tests but exercised on much larger, more realistic graphs.
+func TestRealisticSampledWithinStatic(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		cfg := genRealisticConfig(t)
+		topo, err := BuildTopology(cfg)
+		if err != nil {
+			t.Fatalf("BuildTopology: %v", err)
+		}
+		if len(topo.Roots) == 0 {
+			t.Skip("no root operations")
+		}
+
+		staticDepth, _ := MaxDepth(topo)
+		staticFanOut, _ := MaxFanOut(topo)
+		staticSpans, _ := MaxSpans(topo)
+
+		sampled := SampleTraces(topo, 50, rapid.Uint64().Draw(t, "seed"), 0)
+
+		if sampled.MaxDepth > staticDepth {
+			t.Fatalf("sampled depth %d exceeds static bound %d", sampled.MaxDepth, staticDepth)
+		}
+		if sampled.MaxFanOut > staticFanOut {
+			t.Fatalf("sampled fan-out %d exceeds static bound %d", sampled.MaxFanOut, staticFanOut)
+		}
+		if sampled.MaxSpans > staticSpans {
+			t.Fatalf("sampled spans %d exceeds static bound %d", sampled.MaxSpans, staticSpans)
 		}
 	})
 }
