@@ -122,20 +122,9 @@ func convertOne(data []byte) (string, error) {
 		return "", fmt.Errorf("empty graph")
 	}
 
-	// Build node label map.
-	labels := make(map[string]string, len(g.Nodes))
-	for _, n := range g.Nodes {
-		labels[n.Node] = n.Label
-	}
-
-	// Build adjacency: parent → [(child, edge)].
 	type childEdge struct {
 		child string
 		edge  dggEdge
-	}
-	adj := make(map[string][]childEdge)
-	for _, e := range g.Edges {
-		adj[e.UM] = append(adj[e.UM], childEdge{e.DM, e})
 	}
 
 	// Group DGG nodes into motel services.

@@ -18,6 +18,10 @@ if [ ! -x "$MOTEL" ]; then
     exit 1
 fi
 
+temp_topo=""
+cleanup() { [ -n "$temp_topo" ] && rm -f "$temp_topo"; }
+trap cleanup EXIT INT TERM
+
 check_pass=0
 check_fail=0
 run_pass=0
@@ -48,16 +52,17 @@ for f in "${files[@]}"; do
     # motel run
     topo="$f"
     if [ -n "$RATE" ]; then
-        # Patch rate into a temp copy.
-        topo=$(mktemp /tmp/dgg-topo-XXXXXX.yaml)
-        sed "s|rate: .*|rate: $RATE|" "$f" > "$topo"
+        temp_topo=$(mktemp /tmp/dgg-topo-XXXXXX.yaml)
+        sed "s|rate: .*|rate: $RATE|" "$f" > "$temp_topo"
+        topo="$temp_topo"
     fi
 
     output=$(timeout 10 "$MOTEL" run --stdout --duration "$DURATION" "$topo" 2>&1) || rc=$?
     rc=${rc:-0}
 
-    if [ -n "$RATE" ]; then
-        rm -f "$topo"
+    if [ -n "$temp_topo" ]; then
+        rm -f "$temp_topo"
+        temp_topo=""
     fi
 
     if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
