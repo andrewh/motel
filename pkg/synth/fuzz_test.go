@@ -239,6 +239,9 @@ func FuzzValidateCallConfig(f *testing.F) {
 				"", "10ms", "-1s", "bad",
 			}).Draw(t, "backoff")
 		}
+		if rapid.Bool().Draw(t, "hasAsync") {
+			call.Async = true
+		}
 
 		// We don't care whether it passes or fails — just that it doesn't panic
 		_ = validateCallConfig(call, knownOps)

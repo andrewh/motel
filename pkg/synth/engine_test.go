@@ -2272,3 +2272,169 @@ func TestEngineTimeOffset(t *testing.T) {
 		}
 	})
 }
+
+func TestAsyncCallParentDoesNotWait(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "audit.log", Async: true},
+					},
+				}},
+			},
+			{
+				Name: "audit",
+				Operations: []OperationConfig{{
+					Name:     "log",
+					Duration: "100ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2, "should have parent + async child span")
+
+	var parentSpan, childSpan tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "handle":
+			parentSpan = s
+		case "log":
+			childSpan = s
+		}
+	}
+
+	assert.Equal(t, parentSpan.SpanContext.TraceID(), childSpan.SpanContext.TraceID(),
+		"async child should be in the same trace")
+	assert.Equal(t, parentSpan.SpanContext.SpanID(), childSpan.Parent.SpanID(),
+		"async child should be parented under the parent")
+	assert.True(t, parentSpan.EndTime.Before(childSpan.EndTime),
+		"parent (end=%v) should end before async child (end=%v)", parentSpan.EndTime, childSpan.EndTime)
+}
+
+func TestAsyncCallErrorsDoNotCascade(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "audit.log", Async: true},
+					},
+				}},
+			},
+			{
+				Name: "audit",
+				Operations: []OperationConfig{{
+					Name:      "log",
+					Duration:  "10ms",
+					ErrorRate: "100%",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	var parentSpan, childSpan tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "handle":
+			parentSpan = s
+		case "log":
+			childSpan = s
+		}
+	}
+
+	assert.Equal(t, codes.Error, childSpan.Status.Code,
+		"async child should have error status")
+	assert.NotEqual(t, codes.Error, parentSpan.Status.Code,
+		"parent should not inherit async child's error")
+}
+
+func TestAsyncSequentialDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:      "handle",
+					Duration:  "10ms",
+					CallStyle: "sequential",
+					Calls: []CallConfig{
+						{Target: "audit.log", Async: true},
+						{Target: "backend.process"},
+					},
+				}},
+			},
+			{
+				Name: "audit",
+				Operations: []OperationConfig{{
+					Name:     "log",
+					Duration: "200ms",
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "process",
+					Duration: "10ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3, "should have parent + async child + sync child")
+
+	var asyncSpan, syncSpan tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "log":
+			asyncSpan = s
+		case "process":
+			syncSpan = s
+		}
+	}
+
+	assert.Equal(t, asyncSpan.StartTime, syncSpan.StartTime,
+		"sync call should start at the same time as the async call (not after it finishes)")
+}

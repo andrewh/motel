@@ -284,6 +284,9 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 			count := max(call.Count, 1)
 			for range count {
 				perceivedEnd, failed := e.executeCall(ctx, call, nextStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
+				if call.Async {
+					continue
+				}
 				if failed {
 					anyChildFailed = true
 				}
@@ -298,6 +301,9 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 			count := max(call.Count, 1)
 			for range count {
 				perceivedEnd, failed := e.executeCall(ctx, call, childStartTime, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
+				if call.Async {
+					continue
+				}
 				if failed {
 					anyChildFailed = true
 				}
