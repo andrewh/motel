@@ -456,17 +456,20 @@ func genRealisticConfig(t *rapid.T) *Config {
 		svcNames[i] = fmt.Sprintf("svc%d", i)
 	}
 
-	// Assign each service to a depth tier. Tier 0 always has at least one service.
+	// Assign each service to a depth tier. Tier 0 always has at least one
+	// service. When nSvcs > depth, distribute one service per tier first to
+	// guarantee the graph can actually reach the drawn depth; remaining
+	// services are assigned randomly.
 	tiers := make([]int, nSvcs)
-	tiers[0] = 0
-	for i := 1; i < nSvcs; i++ {
+	for i := 0; i <= depth && i < nSvcs; i++ {
+		tiers[i] = i
+	}
+	for i := depth + 1; i < nSvcs; i++ {
 		tiers[i] = rapid.IntRange(0, depth).Draw(t, fmt.Sprintf("tier%d", i))
 	}
 
-	// Operations per service: 1–4, weighted so ~49% have >2 (matching 48.8%).
-	// Weights: P(1)=25%, P(2)=26%, P(3)=25%, P(4)=24% → ~49% have >2.
-	opsPerSvcGen := rapid.SampledFrom([]int{1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4,
-		1, 2, 3, 4})
+	// Operations per service: 1–4, uniform (P(>2) = 50%, close to the paper's 48.8%).
+	opsPerSvcGen := rapid.IntRange(1, 4)
 
 	// Build services and collect ops by tier
 	tierOps := make(map[int][]svcOp)
@@ -496,7 +499,8 @@ func genRealisticConfig(t *rapid.T) *Config {
 	}
 
 	// Fan-out per operation: 1–6, long-tailed (concentrated at low end).
-	// Weights approximate the Alibaba 1–10 range concentrated at 1–3.
+	// The paper reports 1–10 (Alibaba) up to 50 (Meta); truncated at 6 here
+	// to keep generated traces tractable.
 	fanOutGen := rapid.SampledFrom([]int{1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 6})
 
 	// Call count (repeats): usually 1, occasionally 2–5.
