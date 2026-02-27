@@ -1650,3 +1650,34 @@ func TestValidateAsyncWithRetriesRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "async calls cannot have retries")
 }
+
+func TestValidateAsyncWithTimeoutRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "svc2.op2", Async: true, Timeout: "5s"},
+					},
+				}},
+			},
+			{
+				Name: "svc2",
+				Operations: []OperationConfig{{
+					Name:     "op2",
+					Duration: "10ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	err := ValidateConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "async calls cannot have a timeout")
+}

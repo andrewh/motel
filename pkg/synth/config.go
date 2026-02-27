@@ -433,7 +433,10 @@ func ValidateConfig(cfg *Config) error {
 					return fmt.Errorf("service %q operation %q: call %q retry_backoff requires retries > 0", svc.Name, op.Name, call.Target)
 				}
 				if call.Async && call.Retries > 0 {
-					return fmt.Errorf("service %q operation %q: call %q async calls cannot have retries", svc.Name, op.Name, call.Target)
+					return fmt.Errorf("service %q operation %q: call %q: async calls cannot have retries", svc.Name, op.Name, call.Target)
+				}
+				if call.Async && call.Timeout != "" {
+					return fmt.Errorf("service %q operation %q: call %q: async calls cannot have a timeout", svc.Name, op.Name, call.Target)
 				}
 			}
 		}
@@ -584,7 +587,10 @@ func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
 		return fmt.Errorf("target %q retry_backoff requires retries > 0", call.Target)
 	}
 	if call.Async && call.Retries > 0 {
-		return fmt.Errorf("target %q async calls cannot have retries", call.Target)
+		return fmt.Errorf("target %q: async calls cannot have retries", call.Target)
+	}
+	if call.Async && call.Timeout != "" {
+		return fmt.Errorf("target %q: async calls cannot have a timeout", call.Target)
 	}
 	return nil
 }

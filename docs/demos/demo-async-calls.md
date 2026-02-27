@@ -3,7 +3,7 @@
 *2026-02-26T20:59:33Z by Showboat 0.6.1*
 <!-- showboat-id: e496cd03-79bb-41b8-84ed-19211402e856 -->
 
-Not every downstream call needs a response. Event emission, audit logging, and notification dispatch are fire-and-forget: the caller sends the request and moves on without waiting for it to complete. The `async: true` field on a call models this pattern. The child span is created with the parent context (preserving trace propagation and the parent-child link), but the parent does not wait for the child to finish and does not inherit its errors. In traces, async children show up as spans that outlive their parent.
+Not every downstream call needs a response. Event emission, audit logging, and notification dispatch are fire-and-forget: the caller sends the request and moves on without waiting for it to complete. The `async: true` field on a call models this pattern. In traces, async children show up as spans that outlive their parent.
 
 ## The topology
 
@@ -14,6 +14,9 @@ cat docs/examples/async-calls.yaml
 ```
 
 ```output
+# Async fire-and-forget calls with trace propagation
+# Demonstrates async: true for audit logging and notification dispatch
+
 version: 1
 
 services:
@@ -55,7 +58,7 @@ traffic:
   rate: 10/s
 ```
 
-The two `async: true` calls — `audit.log` and `notify.send` — will produce child spans that extend past their parents. The synchronous calls (`backend.process` and `db.query`) work as before: the parent waits for them.
+The two `async: true` calls — `audit.log` and `notify.send` — will produce child spans that extend past their parents. The synchronous calls (`backend.process` and `db.query`) work as before: the parent waits for them. Async calls also interact with `call_style: sequential`: the next call in the sequence starts immediately rather than waiting for the async call to complete.
 
 ## Validation
 
@@ -72,7 +75,7 @@ To generate signals:
 See https://github.com/andrewh/motel/tree/main/docs/examples for more examples.
 ```
 
-motel models retries as caller-side behaviour: the caller waits for the response, observes a failure, and retries. An async caller has already moved on, so it cannot retry. (Real systems often have receiver-side retries — queue redelivery, SQS visibility timeouts — but those happen inside the target service, not as repeated calls from the parent.) The combination is rejected at validation time:
+motel models retries and timeouts as caller-side behaviour: the caller waits for the response, observes a failure or timeout, and acts on it. An async caller has already moved on, so neither retries nor timeouts apply. (Real systems often have receiver-side retries — queue redelivery, SQS visibility timeouts — but those happen inside the target service, not as repeated calls from the parent.) Both combinations are rejected at validation time:
 
 ```bash
 cat > /tmp/bad-async.yaml << 'EOF'
@@ -97,7 +100,7 @@ build/motel validate /tmp/bad-async.yaml 2>&1 | head -1
 ```
 
 ```output
-Error: service "svc" operation "op": call "svc2.op2" async calls cannot have retries
+Error: service "svc" operation "op": call "svc2.op2": async calls cannot have retries
 ```
 
 ## Structural analysis

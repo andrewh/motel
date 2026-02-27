@@ -1,3 +1,6 @@
+# Async fire-and-forget calls with trace propagation
+# Demonstrates async: true for audit logging and notification dispatch
+
 version: 1
 
 services:

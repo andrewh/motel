@@ -2425,9 +2425,11 @@ func TestAsyncSequentialDoesNotBlock(t *testing.T) {
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 3, "should have parent + async child + sync child")
 
-	var asyncSpan, syncSpan tracetest.SpanStub
+	var parentSpan, asyncSpan, syncSpan tracetest.SpanStub
 	for _, s := range spans {
 		switch s.Name {
+		case "handle":
+			parentSpan = s
 		case "log":
 			asyncSpan = s
 		case "process":
@@ -2437,4 +2439,66 @@ func TestAsyncSequentialDoesNotBlock(t *testing.T) {
 
 	assert.Equal(t, asyncSpan.StartTime, syncSpan.StartTime,
 		"sync call should start at the same time as the async call (not after it finishes)")
+	assert.True(t, parentSpan.EndTime.Before(asyncSpan.EndTime),
+		"parent should end before 200ms async child")
+}
+
+func TestAsyncCallViaScenarioAddCalls(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			},
+			{
+				Name: "audit",
+				Operations: []OperationConfig{{
+					Name:     "log",
+					Duration: "100ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+		Scenarios: []ScenarioConfig{{
+			Name:     "add-audit",
+			At:       "+0s",
+			Duration: "1h",
+			Override: map[string]OverrideConfig{
+				"gateway.handle": {
+					AddCalls: []CallConfig{{Target: "audit.log", Async: true}},
+				},
+			},
+		}},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Services["gateway"].Operations["handle"]
+	now := time.Now()
+	overrides := ResolveOverrides(ActiveScenarios(engine.Scenarios, 0))
+	engine.walkTrace(context.Background(), rootOp, now, 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2, "should have parent + async child added by scenario")
+
+	var parentSpan, childSpan tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "handle":
+			parentSpan = s
+		case "log":
+			childSpan = s
+		}
+	}
+
+	assert.True(t, parentSpan.EndTime.Before(childSpan.EndTime),
+		"parent should end before async child added via scenario")
+	assert.NotEqual(t, codes.Error, parentSpan.Status.Code,
+		"async child errors should not cascade through scenario add_calls")
 }
