@@ -72,7 +72,7 @@ To generate signals:
 See https://github.com/andrewh/motel/tree/main/docs/examples for more examples.
 ```
 
-Async calls cannot have retries — the caller has already moved on and cannot observe the outcome. This is caught at validation time:
+motel models retries as caller-side behaviour: the caller waits for the response, observes a failure, and retries. An async caller has already moved on, so it cannot retry. (Real systems often have receiver-side retries — queue redelivery, SQS visibility timeouts — but those happen inside the target service, not as repeated calls from the parent.) The combination is rejected at validation time:
 
 ```bash
 cat > /tmp/bad-async.yaml << 'EOF'
