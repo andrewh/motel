@@ -354,6 +354,8 @@ func TestProperty_Engine_RootSpanIsServer(t *testing.T) {
 	})
 }
 
+// genSimpleConfig generates only synchronous calls, so all non-root spans
+// should be CLIENT. Async calls (CONSUMER kind) are covered by unit tests.
 func TestProperty_Engine_NonRootSpanIsClient(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		cfg := genSimpleConfig(t)

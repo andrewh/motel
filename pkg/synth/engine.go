@@ -209,7 +209,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 			case ReasonCircuitOpen:
 				stats.CircuitBreakerTrips++
 			}
-			return e.emitRejectionSpan(ctx, op, startTime, reason, scenarioNames, stats, spanCount)
+			return e.emitRejectionSpan(ctx, op, startTime, reason, scenarioNames, stats, spanCount, isAsync)
 		}
 		if durationMult > 1.0 {
 			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
@@ -359,7 +359,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 }
 
 // emitRejectionSpan creates a short error span for a rejected request.
-func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, spanCount *int) (time.Time, bool) {
+func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, spanCount *int, isAsync bool) (time.Time, bool) {
 	*spanCount++
 	tracer := e.Tracers(op.Service.Name)
 	endTime := startTime.Add(rejectionDuration)
@@ -367,6 +367,8 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 	kind := trace.SpanKindClient
 	if isRoot(e.Topology, op) {
 		kind = trace.SpanKindServer
+	} else if isAsync {
+		kind = trace.SpanKindConsumer
 	}
 
 	rejAttrs := []attribute.KeyValue{
