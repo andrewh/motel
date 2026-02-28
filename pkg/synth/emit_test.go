@@ -3,7 +3,7 @@ package synth
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -109,8 +109,8 @@ func TestEmitTraceProducesSpans(t *testing.T) {
 	assert.Equal(t, int64(0), rstats.Errors.Load())
 
 	// Verify parent-child relationship
-	sort.Slice(spans, func(i, j int) bool {
-		return spans[i].StartTime.Before(spans[j].StartTime)
+	slices.SortFunc(spans, func(a, b tracetest.SpanStub) int {
+		return a.StartTime.Compare(b.StartTime)
 	})
 
 	root := spans[0]
