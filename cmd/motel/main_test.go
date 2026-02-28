@@ -912,6 +912,29 @@ func TestRunCommandTimeOffset(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRunCommandRealtime(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "200ms", "--realtime", path})
+
+	err := root.Execute()
+	require.NoError(t, err)
+}
+
+func TestRunCommandRealtimeWithTimeOffset(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, validConfig)
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--stdout", "--duration", "100ms", "--realtime", "--time-offset", "-1h", path})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--realtime and --time-offset cannot be used together")
+}
+
 func TestShutdownAllEmpty(t *testing.T) {
 	t.Parallel()
 

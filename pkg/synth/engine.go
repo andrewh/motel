@@ -9,6 +9,8 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -19,6 +21,9 @@ import (
 // DefaultMaxSpansPerTrace is the safety bound for span generation per trace.
 const DefaultMaxSpansPerTrace = 10_000
 
+// DefaultMaxInFlightTraces limits concurrent trace emission in realtime mode.
+const DefaultMaxInFlightTraces = 1000
+
 // TracerSource returns a trace.Tracer for the named service.
 // The engine calls this for every span, so implementations should be cheap
 // (e.g. a map lookup or a method value on a single TracerProvider).
@@ -26,17 +31,19 @@ type TracerSource func(serviceName string) trace.Tracer
 
 // Engine drives the trace generation simulation.
 type Engine struct {
-	Topology         *Topology
-	Traffic          TrafficPattern
-	Scenarios        []Scenario
-	Tracers          TracerSource
-	Rng              *rand.Rand
-	Duration         time.Duration
-	Observers        []SpanObserver
-	MaxSpansPerTrace int
-	State            *SimulationState
-	LabelScenarios   bool
-	TimeOffset       time.Duration
+	Topology          *Topology
+	Traffic           TrafficPattern
+	Scenarios         []Scenario
+	Tracers           TracerSource
+	Rng               *rand.Rand
+	Duration          time.Duration
+	Observers         []SpanObserver
+	MaxSpansPerTrace  int
+	State             *SimulationState
+	LabelScenarios    bool
+	TimeOffset        time.Duration
+	Realtime          bool
+	MaxInFlightTraces int
 }
 
 // Stats holds counters collected during a simulation run.
@@ -64,6 +71,10 @@ type Stats struct {
 func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 	if len(e.Topology.Roots) == 0 {
 		return nil, fmt.Errorf("no root operations to generate traces from")
+	}
+
+	if e.Realtime {
+		return e.runRealtime(ctx)
 	}
 
 	var stats Stats
@@ -155,6 +166,127 @@ func (e *Engine) finaliseStats(stats *Stats, startTime time.Time) {
 	if stats.Traces > 0 {
 		stats.TraceErrorRate = float64(stats.FailedTraces) / float64(stats.Traces)
 	}
+}
+
+func (e *Engine) maxInFlightTraces() int {
+	if e.MaxInFlightTraces > 0 {
+		return e.MaxInFlightTraces
+	}
+	return DefaultMaxInFlightTraces
+}
+
+// runRealtime plans traces on the main goroutine and emits them in background
+// goroutines at wall-clock times matching simulated timestamps.
+func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
+	var stats Stats
+	startTime := time.Now()
+	deadline := startTime.Add(e.Duration)
+
+	var wg sync.WaitGroup
+	var inFlight atomic.Int64
+	maxFlight := int64(e.maxInFlightTraces())
+
+	var rstats realtimeStats
+
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			e.mergeRealtimeStats(&stats, &rstats)
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
+		default:
+		}
+
+		now := time.Now()
+		if now.After(deadline) {
+			wg.Wait()
+			e.mergeRealtimeStats(&stats, &rstats)
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
+		}
+
+		elapsed := now.Sub(startTime)
+
+		var overrides map[string]Override
+		var scenarioNames []string
+		trafficPattern := e.Traffic
+		if len(e.Scenarios) > 0 {
+			active := ActiveScenarios(e.Scenarios, elapsed)
+			if len(active) > 0 {
+				overrides = ResolveOverrides(active)
+				if tp := ResolveTraffic(active); tp != nil {
+					trafficPattern = tp
+				}
+				if e.LabelScenarios {
+					scenarioNames = make([]string, len(active))
+					for i, s := range active {
+						scenarioNames[i] = s.Name
+					}
+				}
+			}
+		}
+
+		rate := trafficPattern.Rate(elapsed)
+		if rate <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+
+		if inFlight.Load() >= maxFlight {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+
+		root := e.Topology.Roots[e.Rng.IntN(len(e.Topology.Roots))]
+
+		spanStart := now
+		spanLimit := e.maxSpansPerTrace()
+		spanCount := 0
+
+		var plans []SpanPlan
+		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit)
+		stats.Traces++
+		if rootErr {
+			stats.FailedTraces++
+		}
+		if spanCount >= spanLimit {
+			stats.SpansBounded++
+		}
+
+		// Reset span stats since emitTrace will re-count via atomic counters.
+		// planTrace counted them for consistency checking; the real counts come
+		// from emission.
+		stats.Spans -= int64(len(plans))
+		errCount := int64(0)
+		for _, p := range plans {
+			if p.IsError {
+				errCount++
+			}
+		}
+		stats.Errors -= errCount
+
+		inFlight.Add(1)
+		wg.Go(func() {
+			defer inFlight.Add(-1)
+			emitTrace(ctx, plans, spanStart, now, e.Tracers, e.Observers, &rstats)
+		})
+
+		interval := time.Duration(float64(time.Second) / rate)
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			e.mergeRealtimeStats(&stats, &rstats)
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
+		case <-time.After(interval):
+		}
+	}
+}
+
+func (e *Engine) mergeRealtimeStats(stats *Stats, rstats *realtimeStats) {
+	stats.Spans += rstats.Spans.Load()
+	stats.Errors += rstats.Errors.Load()
 }
 
 func (e *Engine) maxSpansPerTrace() int {
