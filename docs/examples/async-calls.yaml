@@ -1,0 +1,42 @@
+# Async fire-and-forget calls with trace propagation
+# Demonstrates async: true for audit logging and notification dispatch
+
+version: 1
+
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 15ms +/- 5ms
+        calls:
+          - target: audit.log
+            async: true
+          - target: backend.process
+
+  audit:
+    operations:
+      log:
+        duration: 50ms +/- 10ms
+        error_rate: 1%
+
+  backend:
+    operations:
+      process:
+        duration: 25ms +/- 8ms
+        calls:
+          - target: notify.send
+            async: true
+          - target: db.query
+
+  notify:
+    operations:
+      send:
+        duration: 80ms +/- 20ms
+
+  db:
+    operations:
+      query:
+        duration: 10ms +/- 3ms
+
+traffic:
+  rate: 10/s

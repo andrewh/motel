@@ -54,6 +54,7 @@ type CallConfig struct {
 	Timeout      string  `yaml:"timeout,omitempty"`
 	Retries      int     `yaml:"retries,omitempty"`
 	RetryBackoff string  `yaml:"retry_backoff,omitempty"`
+	Async        bool    `yaml:"async,omitempty"`
 }
 
 // UnmarshalYAML handles both scalar string and mapping forms for call config.
@@ -431,6 +432,12 @@ func ValidateConfig(cfg *Config) error {
 				if call.RetryBackoff != "" && call.Retries == 0 {
 					return fmt.Errorf("service %q operation %q: call %q retry_backoff requires retries > 0", svc.Name, op.Name, call.Target)
 				}
+				if call.Async && call.Retries > 0 {
+					return fmt.Errorf("service %q operation %q: call %q: async calls cannot have retries", svc.Name, op.Name, call.Target)
+				}
+				if call.Async && call.Timeout != "" {
+					return fmt.Errorf("service %q operation %q: call %q: async calls cannot have a timeout", svc.Name, op.Name, call.Target)
+				}
 			}
 		}
 	}
@@ -578,6 +585,12 @@ func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
 	}
 	if call.RetryBackoff != "" && call.Retries == 0 {
 		return fmt.Errorf("target %q retry_backoff requires retries > 0", call.Target)
+	}
+	if call.Async && call.Retries > 0 {
+		return fmt.Errorf("target %q: async calls cannot have retries", call.Target)
+	}
+	if call.Async && call.Timeout != "" {
+		return fmt.Errorf("target %q: async calls cannot have a timeout", call.Target)
 	}
 	return nil
 }

@@ -630,6 +630,9 @@ func genCheckConfig(t *rapid.T) *Config {
 				if call.Retries > 0 && rapid.Bool().Draw(t, fmt.Sprintf("hasBackoff%d_%d_%d", i, j, c)) {
 					call.RetryBackoff = rapid.SampledFrom([]string{"10ms", "50ms", "100ms"}).Draw(t, fmt.Sprintf("backoff%d_%d_%d", i, j, c))
 				}
+				if call.Retries == 0 && rapid.Bool().Draw(t, fmt.Sprintf("hasAsync%d_%d_%d", i, j, c)) {
+					call.Async = true
+				}
 
 				calls[c] = call
 			}
