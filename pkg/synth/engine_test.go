@@ -2502,3 +2502,80 @@ func TestAsyncCallViaScenarioAddCalls(t *testing.T) {
 	assert.NotEqual(t, codes.Error, parentSpan.Status.Code,
 		"async child errors should not cascade through scenario add_calls")
 }
+
+func TestEngineRunRealtime(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "GET /users",
+					Duration: "50ms +/- 10ms",
+					Calls:    []CallConfig{{Target: "backend.list"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "list",
+					Duration: "20ms +/- 5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "20/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+	engine.Realtime = true
+	engine.Duration = 200 * time.Millisecond
+
+	stats, err := engine.Run(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	assert.Greater(t, stats.Traces, int64(0), "should generate at least one trace")
+	assert.Greater(t, stats.Spans, int64(0), "should generate spans")
+
+	spans := exporter.GetSpans()
+	assert.Greater(t, len(spans), 0, "exporter should have spans")
+
+	// Verify parent-child relationships exist
+	traceIDs := make(map[trace.TraceID]int)
+	for _, s := range spans {
+		traceIDs[s.SpanContext.TraceID()]++
+	}
+	for tid, count := range traceIDs {
+		assert.GreaterOrEqual(t, count, 2, "trace %s should have at least 2 spans", tid)
+	}
+}
+
+func TestEngineRunRealtimeCancellation(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "svc",
+			Operations: []OperationConfig{{
+				Name:     "op",
+				Duration: "100ms",
+			}},
+		}},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	engine, _, tp := newTestEngine(t, cfg)
+	engine.Realtime = true
+	engine.Duration = 10 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	stats, err := engine.Run(ctx)
+	require.NoError(t, err)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	assert.Greater(t, stats.Traces, int64(0), "should generate at least one trace before cancellation")
+	assert.Less(t, stats.ElapsedMs, int64(5000), "should not run for the full duration")
+}

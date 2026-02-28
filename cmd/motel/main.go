@@ -85,6 +85,7 @@ func runCmd() *cobra.Command {
 		labelScenarios   bool
 		pprofAddr        string
 		timeOffset       time.Duration
+		realtime         bool
 	)
 
 	cmd := &cobra.Command{
@@ -103,6 +104,9 @@ func runCmd() *cobra.Command {
 			if cmd.Flags().Changed("slow-threshold") && !strings.Contains(signals, "logs") {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --slow-threshold has no effect without --signals logs")
 			}
+			if realtime && cmd.Flags().Changed("time-offset") {
+				return fmt.Errorf("--realtime and --time-offset cannot be used together")
+			}
 			return runGenerate(cmd.Context(), args[0], runOptions{
 				endpoint:         endpoint,
 				stdout:           stdout,
@@ -115,6 +119,7 @@ func runCmd() *cobra.Command {
 				labelScenarios:   labelScenarios,
 				pprofAddr:        pprofAddr,
 				timeOffset:       timeOffset,
+				realtime:         realtime,
 			})
 		},
 	}
@@ -130,6 +135,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
 	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span timestamps by this duration (e.g. -1h for past, 1h for future)")
+	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 
 	return cmd
 }
@@ -250,6 +256,7 @@ type runOptions struct {
 	labelScenarios   bool
 	pprofAddr        string
 	timeOffset       time.Duration
+	realtime         bool
 }
 
 var validSignals = map[string]bool{
@@ -445,6 +452,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		State:            synth.NewSimulationState(topo),
 		LabelScenarios:   opts.labelScenarios,
 		TimeOffset:       opts.timeOffset,
+		Realtime:         opts.realtime,
 	}
 
 	// Handle OS signals for graceful shutdown
