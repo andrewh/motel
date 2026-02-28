@@ -2502,3 +2502,56 @@ func TestAsyncCallViaScenarioAddCalls(t *testing.T) {
 	assert.NotEqual(t, codes.Error, parentSpan.Status.Code,
 		"async child errors should not cascade through scenario add_calls")
 }
+
+func TestSpanEvents(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "100ms",
+					Events: []EventConfig{
+						{
+							Name:  "cache.miss",
+							Delay: "5ms",
+							Attributes: map[string]AttributeValueConfig{
+								"cache.key": {Value: "user:123"},
+							},
+						},
+						{
+							Name: "db.query.start",
+						},
+					},
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	now := time.Now()
+	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	span := spans[0]
+
+	require.Len(t, span.Events, 2, "should have two events")
+
+	cacheMiss := span.Events[0]
+	assert.Equal(t, "cache.miss", cacheMiss.Name)
+	assert.Equal(t, now.Add(5*time.Millisecond), cacheMiss.Time)
+	require.Len(t, cacheMiss.Attributes, 1)
+	assert.Equal(t, "cache.key", string(cacheMiss.Attributes[0].Key))
+
+	dbQuery := span.Events[1]
+	assert.Equal(t, "db.query.start", dbQuery.Name)
+	assert.Equal(t, now, dbQuery.Time, "event with no delay should fire at span start")
+	assert.Empty(t, dbQuery.Attributes)
+}

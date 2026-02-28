@@ -247,6 +247,20 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	}
 	span.SetAttributes(spanAttrs...)
 
+	for _, evt := range op.Events {
+		evtOpts := []trace.EventOption{
+			trace.WithTimestamp(startTime.Add(evt.Delay)),
+		}
+		if len(evt.Attributes) > 0 {
+			evtAttrs := make([]attribute.KeyValue, 0, len(evt.Attributes))
+			for k, gen := range evt.Attributes {
+				evtAttrs = append(evtAttrs, typedAttribute(k, gen.Generate(e.Rng)))
+			}
+			evtOpts = append(evtOpts, trace.WithAttributes(evtAttrs...))
+		}
+		span.AddEvent(evt.Name, evtOpts...)
+	}
+
 	// Determine if this span errors from its own error rate (before cascading)
 	ownError := e.Rng.Float64() < errorRate
 
