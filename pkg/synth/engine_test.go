@@ -2549,6 +2549,7 @@ func TestSpanEvents(t *testing.T) {
 	assert.Equal(t, now.Add(5*time.Millisecond), cacheMiss.Time)
 	require.Len(t, cacheMiss.Attributes, 1)
 	assert.Equal(t, "cache.key", string(cacheMiss.Attributes[0].Key))
+	assert.Equal(t, attribute.StringValue("user:123"), cacheMiss.Attributes[0].Value)
 
 	dbQuery := span.Events[1]
 	assert.Equal(t, "db.query.start", dbQuery.Name)

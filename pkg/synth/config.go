@@ -368,8 +368,12 @@ func ValidateConfig(cfg *Config) error {
 					return fmt.Errorf("service %q operation %q: event[%d]: name is required", svc.Name, op.Name, i)
 				}
 				if evt.Delay != "" {
-					if _, err := time.ParseDuration(evt.Delay); err != nil {
+					d, err := time.ParseDuration(evt.Delay)
+					if err != nil {
 						return fmt.Errorf("service %q operation %q: event %q: invalid delay: %w", svc.Name, op.Name, evt.Name, err)
+					}
+					if d < 0 {
+						return fmt.Errorf("service %q operation %q: event %q: delay must not be negative", svc.Name, op.Name, evt.Name)
 					}
 				}
 				for attrName, attrCfg := range evt.Attributes {

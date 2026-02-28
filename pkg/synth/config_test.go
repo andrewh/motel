@@ -1768,4 +1768,47 @@ func TestValidateConfigEventErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid delay")
 	})
+
+	t.Run("negative event delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events:   []EventConfig{{Name: "test", Delay: "-5ms"}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "delay must not be negative")
+	})
+
+	t.Run("invalid event attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events: []EventConfig{{
+						Name: "test",
+						Attributes: map[string]AttributeValueConfig{
+							"bad": {Range: []int64{5, 3}},
+						},
+					}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "event \"test\": attribute \"bad\"")
+	})
 }
