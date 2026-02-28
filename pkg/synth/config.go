@@ -22,6 +22,13 @@ const maxSourceBytes = 10 << 20 // 10 MB
 // CurrentVersion is the supported schema version for synth topology configs.
 const CurrentVersion = 1
 
+// reservedResourceAttribute lists OTel resource keys that motel sets automatically.
+// Users must not override these in resource_attributes.
+var reservedResourceAttribute = map[string]bool{
+	"service.name":  true,
+	"motel.version": true,
+}
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
@@ -40,8 +47,9 @@ type rawConfig struct {
 
 // rawServiceConfig is the YAML representation of a service before normalisation.
 type rawServiceConfig struct {
-	Attributes map[string]string             `yaml:"attributes,omitempty"`
-	Operations map[string]rawOperationConfig `yaml:"operations"`
+	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
+	Attributes         map[string]string             `yaml:"attributes,omitempty"`
+	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
 // CallConfig describes a downstream call in the YAML DSL.
@@ -103,9 +111,10 @@ type rawOperationConfig struct {
 
 // ServiceConfig describes a service in the topology.
 type ServiceConfig struct {
-	Name       string
-	Attributes map[string]string
-	Operations []OperationConfig
+	Name               string
+	ResourceAttributes map[string]string
+	Attributes         map[string]string
+	Operations         []OperationConfig
 }
 
 // OperationConfig describes an operation within a service.
@@ -270,8 +279,9 @@ func LoadConfig(source string) (*Config, error) {
 	for _, name := range serviceNames {
 		rawSvc := raw.Services[name]
 		svc := ServiceConfig{
-			Name:       name,
-			Attributes: rawSvc.Attributes,
+			Name:               name,
+			ResourceAttributes: rawSvc.ResourceAttributes,
+			Attributes:         rawSvc.Attributes,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -318,6 +328,14 @@ func ValidateConfig(cfg *Config) error {
 	for _, svc := range cfg.Services {
 		if len(svc.Operations) == 0 {
 			return fmt.Errorf("service %q must have at least one operation, e.g.\n  operations:\n    GET /users:\n      duration: 50ms", svc.Name)
+		}
+		for k := range svc.ResourceAttributes {
+			if k == "" {
+				return fmt.Errorf("service %q: resource_attributes key must not be empty", svc.Name)
+			}
+			if reservedResourceAttribute[k] {
+				return fmt.Errorf("service %q: resource_attributes must not contain reserved key %q (set automatically)", svc.Name, k)
+			}
 		}
 		for _, op := range svc.Operations {
 			ref := svc.Name + "." + op.Name
