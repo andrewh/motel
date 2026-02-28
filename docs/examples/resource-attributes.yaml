@@ -1,5 +1,6 @@
 # Per-service resource attributes
 # Resource attributes are attached to the OTel resource (not spans).
+# Values are always strings. service.name and motel.version are set automatically.
 # Use for deployment.environment, service.version, service.namespace, etc.
 # Run with: motel run --stdout resource-attributes.yaml
 

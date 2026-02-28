@@ -1723,3 +1723,64 @@ traffic:
 		"service.version":        "2.1.0",
 	}, topo.Services["frontend"].ResourceAttributes)
 }
+
+func TestValidateResourceAttributeErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("service.name is reserved", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"service.name": "override"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved key \"service.name\"")
+	})
+
+	t.Run("motel.version is reserved", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"motel.version": "fake"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved key \"motel.version\"")
+	})
+
+	t.Run("empty key rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"": "value"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "key must not be empty")
+	})
+}
