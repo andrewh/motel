@@ -382,10 +382,14 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	// Each service gets its own providers with the correct service.name resource.
 	// Providers within each signal share a single exporter and processor.
 	serviceResources := make(map[string]*resource.Resource, len(topo.Services))
-	for name := range topo.Services {
-		svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
+	for name, svc := range topo.Services {
+		attrs := []attribute.KeyValue{
 			attribute.String("service.name", name),
-		))
+		}
+		for k, v := range svc.ResourceAttributes {
+			attrs = append(attrs, attribute.String(k, v))
+		}
+		svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(attrs...))
 		if resErr != nil {
 			return fmt.Errorf("creating resource for service %s: %w", name, resErr)
 		}

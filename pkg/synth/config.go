@@ -40,8 +40,9 @@ type rawConfig struct {
 
 // rawServiceConfig is the YAML representation of a service before normalisation.
 type rawServiceConfig struct {
-	Attributes map[string]string             `yaml:"attributes,omitempty"`
-	Operations map[string]rawOperationConfig `yaml:"operations"`
+	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
+	Attributes         map[string]string             `yaml:"attributes,omitempty"`
+	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
 // CallConfig describes a downstream call in the YAML DSL.
@@ -103,9 +104,10 @@ type rawOperationConfig struct {
 
 // ServiceConfig describes a service in the topology.
 type ServiceConfig struct {
-	Name       string
-	Attributes map[string]string
-	Operations []OperationConfig
+	Name               string
+	ResourceAttributes map[string]string
+	Attributes         map[string]string
+	Operations         []OperationConfig
 }
 
 // OperationConfig describes an operation within a service.
@@ -270,8 +272,9 @@ func LoadConfig(source string) (*Config, error) {
 	for _, name := range serviceNames {
 		rawSvc := raw.Services[name]
 		svc := ServiceConfig{
-			Name:       name,
-			Attributes: rawSvc.Attributes,
+			Name:               name,
+			ResourceAttributes: rawSvc.ResourceAttributes,
+			Attributes:         rawSvc.Attributes,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))

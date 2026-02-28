@@ -18,9 +18,10 @@ type Topology struct {
 
 // Service represents a resolved service node in the topology graph.
 type Service struct {
-	Name       string
-	Operations map[string]*Operation
-	Attributes map[string]string
+	Name               string
+	Operations         map[string]*Operation
+	ResourceAttributes map[string]string
+	Attributes         map[string]string
 }
 
 // ResolvedBackpressure holds parsed backpressure settings for an operation.
@@ -86,9 +87,10 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 	// First pass: create all services and operations
 	for _, svcCfg := range cfg.Services {
 		svc := &Service{
-			Name:       svcCfg.Name,
-			Operations: make(map[string]*Operation, len(svcCfg.Operations)),
-			Attributes: svcCfg.Attributes,
+			Name:               svcCfg.Name,
+			Operations:         make(map[string]*Operation, len(svcCfg.Operations)),
+			ResourceAttributes: svcCfg.ResourceAttributes,
+			Attributes:         svcCfg.Attributes,
 		}
 		for _, opCfg := range svcCfg.Operations {
 			dist, err := ParseDistribution(opCfg.Duration)
