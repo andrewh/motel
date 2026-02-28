@@ -121,7 +121,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		spanStart := now.Add(e.TimeOffset)
 		spanLimit := e.maxSpansPerTrace()
 		spanCount := 0
-		_, rootErr := e.walkTrace(ctx, root, spanStart, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit)
+		_, rootErr := e.walkTrace(ctx, root, spanStart, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit, false)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -168,7 +168,8 @@ func (e *Engine) maxSpansPerTrace() int {
 // Returns the span end time and whether the span errored (own error rate or cascaded from children).
 // spanCount tracks the number of spans generated in this trace; no new spans are created once it reaches spanLimit.
 // elapsed is the simulation wall-clock time since engine start, used for state tracking.
-func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+// isAsync indicates the span was invoked via an async call and should use CONSUMER span kind.
+func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int, isAsync bool) (time.Time, bool) {
 	if *spanCount >= spanLimit {
 		return startTime, false
 	}
@@ -217,10 +218,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		opState.Enter()
 	}
 
-	// Determine span kind: SERVER for roots, CLIENT for downstream calls
+	// Determine span kind: SERVER for roots, CONSUMER for async callees, CLIENT otherwise
 	kind := trace.SpanKindClient
 	if isRoot(e.Topology, op) {
 		kind = trace.SpanKindServer
+	} else if isAsync {
+		kind = trace.SpanKindConsumer
 	}
 
 	startAttrs := []attribute.KeyValue{
@@ -416,7 +419,7 @@ func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time
 	attemptStart := callStart
 
 	for attempt := range maxAttempts {
-		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, attemptStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit, call.Async)
 		perceivedEnd := childEnd
 		failed := childErr
 
