@@ -88,6 +88,13 @@ type CircuitBreakerConfig struct {
 	Cooldown         string `yaml:"cooldown"`
 }
 
+// EventConfig describes a span event emitted during an operation.
+type EventConfig struct {
+	Name       string                          `yaml:"name"`
+	Delay      string                          `yaml:"delay,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain         string                          `yaml:"domain,omitempty"`
@@ -96,6 +103,7 @@ type rawOperationConfig struct {
 	Calls          []CallConfig                    `yaml:"calls,omitempty"`
 	CallStyle      string                          `yaml:"call_style,omitempty"`
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	Events         []EventConfig                   `yaml:"events,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -117,6 +125,7 @@ type OperationConfig struct {
 	Calls          []CallConfig
 	CallStyle      string
 	Attributes     map[string]AttributeValueConfig
+	Events         []EventConfig
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -290,6 +299,7 @@ func LoadConfig(source string) (*Config, error) {
 				Calls:          rawOp.Calls,
 				CallStyle:      rawOp.CallStyle,
 				Attributes:     rawOp.Attributes,
+				Events:         rawOp.Events,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -350,6 +360,26 @@ func ValidateConfig(cfg *Config) error {
 			for attrName, attrCfg := range op.Attributes {
 				if _, err := NewAttributeGenerator(attrCfg); err != nil {
 					return fmt.Errorf("service %q operation %q: attribute %q: %w", svc.Name, op.Name, attrName, err)
+				}
+			}
+
+			for i, evt := range op.Events {
+				if evt.Name == "" {
+					return fmt.Errorf("service %q operation %q: event[%d]: name is required", svc.Name, op.Name, i)
+				}
+				if evt.Delay != "" {
+					d, err := time.ParseDuration(evt.Delay)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: event %q: invalid delay: %w", svc.Name, op.Name, evt.Name, err)
+					}
+					if d < 0 {
+						return fmt.Errorf("service %q operation %q: event %q: delay must not be negative", svc.Name, op.Name, evt.Name)
+					}
+				}
+				for attrName, attrCfg := range evt.Attributes {
+					if _, err := NewAttributeGenerator(attrCfg); err != nil {
+						return fmt.Errorf("service %q operation %q: event %q: attribute %q: %w", svc.Name, op.Name, evt.Name, attrName, err)
+					}
 				}
 			}
 

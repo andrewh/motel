@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1680,4 +1681,134 @@ func TestValidateAsyncWithTimeoutRejected(t *testing.T) {
 	err := ValidateConfig(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "async calls cannot have a timeout")
+}
+
+func TestLoadConfigEvents(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, `
+version: 1
+services:
+  api:
+    operations:
+      handle:
+        duration: 50ms
+        events:
+          - name: cache.miss
+            delay: 5ms
+            attributes:
+              cache.key:
+                value: "user:*"
+          - name: db.query.start
+traffic:
+  rate: 10/s
+`)
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.Services, 1)
+
+	op := cfg.Services[0].Operations[0]
+	require.Len(t, op.Events, 2)
+	assert.Equal(t, "cache.miss", op.Events[0].Name)
+	assert.Equal(t, "5ms", op.Events[0].Delay)
+	assert.Len(t, op.Events[0].Attributes, 1)
+	assert.Equal(t, "db.query.start", op.Events[1].Name)
+	assert.Equal(t, "", op.Events[1].Delay)
+
+	require.NoError(t, ValidateConfig(cfg))
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+	events := topo.Services["api"].Operations["handle"].Events
+	require.Len(t, events, 2)
+	assert.Equal(t, "cache.miss", events[0].Name)
+	assert.Equal(t, 5*time.Millisecond, events[0].Delay)
+	assert.Len(t, events[0].Attributes, 1)
+	assert.Equal(t, "db.query.start", events[1].Name)
+	assert.Equal(t, time.Duration(0), events[1].Delay)
+}
+
+func TestValidateConfigEventErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty event name", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events:   []EventConfig{{Name: ""}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "event[0]: name is required")
+	})
+
+	t.Run("invalid event delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events:   []EventConfig{{Name: "test", Delay: "not-a-duration"}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid delay")
+	})
+
+	t.Run("negative event delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events:   []EventConfig{{Name: "test", Delay: "-5ms"}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "delay must not be negative")
+	})
+
+	t.Run("invalid event attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Events: []EventConfig{{
+						Name: "test",
+						Attributes: map[string]AttributeValueConfig{
+							"bad": {Range: []int64{5, 3}},
+						},
+					}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "event \"test\": attribute \"bad\"")
+	})
 }
