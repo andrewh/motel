@@ -71,7 +71,7 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 			case ReasonCircuitOpen:
 				stats.CircuitBreakerTrips++
 			}
-			return e.planRejectionSpan(op, parentIndex, startTime, reason, scenarioNames, stats, plans, spanCount)
+			return e.planRejectionSpan(op, parentIndex, startTime, reason, scenarioNames, plans, spanCount)
 		}
 		if durationMult > 1.0 {
 			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
@@ -179,11 +179,6 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 
 	isError := ownError || anyChildFailed
 
-	if isError {
-		stats.Errors++
-	}
-	stats.Spans++
-
 	// Fill in the deferred fields now that children are resolved.
 	(*plans)[index].EndTime = endTime
 	(*plans)[index].IsError = isError
@@ -192,29 +187,11 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 		opState.Exit(elapsed, endTime.Sub(startTime), isError)
 	}
 
-	if len(e.Observers) > 0 {
-		attrsCopy := make([]attribute.KeyValue, len(spanAttrs))
-		copy(attrsCopy, spanAttrs)
-		info := SpanInfo{
-			Service:   op.Service.Name,
-			Operation: op.Name,
-			Timestamp: startTime,
-			Duration:  endTime.Sub(startTime),
-			IsError:   isError,
-			Kind:      kind,
-			Attrs:     attrsCopy,
-			Scenarios: scenarioNames,
-		}
-		for _, obs := range e.Observers {
-			obs.Observe(info)
-		}
-	}
-
 	return endTime, isError
 }
 
 // planRejectionSpan mirrors emitRejectionSpan but appends to plans.
-func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime time.Time, reason string, scenarioNames []string, stats *Stats, plans *[]SpanPlan, spanCount *int) (time.Time, bool) {
+func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime time.Time, reason string, scenarioNames []string, plans *[]SpanPlan, spanCount *int) (time.Time, bool) {
 	*spanCount++
 	endTime := startTime.Add(rejectionDuration)
 
@@ -247,28 +224,6 @@ func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime tim
 		RejectionReason: reason,
 		Scenarios:       scenarioNames,
 	})
-
-	stats.Spans++
-	stats.Errors++
-
-	if len(e.Observers) > 0 {
-		info := SpanInfo{
-			Service:   op.Service.Name,
-			Operation: op.Name,
-			Timestamp: startTime,
-			Duration:  rejectionDuration,
-			IsError:   true,
-			Kind:      kind,
-			Attrs: []attribute.KeyValue{
-				attribute.Bool("synth.rejected", true),
-				attribute.String("synth.rejection_reason", reason),
-			},
-			Scenarios: scenarioNames,
-		}
-		for _, obs := range e.Observers {
-			obs.Observe(info)
-		}
-	}
 
 	return endTime, true
 }

@@ -10,7 +10,6 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -177,16 +176,24 @@ func (e *Engine) maxInFlightTraces() int {
 
 // runRealtime plans traces on the main goroutine and emits them in background
 // goroutines at wall-clock times matching simulated timestamps.
+//
+// SimulationState (queue depth, circuit breakers, backpressure) is updated
+// during planning, not emission. This means the state sees each trace as
+// completing instantly rather than over its wall-clock duration. For a synthetic
+// data generator this is an acceptable trade-off that keeps the state serial.
 func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 	var stats Stats
 	startTime := time.Now()
 	deadline := startTime.Add(e.Duration)
 
 	var wg sync.WaitGroup
-	var inFlight atomic.Int64
-	maxFlight := int64(e.maxInFlightTraces())
+	sem := make(chan struct{}, e.maxInFlightTraces())
 
 	var rstats realtimeStats
+
+	intervalTimer := time.NewTimer(0)
+	defer intervalTimer.Stop()
+	<-intervalTimer.C
 
 	for {
 		select {
@@ -233,9 +240,14 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 			continue
 		}
 
-		if inFlight.Load() >= maxFlight {
-			time.Sleep(10 * time.Millisecond)
-			continue
+		// Block until a slot is available (semaphore).
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			e.mergeRealtimeStats(&stats, &rstats)
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		}
 
 		root := e.Topology.Roots[e.Rng.IntN(len(e.Topology.Roots))]
@@ -244,6 +256,10 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		spanLimit := e.maxSpansPerTrace()
 		spanCount := 0
 
+		// planTrace does not count Spans or Errors — those are counted
+		// atomically during emission. It does count Timeouts, Retries,
+		// QueueRejections, and CircuitBreakerTrips which are plan-phase
+		// decisions.
 		var plans []SpanPlan
 		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit)
 		stats.Traces++
@@ -254,32 +270,20 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 			stats.SpansBounded++
 		}
 
-		// Reset span stats since emitTrace will re-count via atomic counters.
-		// planTrace counted them for consistency checking; the real counts come
-		// from emission.
-		stats.Spans -= int64(len(plans))
-		errCount := int64(0)
-		for _, p := range plans {
-			if p.IsError {
-				errCount++
-			}
-		}
-		stats.Errors -= errCount
-
-		inFlight.Add(1)
 		wg.Go(func() {
-			defer inFlight.Add(-1)
+			defer func() { <-sem }()
 			emitTrace(ctx, plans, spanStart, now, e.Tracers, e.Observers, &rstats)
 		})
 
 		interval := time.Duration(float64(time.Second) / rate)
+		intervalTimer.Reset(interval)
 		select {
 		case <-ctx.Done():
 			wg.Wait()
 			e.mergeRealtimeStats(&stats, &rstats)
 			e.finaliseStats(&stats, startTime)
 			return &stats, nil
-		case <-time.After(interval):
+		case <-intervalTimer.C:
 		}
 	}
 }

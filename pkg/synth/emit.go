@@ -2,9 +2,10 @@
 package synth
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -14,9 +15,9 @@ import (
 
 // spanEvent is a scheduled Start or End at a wall-clock time.
 type spanEvent struct {
-	WallTime time.Time
-	Index    int
-	IsEnd    bool
+	SimTime time.Time
+	Index   int
+	IsEnd   bool
 }
 
 // realtimeStats holds atomic counters accumulated during emission.
@@ -50,12 +51,12 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 	<-timer.C
 
 	for _, ev := range events {
-		wallTarget := baseWallTime.Add(ev.WallTime.Sub(baseSimTime))
+		wallTarget := baseWallTime.Add(ev.SimTime.Sub(baseSimTime))
 		timer.Reset(time.Until(wallTarget))
 
 		select {
 		case <-ctx.Done():
-			endAllOpen(live, plans, rstats)
+			endAllOpen(live, rstats)
 			return
 		case <-timer.C:
 		}
@@ -96,21 +97,26 @@ func buildEvents(plans []SpanPlan) []spanEvent {
 	events := make([]spanEvent, 0, len(plans)*2)
 	for i := range plans {
 		events = append(events,
-			spanEvent{WallTime: plans[i].StartTime, Index: i, IsEnd: false},
-			spanEvent{WallTime: plans[i].EndTime, Index: i, IsEnd: true},
+			spanEvent{SimTime: plans[i].StartTime, Index: i, IsEnd: false},
+			spanEvent{SimTime: plans[i].EndTime, Index: i, IsEnd: true},
 		)
 	}
-	sort.Slice(events, func(i, j int) bool {
-		if events[i].WallTime.Equal(events[j].WallTime) {
-			if events[i].IsEnd != events[j].IsEnd {
-				return !events[i].IsEnd
-			}
-			if events[i].IsEnd {
-				return events[i].Index > events[j].Index
-			}
-			return events[i].Index < events[j].Index
+	slices.SortFunc(events, func(a, b spanEvent) int {
+		if c := a.SimTime.Compare(b.SimTime); c != 0 {
+			return c
 		}
-		return events[i].WallTime.Before(events[j].WallTime)
+		// Start before End at the same time.
+		if a.IsEnd != b.IsEnd {
+			if a.IsEnd {
+				return 1
+			}
+			return -1
+		}
+		// Among ends, higher index first (children end before parents).
+		if a.IsEnd {
+			return cmp.Compare(b.Index, a.Index)
+		}
+		return cmp.Compare(a.Index, b.Index)
 	})
 	return events
 }
@@ -150,7 +156,7 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 
 // endAllOpen ends all open spans on context cancellation.
 // Iterates in reverse order so children end before parents.
-func endAllOpen(live []liveSpan, plans []SpanPlan, rstats *realtimeStats) {
+func endAllOpen(live []liveSpan, rstats *realtimeStats) {
 	now := time.Now()
 	for i := len(live) - 1; i >= 0; i-- {
 		if live[i].Span == nil {
