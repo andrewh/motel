@@ -43,13 +43,19 @@ version: 1
 
 ### services
 
-Map of service name to definition. Each service has optional `attributes`
-(static string key-value resource attributes) and a required `operations` map.
+Map of service name to definition. Each service has a required `operations` map
+and optional resource attributes.
+
+| Field                  | Type | Description |
+|------------------------|------|-------------|
+| `resource_attributes`  | map  | Static string key-value pairs attached to the OTel resource (not spans). Use for `deployment.environment`, `service.version`, `service.namespace`, etc. `service.name` and `motel.version` are set automatically and cannot be overridden |
+| `attributes`           | map  | Static string key-value pairs added to every span from this service |
+| `operations`           | map  | Operation definitions (required) |
 
 ```yaml
 services:
   gateway:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: demo
     operations:
@@ -64,11 +70,15 @@ Each operation defines the span it produces.
 | Field        | Type   | Description |
 |-------------|--------|-------------|
 | `duration`   | string | Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
-| `error_rate` | string | Percentage `0.5%` or decimal `0.005` |
+| `error_rate` | string | Percentage `0.5%` or decimal `0.005` (0.0 to 1.0) |
 | `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
+| `events`     | list   | Span events emitted during the operation (see below) |
 | `calls`      | list   | Downstream calls to other operations |
+| `queue_depth`| int    | Max concurrent requests before rejection (0 = unlimited) |
+| `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold |
+| `circuit_breaker`| object | Opens after repeated failures, rejecting requests for a cooldown period |
 
 ```yaml
 operations:
@@ -98,6 +108,7 @@ or a full mapping.
 | `timeout`      | string | Cap child span duration (Go duration, e.g. `100ms`) |
 | `retries`      | int    | Retry count on child failure |
 | `retry_backoff`| string | Constant delay between retries (Go duration) |
+| `async`        | bool   | Fire-and-forget: child runs independently, parent does not wait. Child span kind is CONSUMER instead of CLIENT. Errors do not cascade to parent. Cannot combine with `retries` or `timeout` |
 
 ```yaml
 calls:
@@ -109,6 +120,29 @@ calls:
     timeout: 50ms
     retries: 2
     retry_backoff: 10ms
+```
+
+### events
+
+Span events are timestamped annotations emitted during an operation's span via
+`span.AddEvent()`. Use them for cache misses, query starts, connection
+acquisitions, message receipts, and similar intra-span occurrences.
+
+| Field        | Type   | Description |
+|-------------|--------|-------------|
+| `name`       | string | Event name (required) |
+| `delay`      | string | Offset from span start time (Go duration, default: `0`) |
+| `attributes` | map    | Event attributes — same generators as operation attributes |
+
+```yaml
+events:
+  - name: cache.miss
+    delay: 5ms
+    attributes:
+      cache.key:
+        value: "user:*"
+  - name: db.query.start
+    delay: 10ms
 ```
 
 ### duration format

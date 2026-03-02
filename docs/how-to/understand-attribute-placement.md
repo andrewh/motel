@@ -12,19 +12,19 @@ This guide covers how motel models resource attributes and span attributes, how 
 
 motel distinguishes two levels of attributes, matching the OpenTelemetry data model:
 
-- **Resource attributes** are defined under `services.<name>.attributes`. They describe the service itself and are attached to every span the service produces. These are static string key-value pairs.
-- **Span attributes** are defined under `services.<name>.operations.<op>.attributes`. They describe individual operations and can vary per span using attribute generators.
+- **Resource attributes** are defined under `services.<name>.resource_attributes`. They describe the service itself and are attached to the OTel resource — stored once per service, not per span. These are static string key-value pairs.
+- **Span attributes** are defined under `services.<name>.operations.<op>.attributes`. They describe individual operations and can vary per span using attribute generators. There is also a service-level `attributes` field that adds static key-value pairs to every span from the service.
 
 ```yaml
 services:
   gateway:
-    attributes:                        # resource attributes
+    resource_attributes:               # OTel resource — stored once per service
       deployment.environment: production
       service.namespace: demo
     operations:
       GET /users:
         duration: 30ms +/- 10ms
-        attributes:                    # span attributes
+        attributes:                    # span attributes — stored per span
           http.request.method:
             value: GET
           http.response.status_code:
@@ -32,6 +32,8 @@ services:
 ```
 
 Resource attributes appear once per service resource in the exported telemetry. Span attributes appear on each individual span. This distinction matters for storage cost, query performance, and how your backend indexes data.
+
+See [`docs/examples/attribute-placement.yaml`](../examples/attribute-placement.yaml) for a runnable example that uses both levels on the same service.
 
 ## Experiment: move an attribute between levels
 
@@ -46,7 +48,7 @@ version: 1
 
 services:
   api:
-    attributes:
+    resource_attributes:
       deployment.environment: staging
     operations:
       handle:
@@ -62,7 +64,7 @@ Generate traces and inspect the output:
 motel run --stdout --duration 3s placement-test.yaml | head -20
 ```
 
-Notice that `deployment.environment` appears on every span from the `api` service with the same value. Because it is defined at the service level, it is automatically attached to all operations — you do not need to repeat it on each operation.
+Notice that `deployment.environment` is attached to the OTel resource for the `api` service. In the `--stdout` JSON output, resource attributes appear in the `Resource` field. When sent to a real backend via `--endpoint`, resource attributes are stored once per service — not duplicated on every span.
 
 ### Move it to a span attribute
 
@@ -90,7 +92,7 @@ Run the same command:
 motel run --stdout --duration 3s placement-test.yaml | head -20
 ```
 
-The `--stdout` output looks similar in both cases — motel attaches all attributes to each span. The difference matters when the telemetry reaches a real backend. In the OpenTelemetry data model, service-level attributes belong on the Resource and are stored once per service, while span-level attributes are stored on every individual span. Placing a constant value at the span level increases storage cost and may change how you query the attribute.
+In the `--stdout` JSON, `deployment.environment` now appears in the span's `Attributes` array rather than the `Resource` field. When sent to a real backend, the difference is significant: resource attributes are stored once per service, while span attributes are stored on every individual span. Placing a constant value at the span level increases storage cost and may change how you query the attribute.
 
 To see this distinction in practice, send the two versions to a collector and compare how your backend indexes them:
 
@@ -178,7 +180,7 @@ version: 1
 
 services:
   api:
-    attributes:
+    resource_attributes:
       deployment.environment: staging
     operations:
       handle:
