@@ -56,6 +56,7 @@ type Operation struct {
 	CallStyle      string
 	Attributes     map[string]AttributeGenerator
 	Events         []Event
+	Links          []*Operation
 	QueueDepth     int
 	Backpressure   *ResolvedBackpressure
 	CircuitBreaker *ResolvedCircuitBreaker
@@ -194,10 +195,17 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 		topo.Services[svcCfg.Name] = svc
 	}
 
-	// Second pass: resolve call references
+	// Second pass: resolve call and link references
 	for _, svcCfg := range cfg.Services {
 		for _, opCfg := range svcCfg.Operations {
 			op := topo.Services[svcCfg.Name].Operations[opCfg.Name]
+			for _, linkRef := range opCfg.Links {
+				_, linkOp, err := resolveRef(topo, linkRef)
+				if err != nil {
+					return nil, fmt.Errorf("service %q operation %q: link: %w", svcCfg.Name, opCfg.Name, err)
+				}
+				op.Links = append(op.Links, linkOp)
+			}
 			for _, callCfg := range opCfg.Calls {
 				targetSvc, targetOp, err := resolveRef(topo, callCfg.Target)
 				if err != nil {

@@ -1384,6 +1384,90 @@ scenarios:
 	})
 }
 
+func TestValidateConfigLinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid links", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "producer",
+					Operations: []OperationConfig{{
+						Name:     "enqueue",
+						Duration: "5ms",
+					}},
+				},
+				{
+					Name: "consumer",
+					Operations: []OperationConfig{{
+						Name:     "dequeue",
+						Duration: "10ms",
+						Links:    []string{"producer.enqueue"},
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.NoError(t, err)
+	})
+
+	t.Run("unknown link ref", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Links:    []string{"unknown.op"},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown operation")
+	})
+
+	t.Run("bad link format", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Links:    []string{"nope"},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "service.operation format")
+	})
+
+	t.Run("self-link", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Links:    []string{"svc.op"},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not reference itself")
+	})
+}
+
 func TestValidateConfigCallChanges(t *testing.T) {
 	t.Parallel()
 

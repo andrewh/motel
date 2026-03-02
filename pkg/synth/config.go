@@ -112,6 +112,7 @@ type rawOperationConfig struct {
 	CallStyle      string                          `yaml:"call_style,omitempty"`
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 	Events         []EventConfig                   `yaml:"events,omitempty"`
+	Links          []string                        `yaml:"links,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -135,6 +136,7 @@ type OperationConfig struct {
 	CallStyle      string
 	Attributes     map[string]AttributeValueConfig
 	Events         []EventConfig
+	Links          []string
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -310,6 +312,7 @@ func LoadConfig(source string) (*Config, error) {
 				CallStyle:      rawOp.CallStyle,
 				Attributes:     rawOp.Attributes,
 				Events:         rawOp.Events,
+				Links:          rawOp.Links,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -437,6 +440,19 @@ func ValidateConfig(cfg *Config) error {
 				}
 				if _, err := time.ParseDuration(cb.Cooldown); err != nil {
 					return fmt.Errorf("service %q operation %q: circuit_breaker: invalid cooldown: %w", svc.Name, op.Name, err)
+				}
+			}
+
+			ref := svc.Name + "." + op.Name
+			for _, link := range op.Links {
+				if !strings.Contains(link, ".") {
+					return fmt.Errorf("service %q operation %q: link %q must be in service.operation format", svc.Name, op.Name, link)
+				}
+				if !knownOps[link] {
+					return fmt.Errorf("service %q operation %q: link %q references unknown operation", svc.Name, op.Name, link)
+				}
+				if link == ref {
+					return fmt.Errorf("service %q operation %q: link must not reference itself", svc.Name, op.Name)
 				}
 			}
 

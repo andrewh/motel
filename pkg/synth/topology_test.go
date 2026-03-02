@@ -447,4 +447,39 @@ func TestBuildTopology(t *testing.T) {
 		assert.Zero(t, call.Retries)
 		assert.Zero(t, call.RetryBackoff)
 	})
+
+	t.Run("resolves link refs to pointers", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "producer",
+					Operations: []OperationConfig{{
+						Name:     "enqueue",
+						Duration: "5ms",
+					}},
+				},
+				{
+					Name: "consumer",
+					Operations: []OperationConfig{{
+						Name:     "dequeue",
+						Duration: "10ms",
+						Links:    []string{"producer.enqueue"},
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+
+		consumerOp := topo.Services["consumer"].Operations["dequeue"]
+		require.Len(t, consumerOp.Links, 1)
+		assert.Equal(t, "enqueue", consumerOp.Links[0].Name)
+		assert.Equal(t, "producer", consumerOp.Links[0].Service.Name)
+
+		producerOp := topo.Services["producer"].Operations["enqueue"]
+		assert.Empty(t, producerOp.Links)
+	})
 }
