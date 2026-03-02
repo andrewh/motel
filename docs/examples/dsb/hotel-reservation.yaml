@@ -17,7 +17,7 @@ version: 1
 
 services:
   frontend:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -120,7 +120,7 @@ services:
           - attractions.nearby
 
   search:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -133,7 +133,7 @@ services:
           - rate.get
 
   geo:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -144,7 +144,7 @@ services:
           - mongodb.find
 
   rate:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -156,7 +156,7 @@ services:
           - mongodb.find
 
   profile:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -168,7 +168,7 @@ services:
           - mongodb.find
 
   recommendation:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -179,7 +179,7 @@ services:
           - mongodb.find
 
   reservation:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -197,7 +197,7 @@ services:
           - mongodb.insert
 
   user:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -209,7 +209,7 @@ services:
           - mongodb.find
 
   review:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -221,7 +221,7 @@ services:
           - mongodb.find
 
   attractions:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -232,7 +232,7 @@ services:
           - mongodb.find
 
   mongodb:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
       db.system: mongodb
@@ -245,7 +245,7 @@ services:
         error_rate: 0.1%
 
   memcached:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
       db.system: memcached
