@@ -383,9 +383,8 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	// Providers within each signal share a single exporter and processor.
 	serviceResources := make(map[string]*resource.Resource, len(topo.Services))
 	for name, svc := range topo.Services {
-		attrs := []attribute.KeyValue{
-			attribute.String("service.name", name),
-		}
+		attrs := make([]attribute.KeyValue, 0, 1+len(svc.ResourceAttributes))
+		attrs = append(attrs, attribute.String("service.name", name))
 		for k, v := range svc.ResourceAttributes {
 			attrs = append(attrs, attribute.String(k, v))
 		}
