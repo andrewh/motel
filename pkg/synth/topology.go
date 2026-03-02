@@ -168,7 +168,11 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				for i, evtCfg := range opCfg.Events {
 					evt := Event{Name: evtCfg.Name}
 					if evtCfg.Delay != "" {
-						evt.Delay, _ = time.ParseDuration(evtCfg.Delay)
+						var err error
+						evt.Delay, err = time.ParseDuration(evtCfg.Delay)
+						if err != nil {
+							return nil, fmt.Errorf("service %q operation %q event %q: invalid delay: %w", svcCfg.Name, opCfg.Name, evtCfg.Name, err)
+						}
 					}
 					if len(evtCfg.Attributes) > 0 {
 						evt.Attributes = make(map[string]AttributeGenerator, len(evtCfg.Attributes))
