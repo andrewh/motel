@@ -1681,3 +1681,106 @@ func TestValidateAsyncWithTimeoutRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "async calls cannot have a timeout")
 }
+
+func TestLoadConfigResourceAttributes(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, `
+version: 1
+services:
+  frontend:
+    resource_attributes:
+      deployment.environment: production
+      service.version: "2.1.0"
+    attributes:
+      region: us-east-1
+    operations:
+      handle:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`)
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Len(t, cfg.Services, 1)
+
+	svc := cfg.Services[0]
+	assert.Equal(t, "frontend", svc.Name)
+	assert.Equal(t, map[string]string{
+		"deployment.environment": "production",
+		"service.version":        "2.1.0",
+	}, svc.ResourceAttributes)
+	assert.Equal(t, map[string]string{
+		"region": "us-east-1",
+	}, svc.Attributes)
+
+	require.NoError(t, ValidateConfig(cfg))
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"deployment.environment": "production",
+		"service.version":        "2.1.0",
+	}, topo.Services["frontend"].ResourceAttributes)
+}
+
+func TestValidateResourceAttributeErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("service.name is reserved", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"service.name": "override"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved key \"service.name\"")
+	})
+
+	t.Run("motel.version is reserved", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"motel.version": "fake"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved key \"motel.version\"")
+	})
+
+	t.Run("empty key rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:               "api",
+				ResourceAttributes: map[string]string{"": "value"},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "key must not be empty")
+	})
+}
