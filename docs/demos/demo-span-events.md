@@ -141,8 +141,8 @@ Events are placed at `spanStartTime + delay`. The delay controls when within the
 build/motel run --stdout --duration 200ms docs/examples/span-events.yaml 2>/dev/null | jq -rs '
   [.[] | select(.Name == "GET /users")] | .[0] |
   "cache.miss before db.query.start: \(
-    (.Events | map(select(.Name == "cache.miss")) | .[0].Time) <
-    (.Events | map(select(.Name == "db.query.start")) | .[0].Time)
+    (first(.Events[] | select(.Name == "cache.miss")).Time) <
+    (first(.Events[] | select(.Name == "db.query.start")).Time)
   )",
   "both events before span end: \(
     (.Events | map(.Time) | max) < .EndTime
