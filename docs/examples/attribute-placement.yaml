@@ -1,0 +1,47 @@
+# Resource attributes vs span attributes
+# Demonstrates both levels on the same service.
+#
+# resource_attributes → OTel Resource (stored once per service)
+# operation attributes → span attributes (stored per span, can vary)
+#
+# Run with: motel run --stdout attribute-placement.yaml
+
+version: 1
+
+services:
+  checkout:
+    resource_attributes:
+      deployment.environment: production
+      service.version: "3.2.1"
+      service.namespace: shop
+    operations:
+      process:
+        duration: 40ms +/- 12ms
+        error_rate: 0.5%
+        attributes:
+          http.request.method:
+            value: POST
+          http.response.status_code:
+            values: { 200: 90, 400: 5, 500: 5 }
+          cart.item_count:
+            range: [1, 20]
+        calls:
+          - payments.charge
+
+  payments:
+    resource_attributes:
+      deployment.environment: production
+      service.version: "1.4.0"
+      service.namespace: shop
+    operations:
+      charge:
+        duration: 60ms +/- 20ms
+        error_rate: 1%
+        attributes:
+          payments.currency:
+            values: { GBP: 60, USD: 25, EUR: 15 }
+          payments.amount_cents:
+            range: [100, 50000]
+
+traffic:
+  rate: 10/s
