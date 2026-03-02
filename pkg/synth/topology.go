@@ -38,6 +38,13 @@ type ResolvedCircuitBreaker struct {
 	Cooldown         time.Duration
 }
 
+// Event represents a resolved span event emitted during an operation.
+type Event struct {
+	Name       string
+	Delay      time.Duration
+	Attributes map[string]AttributeGenerator
+}
+
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
 	Service        *Service
@@ -48,6 +55,7 @@ type Operation struct {
 	Calls          []Call
 	CallStyle      string
 	Attributes     map[string]AttributeGenerator
+	Events         []Event
 	QueueDepth     int
 	Backpressure   *ResolvedBackpressure
 	CircuitBreaker *ResolvedCircuitBreaker
@@ -155,6 +163,30 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					FailureThreshold: opCfg.CircuitBreaker.FailureThreshold,
 					Window:           w,
 					Cooldown:         cd,
+				}
+			}
+			if len(opCfg.Events) > 0 {
+				op.Events = make([]Event, len(opCfg.Events))
+				for i, evtCfg := range opCfg.Events {
+					evt := Event{Name: evtCfg.Name}
+					if evtCfg.Delay != "" {
+						var err error
+						evt.Delay, err = time.ParseDuration(evtCfg.Delay)
+						if err != nil {
+							return nil, fmt.Errorf("service %q operation %q event %q: invalid delay: %w", svcCfg.Name, opCfg.Name, evtCfg.Name, err)
+						}
+					}
+					if len(evtCfg.Attributes) > 0 {
+						evt.Attributes = make(map[string]AttributeGenerator, len(evtCfg.Attributes))
+						for name, acfg := range evtCfg.Attributes {
+							gen, err := NewAttributeGenerator(acfg)
+							if err != nil {
+								return nil, fmt.Errorf("service %q operation %q event %q attribute %q: %w", svcCfg.Name, opCfg.Name, evtCfg.Name, name, err)
+							}
+							evt.Attributes[name] = gen
+						}
+					}
+					op.Events[i] = evt
 				}
 			}
 			svc.Operations[opCfg.Name] = op
