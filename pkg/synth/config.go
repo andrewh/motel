@@ -22,6 +22,13 @@ const maxSourceBytes = 10 << 20 // 10 MB
 // CurrentVersion is the supported schema version for synth topology configs.
 const CurrentVersion = 1
 
+// reservedResourceAttribute lists OTel resource keys that motel sets automatically.
+// Users must not override these in resource_attributes.
+var reservedResourceAttribute = map[string]bool{
+	"service.name":  true,
+	"motel.version": true,
+}
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
@@ -40,8 +47,9 @@ type rawConfig struct {
 
 // rawServiceConfig is the YAML representation of a service before normalisation.
 type rawServiceConfig struct {
-	Attributes map[string]string             `yaml:"attributes,omitempty"`
-	Operations map[string]rawOperationConfig `yaml:"operations"`
+	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
+	Attributes         map[string]string             `yaml:"attributes,omitempty"`
+	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
 // CallConfig describes a downstream call in the YAML DSL.
@@ -88,6 +96,13 @@ type CircuitBreakerConfig struct {
 	Cooldown         string `yaml:"cooldown"`
 }
 
+// EventConfig describes a span event emitted during an operation.
+type EventConfig struct {
+	Name       string                          `yaml:"name"`
+	Delay      string                          `yaml:"delay,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain         string                          `yaml:"domain,omitempty"`
@@ -96,6 +111,7 @@ type rawOperationConfig struct {
 	Calls          []CallConfig                    `yaml:"calls,omitempty"`
 	CallStyle      string                          `yaml:"call_style,omitempty"`
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	Events         []EventConfig                   `yaml:"events,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -103,9 +119,10 @@ type rawOperationConfig struct {
 
 // ServiceConfig describes a service in the topology.
 type ServiceConfig struct {
-	Name       string
-	Attributes map[string]string
-	Operations []OperationConfig
+	Name               string
+	ResourceAttributes map[string]string
+	Attributes         map[string]string
+	Operations         []OperationConfig
 }
 
 // OperationConfig describes an operation within a service.
@@ -117,6 +134,7 @@ type OperationConfig struct {
 	Calls          []CallConfig
 	CallStyle      string
 	Attributes     map[string]AttributeValueConfig
+	Events         []EventConfig
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -270,8 +288,9 @@ func LoadConfig(source string) (*Config, error) {
 	for _, name := range serviceNames {
 		rawSvc := raw.Services[name]
 		svc := ServiceConfig{
-			Name:       name,
-			Attributes: rawSvc.Attributes,
+			Name:               name,
+			ResourceAttributes: rawSvc.ResourceAttributes,
+			Attributes:         rawSvc.Attributes,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -290,6 +309,7 @@ func LoadConfig(source string) (*Config, error) {
 				Calls:          rawOp.Calls,
 				CallStyle:      rawOp.CallStyle,
 				Attributes:     rawOp.Attributes,
+				Events:         rawOp.Events,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -318,6 +338,14 @@ func ValidateConfig(cfg *Config) error {
 	for _, svc := range cfg.Services {
 		if len(svc.Operations) == 0 {
 			return fmt.Errorf("service %q must have at least one operation, e.g.\n  operations:\n    GET /users:\n      duration: 50ms", svc.Name)
+		}
+		for k := range svc.ResourceAttributes {
+			if k == "" {
+				return fmt.Errorf("service %q: resource_attributes key must not be empty", svc.Name)
+			}
+			if reservedResourceAttribute[k] {
+				return fmt.Errorf("service %q: resource_attributes must not contain reserved key %q (set automatically)", svc.Name, k)
+			}
 		}
 		for _, op := range svc.Operations {
 			ref := svc.Name + "." + op.Name
@@ -350,6 +378,26 @@ func ValidateConfig(cfg *Config) error {
 			for attrName, attrCfg := range op.Attributes {
 				if _, err := NewAttributeGenerator(attrCfg); err != nil {
 					return fmt.Errorf("service %q operation %q: attribute %q: %w", svc.Name, op.Name, attrName, err)
+				}
+			}
+
+			for i, evt := range op.Events {
+				if evt.Name == "" {
+					return fmt.Errorf("service %q operation %q: event[%d]: name is required", svc.Name, op.Name, i)
+				}
+				if evt.Delay != "" {
+					d, err := time.ParseDuration(evt.Delay)
+					if err != nil {
+						return fmt.Errorf("service %q operation %q: event %q: invalid delay: %w", svc.Name, op.Name, evt.Name, err)
+					}
+					if d < 0 {
+						return fmt.Errorf("service %q operation %q: event %q: delay must not be negative", svc.Name, op.Name, evt.Name)
+					}
+				}
+				for attrName, attrCfg := range evt.Attributes {
+					if _, err := NewAttributeGenerator(attrCfg); err != nil {
+						return fmt.Errorf("service %q operation %q: event %q: attribute %q: %w", svc.Name, op.Name, evt.Name, attrName, err)
+					}
 				}
 			}
 

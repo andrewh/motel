@@ -1,0 +1,38 @@
+# Span events on operations
+# Events are emitted via span.AddEvent() at startTime + delay.
+# Useful for modelling cache misses, query starts, message receipts, etc.
+# Run with: motel run --stdout span-events.yaml
+
+version: 1
+
+services:
+  api:
+    operations:
+      GET /users:
+        duration: 80ms +/- 20ms
+        events:
+          - name: cache.miss
+            delay: 5ms
+            attributes:
+              cache.key:
+                value: "user:*"
+          - name: db.query.start
+            delay: 10ms
+            attributes:
+              db.system:
+                value: postgresql
+              db.statement:
+                value: "SELECT * FROM users"
+        calls:
+          - database.query
+
+  database:
+    operations:
+      query:
+        duration: 30ms +/- 10ms
+        events:
+          - name: connection.acquired
+            delay: 2ms
+
+traffic:
+  rate: 5/s

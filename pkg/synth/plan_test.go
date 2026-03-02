@@ -134,7 +134,7 @@ func TestPlanTraceMatchesWalkTrace(t *testing.T) {
 	walkSpanCount := 0
 	walkEnd, walkErr := walkEngine.walkTrace(
 		context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
-		&walkStats, &walkSpanCount, DefaultMaxSpansPerTrace,
+		&walkStats, &walkSpanCount, DefaultMaxSpansPerTrace, false,
 	)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -290,7 +290,7 @@ func TestPlanTraceSequentialCalls(t *testing.T) {
 	var walkStats Stats
 	wsc := 0
 	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
-		&walkStats, &wsc, DefaultMaxSpansPerTrace)
+		&walkStats, &wsc, DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -359,7 +359,7 @@ func TestPlanTraceRetries(t *testing.T) {
 	var walkStats Stats
 	wsc := 0
 	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
-		&walkStats, &wsc, DefaultMaxSpansPerTrace)
+		&walkStats, &wsc, DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
