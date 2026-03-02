@@ -12,7 +12,7 @@ version: 1
 
 services:
   nginx-frontend:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -61,7 +61,7 @@ services:
           - user-timeline.read
 
   compose-post:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -90,7 +90,7 @@ services:
           - home-timeline.write
 
   unique-id:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -99,7 +99,7 @@ services:
         error_rate: 0.01%
 
   text:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -111,7 +111,7 @@ services:
           - user-mention.resolve
 
   user-mention:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -123,7 +123,7 @@ services:
           - mongodb.find
 
   url-shorten:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -135,7 +135,7 @@ services:
           - mongodb.find
 
   media:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -146,7 +146,7 @@ services:
           - mongodb.insert
 
   user:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -158,7 +158,7 @@ services:
           - mongodb.find
 
   post-storage:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -176,7 +176,7 @@ services:
           - mongodb.find
 
   user-timeline:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -193,7 +193,7 @@ services:
           - post-storage.read
 
   home-timeline:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -210,7 +210,7 @@ services:
           - post-storage.read
 
   social-graph:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
     operations:
@@ -222,7 +222,7 @@ services:
           - mongodb.find
 
   mongodb:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
       db.system: mongodb
@@ -235,7 +235,7 @@ services:
         error_rate: 0.1%
 
   memcached:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
       db.system: memcached
@@ -248,7 +248,7 @@ services:
         error_rate: 0.01%
 
   redis:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: deathstarbench
       db.system: redis

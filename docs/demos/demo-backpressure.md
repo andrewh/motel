@@ -36,7 +36,7 @@ services:
             retry_backoff: 20ms
 
   api:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       process:

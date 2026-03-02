@@ -19,7 +19,7 @@ cat docs/examples/basic-topology.yaml
 version: 1
 services:
   gateway:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: demo
     operations:
@@ -57,7 +57,7 @@ services:
           - order-service.create
 
   user-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       list:
@@ -67,7 +67,7 @@ services:
           - postgres.query
 
   order-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       create:
@@ -79,7 +79,7 @@ services:
           - redis.get
 
   postgres:
-    attributes:
+    resource_attributes:
       db.system: postgresql
     operations:
       query:
@@ -93,7 +93,7 @@ services:
               UPDATE: 10
 
   redis:
-    attributes:
+    resource_attributes:
       db.system: redis
     operations:
       get:

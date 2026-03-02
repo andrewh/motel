@@ -21,7 +21,7 @@ version: 1
 
 services:
   web-gateway:
-    attributes:
+    resource_attributes:
       deployment.environment: staging
       service.version: 1.0.0
     operations:
@@ -31,7 +31,7 @@ services:
           - api-server.healthcheck
 
   api-server:
-    attributes:
+    resource_attributes:
       deployment.environment: staging
       service.version: 2.3.1
     operations:
@@ -44,7 +44,7 @@ services:
           - database.query
 
   database:
-    attributes:
+    resource_attributes:
       deployment.environment: staging
       db.system: postgresql
     operations:
@@ -157,7 +157,7 @@ Different backends handle attributes differently — some index specific keys, s
 ```yaml
 services:
   attribute-test:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.version: 3.1.4
       cloud.provider: aws

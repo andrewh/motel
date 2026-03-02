@@ -241,7 +241,7 @@ Each decision maps to a line in `inferred-topology.yaml`:
 version: 1
 services:
   api:
-    attributes:
+    resource_attributes:
       deployment.environment: staging       ← stage 5: constant attribute
     operations:
       handle:

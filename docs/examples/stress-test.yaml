@@ -12,7 +12,7 @@ services:
           - processing.handle
 
   processing:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       handle:

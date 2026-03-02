@@ -6,7 +6,7 @@ version: 1
 
 services:
   api-gateway:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       service.namespace: ecommerce
       # Legacy attribute that should be renamed
@@ -59,7 +59,7 @@ services:
           - product-service.list
 
   order-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       team_name: orders-squad
     operations:
@@ -85,7 +85,7 @@ services:
           - notification-service.send
 
   inventory-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
       team_name: fulfilment
     operations:
@@ -107,7 +107,7 @@ services:
           - redis.get
 
   product-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       list:
@@ -120,7 +120,7 @@ services:
           - postgres.query
 
   notification-service:
-    attributes:
+    resource_attributes:
       deployment.environment: production
     operations:
       send:
@@ -138,7 +138,7 @@ services:
               sms: 20
 
   postgres:
-    attributes:
+    resource_attributes:
       db.system: postgresql
     operations:
       query:
@@ -152,7 +152,7 @@ services:
               "UPDATE inventory SET quantity = quantity - ? WHERE sku = ?": 25
 
   redis:
-    attributes:
+    resource_attributes:
       db.system: redis
     operations:
       get:

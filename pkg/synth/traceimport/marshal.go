@@ -20,8 +20,8 @@ type inferredConfig struct {
 }
 
 type inferredService struct {
-	Attributes map[string]string            `yaml:"attributes,omitempty"`
-	Operations map[string]inferredOperation `yaml:"operations"`
+	ResourceAttributes map[string]string            `yaml:"resource_attributes,omitempty"`
+	Operations         map[string]inferredOperation `yaml:"operations"`
 }
 
 type inferredOperation struct {
@@ -59,7 +59,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 		}
 
 		if attrs, ok := serviceAttrs[svcName]; ok && len(attrs) > 0 {
-			svc.Attributes = attrs
+			svc.ResourceAttributes = attrs
 		}
 
 		opNames := make([]string, 0, len(svcStats.Ops))
