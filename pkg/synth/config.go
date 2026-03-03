@@ -444,6 +444,7 @@ func ValidateConfig(cfg *Config) error {
 			}
 
 			ref := svc.Name + "." + op.Name
+			seenLinks := make(map[string]bool, len(op.Links))
 			for _, link := range op.Links {
 				if !strings.Contains(link, ".") {
 					return fmt.Errorf("service %q operation %q: link %q must be in service.operation format", svc.Name, op.Name, link)
@@ -454,6 +455,10 @@ func ValidateConfig(cfg *Config) error {
 				if link == ref {
 					return fmt.Errorf("service %q operation %q: link must not reference itself", svc.Name, op.Name)
 				}
+				if seenLinks[link] {
+					return fmt.Errorf("service %q operation %q: duplicate link %q", svc.Name, op.Name, link)
+				}
+				seenLinks[link] = true
 			}
 
 			for _, call := range op.Calls {

@@ -38,7 +38,7 @@ type liveSpan struct {
 // start time; baseWallTime is the corresponding wall-clock time. All events
 // are scheduled relative to that offset.
 // On context cancellation, all open spans are ended immediately.
-func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, baseWallTime time.Time, tracers TracerSource, observers []SpanObserver, rstats *realtimeStats, registry *SpanContextRegistry) {
+func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, baseWallTime time.Time, tracers TracerSource, observers []SpanObserver, rstats *realtimeStats, registry *spanContextRegistry) {
 	if len(plans) == 0 {
 		return
 	}
@@ -79,7 +79,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.LinkRefs) > 0 && registry != nil {
 				var links []trace.Link
 				for _, ref := range plan.LinkRefs {
-					if sc, ok := registry.Load(ref); ok {
+					if sc, ok := registry.load(ref); ok {
 						links = append(links, trace.Link{SpanContext: sc})
 					}
 				}
@@ -90,8 +90,8 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 
 			tracer := tracers(plan.Service)
 			spanCtx, span := tracer.Start(parentCtx, plan.Operation, startOpts...)
-			if registry != nil && plan.Ref != "" {
-				registry.Store(plan.Ref, span.SpanContext())
+			if registry != nil {
+				registry.store(plan.Ref, span.SpanContext())
 			}
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)

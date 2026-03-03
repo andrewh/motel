@@ -1466,6 +1466,33 @@ func TestValidateConfigLinks(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "must not reference itself")
 	})
+
+	t.Run("duplicate link", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "producer",
+					Operations: []OperationConfig{{
+						Name:     "enqueue",
+						Duration: "5ms",
+					}},
+				},
+				{
+					Name: "consumer",
+					Operations: []OperationConfig{{
+						Name:     "dequeue",
+						Duration: "10ms",
+						Links:    []string{"producer.enqueue", "producer.enqueue"},
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicate link")
+	})
 }
 
 func TestValidateConfigCallChanges(t *testing.T) {

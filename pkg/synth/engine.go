@@ -20,31 +20,47 @@ import (
 // DefaultMaxSpansPerTrace is the safety bound for span generation per trace.
 const DefaultMaxSpansPerTrace = 10_000
 
-// SpanContextRegistry stores the most recent span context for each operation ref.
+// spanContextRegistry stores the most recent span context for each operation ref.
 // Used to attach cross-trace span links from consumer operations to producer operations.
-type SpanContextRegistry struct {
-	mu  sync.RWMutex
-	ctx map[string]trace.SpanContext
+// Concurrent Store calls produce last-writer-wins semantics — "most recent" is
+// approximate when multiple goroutines emit spans for the same operation.
+type spanContextRegistry struct {
+	mu      sync.RWMutex
+	ctx     map[string]trace.SpanContext
+	targets map[string]bool // only store contexts for operations referenced as link targets
 }
 
-// Store records the span context for an operation ref.
-func (r *SpanContextRegistry) Store(ref string, sc trace.SpanContext) {
+func (r *spanContextRegistry) store(ref string, sc trace.SpanContext) {
+	if !r.targets[ref] {
+		return
+	}
 	r.mu.Lock()
 	r.ctx[ref] = sc
 	r.mu.Unlock()
 }
 
-// Load returns the span context for an operation ref, if one has been recorded.
-func (r *SpanContextRegistry) Load(ref string) (trace.SpanContext, bool) {
+func (r *spanContextRegistry) load(ref string) (trace.SpanContext, bool) {
 	r.mu.RLock()
 	sc, ok := r.ctx[ref]
 	r.mu.RUnlock()
 	return sc, ok
 }
 
-// NewSpanContextRegistry creates an empty span context registry.
-func NewSpanContextRegistry() *SpanContextRegistry {
-	return &SpanContextRegistry{ctx: make(map[string]trace.SpanContext)}
+// newSpanContextRegistry creates a registry that only stores contexts for
+// operations referenced as link targets in the topology.
+func newSpanContextRegistry(topo *Topology) *spanContextRegistry {
+	targets := make(map[string]bool)
+	for _, svc := range topo.Services {
+		for _, op := range svc.Operations {
+			for _, linked := range op.Links {
+				targets[linked.Ref] = true
+			}
+		}
+	}
+	return &spanContextRegistry{
+		ctx:     make(map[string]trace.SpanContext),
+		targets: targets,
+	}
 }
 
 // DefaultMaxInFlightTraces limits concurrent trace emission in realtime mode.
@@ -70,7 +86,7 @@ type Engine struct {
 	TimeOffset        time.Duration
 	Realtime          bool
 	MaxInFlightTraces int
-	linkRegistry      *SpanContextRegistry
+	linkRegistry      *spanContextRegistry
 }
 
 // Stats holds counters collected during a simulation run.
@@ -100,7 +116,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		return nil, fmt.Errorf("no root operations to generate traces from")
 	}
 
-	e.linkRegistry = NewSpanContextRegistry()
+	e.linkRegistry = newSpanContextRegistry(e.Topology)
 
 	if e.Realtime {
 		return e.runRealtime(ctx)
@@ -408,7 +424,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	if len(op.Links) > 0 && e.linkRegistry != nil {
 		var links []trace.Link
 		for _, linked := range op.Links {
-			if sc, ok := e.linkRegistry.Load(linked.Ref); ok {
+			if sc, ok := e.linkRegistry.load(linked.Ref); ok {
 				links = append(links, trace.Link{SpanContext: sc})
 			}
 		}
@@ -420,7 +436,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	ctx, span := tracer.Start(ctx, op.Name, startOpts...)
 
 	if e.linkRegistry != nil {
-		e.linkRegistry.Store(op.Ref, span.SpanContext())
+		e.linkRegistry.store(op.Ref, span.SpanContext())
 	}
 
 	// Collect attributes for both the span and observers

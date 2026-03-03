@@ -2709,7 +2709,7 @@ func TestEngineSpanLinks(t *testing.T) {
 	}
 
 	engine, exporter, tp := newTestEngine(t, cfg)
-	engine.linkRegistry = NewSpanContextRegistry()
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
 
 	// Walk two traces manually. The first trace populates the link registry;
 	// the second trace should have a link from the consumer to the producer.
@@ -2774,7 +2774,7 @@ func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
 	}
 
 	engine, exporter, tp := newTestEngine(t, cfg)
-	engine.linkRegistry = NewSpanContextRegistry()
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
 
 	// Run consumer first — registry is empty, so no links
 	var consumerRoot *Operation
