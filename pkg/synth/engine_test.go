@@ -2683,3 +2683,112 @@ func TestEngineRunRealtimeCancellation(t *testing.T) {
 	assert.Greater(t, stats.Traces, int64(0), "should generate at least one trace before cancellation")
 	assert.Less(t, stats.ElapsedMs, int64(5000), "should not run for the full duration")
 }
+
+func TestEngineSpanLinks(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "producer",
+				Operations: []OperationConfig{{
+					Name:     "enqueue",
+					Duration: "5ms",
+				}},
+			},
+			{
+				Name: "consumer",
+				Operations: []OperationConfig{{
+					Name:     "dequeue",
+					Duration: "10ms",
+					Links:    []string{"producer.enqueue"},
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
+
+	// Walk two traces manually. The first trace populates the link registry;
+	// the second trace should have a link from the consumer to the producer.
+	now := time.Now()
+	stats := &Stats{}
+
+	// Trace 1: pick producer root (roots are sorted: consumer, producer)
+	roots := engine.Topology.Roots
+	var producerRoot, consumerRoot *Operation
+	for _, r := range roots {
+		if r.Service.Name == "producer" {
+			producerRoot = r
+		} else {
+			consumerRoot = r
+		}
+	}
+	require.NotNil(t, producerRoot)
+	require.NotNil(t, consumerRoot)
+
+	// Run producer first to populate the registry
+	engine.walkTrace(context.Background(), producerRoot, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	producerSpans := exporter.GetSpans()
+	require.Len(t, producerSpans, 1)
+	producerSpanCtx := producerSpans[0].SpanContext
+
+	// Run consumer — should link to producer
+	exporter.Reset()
+	engine.walkTrace(context.Background(), consumerRoot, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	consumerSpans := exporter.GetSpans()
+	require.Len(t, consumerSpans, 1)
+	require.Len(t, consumerSpans[0].Links, 1, "consumer span should have one link")
+	assert.Equal(t, producerSpanCtx.TraceID(), consumerSpans[0].Links[0].SpanContext.TraceID())
+	assert.Equal(t, producerSpanCtx.SpanID(), consumerSpans[0].Links[0].SpanContext.SpanID())
+}
+
+func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "producer",
+				Operations: []OperationConfig{{
+					Name:     "enqueue",
+					Duration: "5ms",
+				}},
+			},
+			{
+				Name: "consumer",
+				Operations: []OperationConfig{{
+					Name:     "dequeue",
+					Duration: "10ms",
+					Links:    []string{"producer.enqueue"},
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
+
+	// Run consumer first — registry is empty, so no links
+	var consumerRoot *Operation
+	for _, r := range engine.Topology.Roots {
+		if r.Service.Name == "consumer" {
+			consumerRoot = r
+		}
+	}
+	require.NotNil(t, consumerRoot)
+
+	engine.walkTrace(context.Background(), consumerRoot, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Empty(t, spans[0].Links, "first trace should have no links (registry empty)")
+}

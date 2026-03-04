@@ -16,6 +16,7 @@ type SpanPlan struct {
 	ParentIndex     int
 	Service         string
 	Operation       string
+	Ref             string
 	Kind            trace.SpanKind
 	StartTime       time.Time
 	EndTime         time.Time
@@ -25,6 +26,7 @@ type SpanPlan struct {
 	Scenarios       []string
 	Rejected        bool
 	RejectionReason string
+	LinkRefs        []string
 }
 
 // planTrace recursively plans spans for an operation and its downstream calls.
@@ -106,17 +108,24 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
+	var linkRefs []string
+	for _, linked := range op.Links {
+		linkRefs = append(linkRefs, linked.Ref)
+	}
+
 	// Append a placeholder plan entry; EndTime and IsError are filled in after children.
 	plan := SpanPlan{
 		Index:       index,
 		ParentIndex: parentIndex,
 		Service:     op.Service.Name,
 		Operation:   op.Name,
+		Ref:         op.Ref,
 		Kind:        kind,
 		StartTime:   startTime,
 		StartAttrs:  startAttrs,
 		Attrs:       spanAttrs,
 		Scenarios:   scenarioNames,
+		LinkRefs:    linkRefs,
 	}
 	*plans = append(*plans, plan)
 
@@ -215,6 +224,7 @@ func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime tim
 		ParentIndex:     parentIndex,
 		Service:         op.Service.Name,
 		Operation:       op.Name,
+		Ref:             op.Ref,
 		Kind:            kind,
 		StartTime:       startTime,
 		EndTime:         endTime,

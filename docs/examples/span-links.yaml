@@ -1,0 +1,25 @@
+# Cross-trace span links between producer and consumer
+# The consumer's dequeue span links back to the producer's enqueue span,
+# representing a non-parent-child relationship (message queue pattern).
+# The first trace has no links (registry empty); subsequent traces link
+# to the most recent producer span.
+
+version: 1
+
+services:
+  producer:
+    operations:
+      enqueue:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+
+  consumer:
+    operations:
+      dequeue:
+        duration: 15ms +/- 5ms
+        error_rate: 0.5%
+        links:
+          - producer.enqueue
+
+traffic:
+  rate: 10/s

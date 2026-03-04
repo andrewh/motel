@@ -98,7 +98,7 @@ func TestEmitTraceProducesSpans(t *testing.T) {
 	}
 
 	var rstats realtimeStats
-	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats)
+	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats, nil)
 
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -145,7 +145,7 @@ func TestEmitTraceErrors(t *testing.T) {
 	}
 
 	var rstats realtimeStats
-	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats)
+	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats, nil)
 
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -181,7 +181,7 @@ func TestEmitTraceRejection(t *testing.T) {
 	}
 
 	var rstats realtimeStats
-	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats)
+	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats, nil)
 
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -221,7 +221,7 @@ func TestEmitTraceCancellation(t *testing.T) {
 	}()
 
 	var rstats realtimeStats
-	emitTrace(ctx, plans, now, time.Now(), tracers, nil, &rstats)
+	emitTrace(ctx, plans, now, time.Now(), tracers, nil, &rstats, nil)
 
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -236,7 +236,7 @@ func TestEmitTraceEmpty(t *testing.T) {
 	t.Parallel()
 
 	var rstats realtimeStats
-	emitTrace(context.Background(), nil, time.Now(), time.Now(), nil, nil, &rstats)
+	emitTrace(context.Background(), nil, time.Now(), time.Now(), nil, nil, &rstats, nil)
 	assert.Equal(t, int64(0), rstats.Spans.Load())
 }
 
@@ -268,7 +268,7 @@ func TestEmitTraceObservers(t *testing.T) {
 	}
 
 	var rstats realtimeStats
-	emitTrace(context.Background(), plans, now, time.Now(), tracers, []SpanObserver{obs}, &rstats)
+	emitTrace(context.Background(), plans, now, time.Now(), tracers, []SpanObserver{obs}, &rstats, nil)
 
 	require.Len(t, observed, 1)
 	assert.Equal(t, "gateway", observed[0].Service)

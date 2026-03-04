@@ -75,6 +75,7 @@ Each operation defines the span it produces.
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
 | `events`     | list   | Span events emitted during the operation (see below) |
+| `links`      | list   | Cross-trace span links to other operations (see below) |
 | `calls`      | list   | Downstream calls to other operations |
 | `queue_depth`| int    | Max concurrent requests before rejection (0 = unlimited) |
 | `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold |
@@ -143,6 +144,33 @@ events:
         value: "user:*"
   - name: db.query.start
     delay: 10ms
+```
+
+### links
+
+Span links represent non-parent-child relationships between spans — a consumer
+linking back to the producer that enqueued a message, a batch job linking to
+the requests it aggregates. Each entry is a `service.operation` reference.
+
+The engine maintains a registry of the most recent span context for each
+operation. When a span with links is created, it looks up each linked
+operation's most recent span context and attaches it via `trace.WithLinks()`.
+The first trace has no links (the registry is empty); subsequent traces link to
+the most recent span — this mirrors real-world behaviour where the consumer
+trails the producer.
+
+```yaml
+services:
+  producer:
+    operations:
+      enqueue:
+        duration: 5ms
+  consumer:
+    operations:
+      dequeue:
+        duration: 15ms
+        links:
+          - producer.enqueue
 ```
 
 ### duration format
