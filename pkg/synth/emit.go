@@ -90,7 +90,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 
 			tracer := tracers(plan.Service)
 			spanCtx, span := tracer.Start(parentCtx, plan.Operation, startOpts...)
-			if registry != nil {
+			if registry != nil && !plan.Rejected {
 				registry.store(plan.Ref, span.SpanContext())
 			}
 			if len(plan.Attrs) > 0 {
