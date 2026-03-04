@@ -63,6 +63,7 @@ func rootCmd() *cobra.Command {
 	}
 
 	root.AddCommand(runCmd())
+	root.AddCommand(emitCmd())
 	root.AddCommand(validateCmd())
 	root.AddCommand(importCmd())
 	root.AddCommand(previewCmd())
@@ -138,6 +139,173 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 
 	return cmd
+}
+
+func emitCmd() *cobra.Command {
+	var (
+		service   string
+		operation string
+		duration  time.Duration
+		errorRate string
+		attrs     []string
+		count     int
+		rate      string
+		endpoint  string
+		stdout    bool
+		protocol  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "emit",
+		Short: "Emit traces from inline arguments without a topology file",
+		Long: "Emit one or more single-span traces from command-line arguments.\n\n" +
+			"For multi-service topologies or call graphs, use 'motel run' with a YAML file.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if service == "" {
+				return fmt.Errorf("--service is required")
+			}
+			if operation == "" {
+				return fmt.Errorf("--operation is required")
+			}
+
+			// Parse --attr key=value pairs
+			opAttrs := make(map[string]synth.AttributeValueConfig, len(attrs))
+			for _, a := range attrs {
+				k, v, ok := strings.Cut(a, "=")
+				if !ok {
+					return fmt.Errorf("--attr %q must be in key=value format", a)
+				}
+				opAttrs[k] = synth.AttributeValueConfig{Value: v}
+			}
+
+			// Parse error rate
+			var errorRateStr string
+			if errorRate != "" {
+				errorRateStr = errorRate
+			}
+
+			// Build a Config programmatically
+			cfg := &synth.Config{
+				Version: synth.CurrentVersion,
+				Services: []synth.ServiceConfig{
+					{
+						Name: service,
+						Operations: []synth.OperationConfig{
+							{
+								Name:       operation,
+								Duration:   duration.String(),
+								ErrorRate:  errorRateStr,
+								Attributes: opAttrs,
+							},
+						},
+					},
+				},
+				Traffic: synth.TrafficConfig{Rate: rate},
+			}
+
+			if err := synth.ValidateConfig(cfg); err != nil {
+				return err
+			}
+			topo, err := synth.BuildTopology(cfg, nil)
+			if err != nil {
+				return err
+			}
+			traffic, err := synth.NewTrafficPattern(cfg.Traffic)
+			if err != nil {
+				return err
+			}
+
+			opts := runOptions{
+				endpoint: endpoint,
+				stdout:   stdout,
+				protocol: protocol,
+			}
+
+			if err := validateProtocol(opts.protocol); err != nil {
+				return err
+			}
+
+			if !opts.stdout {
+				if err := checkEndpointForEmit(opts.endpoint, opts.protocol); err != nil {
+					return err
+				}
+			}
+
+			baseRes, err := resource.Merge(resource.Default(), resource.NewSchemaless(
+				attribute.String("motel.version", version),
+			))
+			if err != nil {
+				return fmt.Errorf("creating resource: %w", err)
+			}
+
+			serviceResources := map[string]*resource.Resource{}
+			svcRes, err := resource.Merge(baseRes, resource.NewSchemaless(
+				attribute.String("service.name", service),
+			))
+			if err != nil {
+				return fmt.Errorf("creating resource: %w", err)
+			}
+			serviceResources[service] = svcRes
+
+			traceProviders, shutdownTraces, err := createTraceProviders(cmd.Context(), opts, true, serviceResources)
+			if err != nil {
+				return fmt.Errorf("creating trace providers: %w", err)
+			}
+			defer shutdownTraces()
+
+			engine := &synth.Engine{
+				Topology: topo,
+				Traffic:  traffic,
+				Tracers: func(name string) trace.Tracer {
+					tp := traceProviders[name]
+					if tp == nil {
+						panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
+					}
+					return tp.Tracer(name)
+				},
+				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
+				Duration:  time.Hour,                                           // effectively unlimited; MaxTraces controls stopping
+				MaxTraces: count,
+			}
+
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+
+			stats, err := engine.Run(ctx)
+			if err != nil {
+				return err
+			}
+
+			return json.NewEncoder(os.Stderr).Encode(stats)
+		},
+	}
+
+	cmd.Flags().StringVar(&service, "service", "", "service name (required)")
+	cmd.Flags().StringVar(&operation, "operation", "", "operation name (required)")
+	cmd.Flags().DurationVar(&duration, "duration", 100*time.Millisecond, "span duration")
+	cmd.Flags().StringVar(&errorRate, "error-rate", "", "error rate (e.g. 5%, 0.05)")
+	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "span attribute in key=value format (repeatable)")
+	cmd.Flags().IntVar(&count, "count", 1, "number of traces to emit")
+	cmd.Flags().StringVar(&rate, "rate", "10/s", "trace rate when count > 1 (e.g. 10/s, 100/m)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318)")
+	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
+	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
+
+	return cmd
+}
+
+func checkEndpointForEmit(endpoint, protocol string) error {
+	host := resolveEndpoint(endpoint, protocol)
+	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	if err != nil {
+		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
+			"To emit signals as JSON to the terminal, use --stdout:\n"+
+			"  motel emit --service myapp --operation request --stdout\n\n"+
+			"To send to a specific collector, use --endpoint:\n"+
+			"  motel emit --service myapp --operation request --endpoint collector.example.com:4318", host)
+	}
+	_ = conn.Close()
+	return nil
 }
 
 func validateCmd() *cobra.Command {
@@ -300,22 +468,26 @@ const (
 	defaultGRPCPort     = "4317"
 )
 
-func checkEndpoint(endpoint, protocol, configPath string) error {
-	host := endpoint
-	if host == "" {
+func resolveEndpoint(endpoint, protocol string) string {
+	if endpoint == "" {
 		port := defaultHTTPPort
 		if protocol == "grpc" {
 			port = defaultGRPCPort
 		}
-		host = "localhost:" + port
-	} else if _, _, err := net.SplitHostPort(host); err != nil {
-		port := defaultHTTPPort
-		if protocol == "grpc" {
-			port = defaultGRPCPort
-		}
-		host = net.JoinHostPort(host, port)
+		return "localhost:" + port
 	}
+	if _, _, err := net.SplitHostPort(endpoint); err != nil {
+		port := defaultHTTPPort
+		if protocol == "grpc" {
+			port = defaultGRPCPort
+		}
+		return net.JoinHostPort(endpoint, port)
+	}
+	return endpoint
+}
 
+func checkEndpoint(endpoint, protocol, configPath string) error {
+	host := resolveEndpoint(endpoint, protocol)
 	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+

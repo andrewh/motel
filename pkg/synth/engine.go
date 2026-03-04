@@ -86,6 +86,7 @@ type Engine struct {
 	TimeOffset        time.Duration
 	Realtime          bool
 	MaxInFlightTraces int
+	MaxTraces         int
 	linkRegistry      *spanContextRegistry
 }
 
@@ -184,6 +185,10 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		}
 		if spanCount >= spanLimit {
 			stats.SpansBounded++
+		}
+		if e.MaxTraces > 0 && stats.Traces >= int64(e.MaxTraces) {
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		}
 
 		// Sleep for the inter-arrival interval
@@ -314,6 +319,12 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		}
 		if spanCount >= spanLimit {
 			stats.SpansBounded++
+		}
+		if e.MaxTraces > 0 && stats.Traces >= int64(e.MaxTraces) {
+			wg.Wait()
+			e.mergeRealtimeStats(&stats, &rstats)
+			e.finaliseStats(&stats, startTime)
+			return &stats, nil
 		}
 
 		wg.Go(func() {

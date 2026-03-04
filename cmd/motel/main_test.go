@@ -935,6 +935,98 @@ func TestRunCommandRealtimeWithTimeOffset(t *testing.T) {
 	assert.Contains(t, err.Error(), "--realtime and --time-offset cannot be used together")
 }
 
+func TestEmitCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("minimal stdout", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"emit", "--service", "api", "--operation", "GET /health", "--stdout"})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("missing service", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"emit", "--operation", "request", "--stdout"})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--service is required")
+	})
+
+	t.Run("missing operation", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"emit", "--service", "api", "--stdout"})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--operation is required")
+	})
+
+	t.Run("count generates expected traces", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"emit", "--service", "api", "--operation", "request", "--count", "5", "--stdout"})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("attr key=value", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "deploy", "--operation", "rollout",
+			"--attr", "version=1.2.3", "--attr", "env=prod",
+			"--stdout",
+		})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid attr format", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--attr", "noequals",
+			"--stdout",
+		})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "key=value")
+	})
+
+	t.Run("with duration and error rate", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "GET /users",
+			"--duration", "50ms", "--error-rate", "5%",
+			"--count", "10", "--stdout",
+		})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("no output destination fails", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"emit", "--service", "api", "--operation", "request", "--endpoint", "192.0.2.1:9999"})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot reach OTLP collector")
+	})
+}
+
 func TestShutdownAllEmpty(t *testing.T) {
 	t.Parallel()
 
