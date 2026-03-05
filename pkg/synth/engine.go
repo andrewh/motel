@@ -320,17 +320,17 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		if spanCount >= spanLimit {
 			stats.SpansBounded++
 		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			emitTrace(ctx, plans, spanStart, now, e.Tracers, e.Observers, &rstats, e.linkRegistry)
+		})
+
 		if e.MaxTraces > 0 && stats.Traces >= int64(e.MaxTraces) {
 			wg.Wait()
 			e.mergeRealtimeStats(&stats, &rstats)
 			e.finaliseStats(&stats, startTime)
 			return &stats, nil
 		}
-
-		wg.Go(func() {
-			defer func() { <-sem }()
-			emitTrace(ctx, plans, spanStart, now, e.Tracers, e.Observers, &rstats, e.linkRegistry)
-		})
 
 		interval := time.Duration(float64(time.Second) / rate)
 		intervalTimer.Reset(interval)

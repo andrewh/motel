@@ -178,12 +178,6 @@ func emitCmd() *cobra.Command {
 				opAttrs[k] = synth.AttributeValueConfig{Value: v}
 			}
 
-			// Parse error rate
-			var errorRateStr string
-			if errorRate != "" {
-				errorRateStr = errorRate
-			}
-
 			// Build a Config programmatically
 			cfg := &synth.Config{
 				Version: synth.CurrentVersion,
@@ -194,7 +188,7 @@ func emitCmd() *cobra.Command {
 							{
 								Name:       operation,
 								Duration:   duration.String(),
-								ErrorRate:  errorRateStr,
+								ErrorRate:  errorRate,
 								Attributes: opAttrs,
 							},
 						},
@@ -264,7 +258,7 @@ func emitCmd() *cobra.Command {
 					return tp.Tracer(name)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
-				Duration:  24 * 365 * time.Hour,                                // effectively unlimited; MaxTraces controls stopping
+				Duration:  unlimitedDuration,
 				MaxTraces: count,
 			}
 
@@ -295,8 +289,7 @@ func emitCmd() *cobra.Command {
 }
 
 func checkEndpointForEmit(endpoint, protocol string) error {
-	host := resolveEndpoint(endpoint, protocol)
-	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	host, err := dialEndpoint(endpoint, protocol)
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
@@ -304,7 +297,6 @@ func checkEndpointForEmit(endpoint, protocol string) error {
 			"To send to a specific collector, use --endpoint:\n"+
 			"  motel emit --service myapp --operation request --endpoint collector.example.com:4318", host)
 	}
-	_ = conn.Close()
 	return nil
 }
 
@@ -462,6 +454,7 @@ func parseSignals(s string) (map[string]bool, error) {
 
 const (
 	defaultDuration     = 1 * time.Minute
+	unlimitedDuration   = 24 * 365 * time.Hour
 	shutdownTimeout     = 5 * time.Second
 	connectCheckTimeout = 2 * time.Second
 	defaultHTTPPort     = "4318"
@@ -482,9 +475,18 @@ func resolveEndpoint(endpoint, protocol string) string {
 	return net.JoinHostPort(endpoint, port)
 }
 
-func checkEndpoint(endpoint, protocol, configPath string) error {
+func dialEndpoint(endpoint, protocol string) (string, error) {
 	host := resolveEndpoint(endpoint, protocol)
 	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	if err != nil {
+		return host, err
+	}
+	_ = conn.Close()
+	return host, nil
+}
+
+func checkEndpoint(endpoint, protocol, configPath string) error {
+	host, err := dialEndpoint(endpoint, protocol)
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
@@ -493,7 +495,6 @@ func checkEndpoint(endpoint, protocol, configPath string) error {
 			"  motel run --endpoint collector.example.com:4318 %s\n\n"+
 			"Without --duration, motel runs for 1 minute", host, configPath, configPath)
 	}
-	_ = conn.Close()
 	return nil
 }
 
