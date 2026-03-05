@@ -264,7 +264,7 @@ func emitCmd() *cobra.Command {
 					return tp.Tracer(name)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
-				Duration:  time.Hour,                                           // effectively unlimited; MaxTraces controls stopping
+				Duration:  24 * 365 * time.Hour,                                // effectively unlimited; MaxTraces controls stopping
 				MaxTraces: count,
 			}
 
@@ -470,20 +470,16 @@ const (
 
 func resolveEndpoint(endpoint, protocol string) string {
 	if endpoint == "" {
-		port := defaultHTTPPort
-		if protocol == "grpc" {
-			port = defaultGRPCPort
-		}
-		return "localhost:" + port
+		endpoint = "localhost"
 	}
-	if _, _, err := net.SplitHostPort(endpoint); err != nil {
-		port := defaultHTTPPort
-		if protocol == "grpc" {
-			port = defaultGRPCPort
-		}
-		return net.JoinHostPort(endpoint, port)
+	if _, _, err := net.SplitHostPort(endpoint); err == nil {
+		return endpoint
 	}
-	return endpoint
+	port := defaultHTTPPort
+	if protocol == "grpc" {
+		port = defaultGRPCPort
+	}
+	return net.JoinHostPort(endpoint, port)
 }
 
 func checkEndpoint(endpoint, protocol, configPath string) error {
