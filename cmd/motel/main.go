@@ -169,6 +169,9 @@ func emitCmd() *cobra.Command {
 			if operation == "" {
 				return fmt.Errorf("--operation is required")
 			}
+			if count == 0 && duration == 0 {
+				return nil
+			}
 
 			// Parse --attr key=value pairs
 			opAttrs := make(map[string]synth.AttributeValueConfig, len(attrs))
@@ -287,7 +290,7 @@ func emitCmd() *cobra.Command {
 				return err
 			}
 
-			return json.NewEncoder(os.Stderr).Encode(stats)
+			return json.NewEncoder(cmd.ErrOrStderr()).Encode(stats)
 		},
 	}
 
