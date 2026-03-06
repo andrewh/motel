@@ -144,16 +144,17 @@ func runCmd() *cobra.Command {
 
 func emitCmd() *cobra.Command {
 	var (
-		service   string
-		operation string
-		duration  time.Duration
-		errorRate string
-		attrs     []string
-		count     int
-		rate      string
-		endpoint  string
-		stdout    bool
-		protocol  string
+		service      string
+		operation    string
+		spanDuration time.Duration
+		duration     time.Duration
+		errorRate    string
+		attrs        []string
+		count        int
+		rate         string
+		endpoint     string
+		stdout       bool
+		protocol     string
 	)
 
 	cmd := &cobra.Command{
@@ -188,7 +189,7 @@ func emitCmd() *cobra.Command {
 						Operations: []synth.OperationConfig{
 							{
 								Name:       operation,
-								Duration:   duration.String(),
+								Duration:   spanDuration.String(),
 								ErrorRate:  errorRate,
 								Attributes: opAttrs,
 							},
@@ -248,6 +249,15 @@ func emitCmd() *cobra.Command {
 			}
 			defer shutdownTraces()
 
+			engineDuration := unlimitedDuration
+			maxTraces := count
+			if duration > 0 {
+				engineDuration = duration
+				if !cmd.Flags().Changed("count") {
+					maxTraces = 0
+				}
+			}
+
 			engine := &synth.Engine{
 				Topology: topo,
 				Traffic:  traffic,
@@ -265,8 +275,8 @@ func emitCmd() *cobra.Command {
 					)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
-				Duration:  unlimitedDuration,
-				MaxTraces: count,
+				Duration:  engineDuration,
+				MaxTraces: maxTraces,
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -283,7 +293,8 @@ func emitCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&service, "service", "", "service name (required)")
 	cmd.Flags().StringVar(&operation, "operation", "", "operation name (required)")
-	cmd.Flags().DurationVar(&duration, "duration", 100*time.Millisecond, "span duration")
+	cmd.Flags().DurationVar(&spanDuration, "span-duration", 100*time.Millisecond, "span duration")
+	cmd.Flags().DurationVar(&duration, "duration", 0, "simulation duration, e.g. 10s, 5m, 1h")
 	cmd.Flags().StringVar(&errorRate, "error-rate", "", "error rate (e.g. 5%, 0.05)")
 	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "span attribute in key=value format (repeatable)")
 	cmd.Flags().IntVar(&count, "count", 1, "number of traces to emit")

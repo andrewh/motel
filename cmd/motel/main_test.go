@@ -1003,13 +1003,37 @@ func TestEmitCommand(t *testing.T) {
 		assert.Contains(t, err.Error(), "key=value")
 	})
 
-	t.Run("with duration and error rate", func(t *testing.T) {
+	t.Run("with span-duration and error rate", func(t *testing.T) {
 		t.Parallel()
 		root := rootCmd()
 		root.SetArgs([]string{
 			"emit", "--service", "api", "--operation", "GET /users",
-			"--duration", "50ms", "--error-rate", "5%",
+			"--span-duration", "50ms", "--error-rate", "5%",
 			"--count", "10", "--stdout",
+		})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("duration controls simulation time", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--duration", "200ms", "--rate", "100/s", "--stdout",
+		})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("duration with count stops at count", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--duration", "10s", "--count", "3", "--stdout",
 		})
 
 		err := root.Execute()
