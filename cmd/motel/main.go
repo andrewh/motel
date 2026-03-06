@@ -40,6 +40,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	otelsc "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -255,7 +256,13 @@ func emitCmd() *cobra.Command {
 					if tp == nil {
 						panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
 					}
-					return tp.Tracer(name)
+					return tp.Tracer("github.com/andrewh/motel",
+						trace.WithInstrumentationVersion(version),
+						trace.WithSchemaURL(otelsc.SchemaURL),
+						trace.WithInstrumentationAttributes(
+							attribute.Bool("motel.synthetic", true),
+						),
+					)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 				Duration:  unlimitedDuration,
@@ -615,7 +622,13 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			if tp == nil {
 				panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
 			}
-			return tp.Tracer(name)
+			return tp.Tracer("github.com/andrewh/motel",
+				trace.WithInstrumentationVersion(version),
+				trace.WithSchemaURL(otelsc.SchemaURL),
+				trace.WithInstrumentationAttributes(
+					attribute.Bool("motel.synthetic", true),
+				),
+			)
 		},
 		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:         duration,
