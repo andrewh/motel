@@ -1033,7 +1033,7 @@ func TestEmitCommand(t *testing.T) {
 		root := rootCmd()
 		root.SetArgs([]string{
 			"emit", "--service", "api", "--operation", "request",
-			"--duration", "10s", "--count", "3", "--stdout",
+			"--duration", "2s", "--count", "3", "--stdout",
 		})
 
 		err := root.Execute()
