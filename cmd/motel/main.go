@@ -259,6 +259,9 @@ func emitCmd() *cobra.Command {
 					return tp.Tracer("github.com/andrewh/motel",
 						trace.WithInstrumentationVersion(version),
 						trace.WithSchemaURL(otelsc.SchemaURL),
+						trace.WithInstrumentationAttributes(
+							attribute.Bool("motel.synthetic", true),
+						),
 					)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
@@ -622,6 +625,9 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			return tp.Tracer("github.com/andrewh/motel",
 				trace.WithInstrumentationVersion(version),
 				trace.WithSchemaURL(otelsc.SchemaURL),
+				trace.WithInstrumentationAttributes(
+					attribute.Bool("motel.synthetic", true),
+				),
 			)
 		},
 		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
