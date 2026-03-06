@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -1003,13 +1004,65 @@ func TestEmitCommand(t *testing.T) {
 		assert.Contains(t, err.Error(), "key=value")
 	})
 
-	t.Run("with duration and error rate", func(t *testing.T) {
+	t.Run("with span-duration and error rate", func(t *testing.T) {
 		t.Parallel()
 		root := rootCmd()
 		root.SetArgs([]string{
 			"emit", "--service", "api", "--operation", "GET /users",
-			"--duration", "50ms", "--error-rate", "5%",
+			"--span-duration", "50ms", "--error-rate", "5%",
 			"--count", "10", "--stdout",
+		})
+
+		err := root.Execute()
+		require.NoError(t, err)
+	})
+
+	t.Run("duration controls simulation time", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--duration", "200ms", "--rate", "100/s", "--stdout",
+		})
+		var stderr bytes.Buffer
+		root.SetErr(&stderr)
+
+		err := root.Execute()
+		require.NoError(t, err)
+
+		var stats struct {
+			Traces int64 `json:"traces"`
+		}
+		require.NoError(t, json.Unmarshal(stderr.Bytes(), &stats))
+		assert.Greater(t, stats.Traces, int64(1), "duration-based emit should produce multiple traces")
+	})
+
+	t.Run("duration with count stops at count", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--duration", "2s", "--count", "3", "--stdout",
+		})
+		var stderr bytes.Buffer
+		root.SetErr(&stderr)
+
+		err := root.Execute()
+		require.NoError(t, err)
+
+		var stats struct {
+			Traces int64 `json:"traces"`
+		}
+		require.NoError(t, json.Unmarshal(stderr.Bytes(), &stats))
+		assert.Equal(t, int64(3), stats.Traces, "should stop at --count")
+	})
+
+	t.Run("count zero exits immediately", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{
+			"emit", "--service", "api", "--operation", "request",
+			"--count", "0", "--stdout",
 		})
 
 		err := root.Execute()
