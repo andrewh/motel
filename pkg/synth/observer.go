@@ -25,3 +25,9 @@ type SpanInfo struct {
 type SpanObserver interface {
 	Observe(info SpanInfo)
 }
+
+// SpanStartObserver receives notification when a span starts.
+// Observers that need to track active spans (e.g. updowncounter) implement this.
+type SpanStartObserver interface {
+	ObserveStart(service, operation string)
+}

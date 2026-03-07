@@ -450,6 +450,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		e.linkRegistry.store(op.Ref, span.SpanContext())
 	}
 
+	for _, obs := range e.Observers {
+		if sso, ok := obs.(SpanStartObserver); ok {
+			sso.ObserveStart(op.Service.Name, op.Name)
+		}
+	}
+
 	// Collect attributes for both the span and observers
 	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(opAttrs))
 	for k, v := range op.Service.Attributes {
