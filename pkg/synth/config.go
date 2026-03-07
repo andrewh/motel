@@ -393,8 +393,6 @@ func ValidateConfig(cfg *Config) error {
 				}
 				metricNames[mc.Name] = true
 			}
-		}
-		for _, op := range svc.Operations {
 			ref := svc.Name + "." + op.Name
 			knownOps[ref] = true
 			targets := make(map[string]bool, len(op.Calls))

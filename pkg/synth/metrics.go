@@ -156,8 +156,11 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		gaugeAttrs := md.Attributes
 		gaugeOp := operation
 		gopts = append(gopts, metric.WithFloat64Callback(func(_ context.Context, obs metric.Float64Observer) error {
-			attrs := buildMetricAttrs(gaugeAttrs, gaugeOp, nil)
-			obs.Observe(dist.Sample(rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))), attrs) //nolint:gosec // synthetic data
+			// Create a fresh rng inside the callback — it runs asynchronously
+			// during collection and cannot share the observer's rng.
+			rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data
+			attrs := buildMetricAttrs(gaugeAttrs, gaugeOp, rng)
+			obs.Observe(dist.Sample(rng), attrs)
 			return nil
 		}))
 		_, err := meter.Float64ObservableGauge(md.Name, gopts...)
@@ -201,12 +204,7 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 			continue
 		}
 
-		opName := info.Operation
-		if inst.operation == "" {
-			opName = info.Operation
-		}
-
-		attrs := buildMetricAttrs(inst.attrGens, opName, m.rng)
+		attrs := buildMetricAttrs(inst.attrGens, info.Operation, m.rng)
 
 		switch {
 		case inst.int64Counter != nil:
