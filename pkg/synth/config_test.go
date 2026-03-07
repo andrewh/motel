@@ -2026,3 +2026,168 @@ func TestValidateResourceAttributeErrors(t *testing.T) {
 		assert.Contains(t, err.Error(), "key must not be empty")
 	})
 }
+
+func TestLoadConfigMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("service and operation level metrics", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: ms
+      - name: gateway.cpu.utilisation
+        type: gauge
+        value: 0.65 +/- 0.1
+    operations:
+      handle:
+        duration: 50ms
+        metrics:
+          - name: gateway.cache.hit_ratio
+            type: gauge
+            value: 0.85 +/- 0.1
+            attributes:
+              cache.name:
+                value: request-cache
+traffic:
+  rate: 10/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		require.Len(t, cfg.Services, 1)
+
+		svc := cfg.Services[0]
+		require.Len(t, svc.Metrics, 2)
+		assert.Equal(t, "http.server.request.duration", svc.Metrics[0].Name)
+		assert.Equal(t, "histogram", svc.Metrics[0].Type)
+		assert.Equal(t, "ms", svc.Metrics[0].Unit)
+		assert.Equal(t, "", svc.Metrics[0].Value)
+
+		assert.Equal(t, "gateway.cpu.utilisation", svc.Metrics[1].Name)
+		assert.Equal(t, "gauge", svc.Metrics[1].Type)
+		assert.Equal(t, "0.65 +/- 0.1", svc.Metrics[1].Value)
+
+		require.Len(t, svc.Operations[0].Metrics, 1)
+		opMetric := svc.Operations[0].Metrics[0]
+		assert.Equal(t, "gateway.cache.hit_ratio", opMetric.Name)
+		assert.Equal(t, "gauge", opMetric.Type)
+		assert.Equal(t, "0.85 +/- 0.1", opMetric.Value)
+		require.Contains(t, opMetric.Attributes, "cache.name")
+	})
+}
+
+func TestValidateConfigMetrics(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := func(svcMetrics []MetricConfig, opMetrics []MetricConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:    "svc",
+				Metrics: svcMetrics,
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "50ms",
+					Metrics:  opMetrics,
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+	}
+
+	t.Run("valid span-derived counter", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "req.count", Type: "counter"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("valid topology-defined gauge", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "cpu", Type: "gauge", Value: "0.5 +/- 0.1"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("valid span-derived histogram with unit", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "duration", Type: "histogram", Unit: "ms"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("valid span-derived updowncounter", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "active", Type: "updowncounter"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Type: "counter"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "name is required")
+	})
+
+	t.Run("invalid type", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "m", Type: "summary"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "type must be one of")
+	})
+
+	t.Run("invalid value", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "m", Type: "counter", Value: "not-a-number"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid value")
+	})
+
+	t.Run("gauge without value", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "g", Type: "gauge"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "gauge metrics require a value")
+	})
+
+	t.Run("duplicate metric name across service and operation", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig(
+			[]MetricConfig{{Name: "dup", Type: "counter"}},
+			[]MetricConfig{{Name: "dup", Type: "histogram"}},
+		)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicate metric name")
+	})
+
+	t.Run("duplicate metric name within service", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{
+			{Name: "m", Type: "counter"},
+			{Name: "m", Type: "histogram"},
+		}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicate metric name")
+	})
+
+	t.Run("invalid metric attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "m",
+			Type: "counter",
+			Attributes: map[string]AttributeValueConfig{
+				"bad": {Range: []int64{1}}, // range needs 2 elements
+			},
+		}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attribute")
+	})
+}

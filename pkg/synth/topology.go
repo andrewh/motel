@@ -16,12 +16,22 @@ type Topology struct {
 	Roots    []*Operation
 }
 
+// MetricDefinition is a resolved metric instrument definition.
+type MetricDefinition struct {
+	Name       string
+	Type       string
+	Unit       string
+	Value      *FloatDistribution
+	Attributes map[string]AttributeGenerator
+}
+
 // Service represents a resolved service node in the topology graph.
 type Service struct {
 	Name               string
 	Operations         map[string]*Operation
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
+	Metrics            []MetricDefinition
 }
 
 // ResolvedBackpressure holds parsed backpressure settings for an operation.
@@ -57,6 +67,7 @@ type Operation struct {
 	Attributes     map[string]AttributeGenerator
 	Events         []Event
 	Links          []*Operation
+	Metrics        []MetricDefinition
 	QueueDepth     int
 	Backpressure   *ResolvedBackpressure
 	CircuitBreaker *ResolvedCircuitBreaker
@@ -101,6 +112,13 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 			ResourceAttributes: svcCfg.ResourceAttributes,
 			Attributes:         svcCfg.Attributes,
 		}
+		if len(svcCfg.Metrics) > 0 {
+			resolved, err := resolveMetrics(svcCfg.Metrics, svcCfg.Name, "")
+			if err != nil {
+				return nil, err
+			}
+			svc.Metrics = resolved
+		}
 		for _, opCfg := range svcCfg.Operations {
 			dist, err := ParseDistribution(opCfg.Duration)
 			if err != nil {
@@ -144,6 +162,13 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				CallStyle:  opCfg.CallStyle,
 				Attributes: attrs,
 				QueueDepth: opCfg.QueueDepth,
+			}
+			if len(opCfg.Metrics) > 0 {
+				resolved, mErr := resolveMetrics(opCfg.Metrics, svcCfg.Name, opCfg.Name)
+				if mErr != nil {
+					return nil, mErr
+				}
+				op.Metrics = resolved
 			}
 			if opCfg.Backpressure != nil {
 				lt, _ := time.ParseDuration(opCfg.Backpressure.LatencyThreshold)
@@ -246,6 +271,45 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 	topo.Roots = findRoots(topo)
 
 	return topo, nil
+}
+
+// resolveMetrics converts MetricConfig entries into MetricDefinitions.
+func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDefinition, error) {
+	defs := make([]MetricDefinition, len(configs))
+	for i, mc := range configs {
+		def := MetricDefinition{
+			Name: mc.Name,
+			Type: mc.Type,
+			Unit: mc.Unit,
+		}
+		if mc.Value != "" {
+			dist, err := ParseFloatDistribution(mc.Value)
+			if err != nil {
+				ctx := fmt.Sprintf("service %q", svcName)
+				if opName != "" {
+					ctx = fmt.Sprintf("service %q operation %q", svcName, opName)
+				}
+				return nil, fmt.Errorf("%s: metric %q: %w", ctx, mc.Name, err)
+			}
+			def.Value = &dist
+		}
+		if len(mc.Attributes) > 0 {
+			def.Attributes = make(map[string]AttributeGenerator, len(mc.Attributes))
+			for name, acfg := range mc.Attributes {
+				gen, err := NewAttributeGenerator(acfg)
+				if err != nil {
+					ctx := fmt.Sprintf("service %q", svcName)
+					if opName != "" {
+						ctx = fmt.Sprintf("service %q operation %q", svcName, opName)
+					}
+					return nil, fmt.Errorf("%s: metric %q attribute %q: %w", ctx, mc.Name, name, err)
+				}
+				def.Attributes[name] = gen
+			}
+		}
+		defs[i] = def
+	}
+	return defs, nil
 }
 
 // resolveRef resolves a "service.operation" reference string to pointers.
