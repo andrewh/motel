@@ -29,6 +29,14 @@ var reservedResourceAttribute = map[string]bool{
 	"motel.version": true,
 }
 
+// validMetricType lists supported OTel instrument types.
+var validMetricType = map[string]bool{
+	"counter":       true,
+	"updowncounter": true,
+	"histogram":     true,
+	"gauge":         true,
+}
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
@@ -49,6 +57,7 @@ type rawConfig struct {
 type rawServiceConfig struct {
 	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
 	Attributes         map[string]string             `yaml:"attributes,omitempty"`
+	Metrics            []MetricConfig                `yaml:"metrics,omitempty"`
 	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
@@ -103,6 +112,15 @@ type EventConfig struct {
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
+// MetricConfig describes a metric instrument defined in the topology YAML.
+type MetricConfig struct {
+	Name       string                          `yaml:"name"`
+	Type       string                          `yaml:"type"`
+	Unit       string                          `yaml:"unit,omitempty"`
+	Value      string                          `yaml:"value,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain         string                          `yaml:"domain,omitempty"`
@@ -113,6 +131,7 @@ type rawOperationConfig struct {
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 	Events         []EventConfig                   `yaml:"events,omitempty"`
 	Links          []string                        `yaml:"links,omitempty"`
+	Metrics        []MetricConfig                  `yaml:"metrics,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -123,6 +142,7 @@ type ServiceConfig struct {
 	Name               string
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
+	Metrics            []MetricConfig
 	Operations         []OperationConfig
 }
 
@@ -137,6 +157,7 @@ type OperationConfig struct {
 	Attributes     map[string]AttributeValueConfig
 	Events         []EventConfig
 	Links          []string
+	Metrics        []MetricConfig
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -293,6 +314,7 @@ func LoadConfig(source string) (*Config, error) {
 			Name:               name,
 			ResourceAttributes: rawSvc.ResourceAttributes,
 			Attributes:         rawSvc.Attributes,
+			Metrics:            rawSvc.Metrics,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -313,6 +335,7 @@ func LoadConfig(source string) (*Config, error) {
 				Attributes:     rawOp.Attributes,
 				Events:         rawOp.Events,
 				Links:          rawOp.Links,
+				Metrics:        rawOp.Metrics,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -350,7 +373,26 @@ func ValidateConfig(cfg *Config) error {
 				return fmt.Errorf("service %q: resource_attributes must not contain reserved key %q (set automatically)", svc.Name, k)
 			}
 		}
+		metricNames := make(map[string]bool)
+		for i, mc := range svc.Metrics {
+			if err := validateMetricConfig(mc, fmt.Sprintf("service %q: metric[%d]", svc.Name, i)); err != nil {
+				return err
+			}
+			if metricNames[mc.Name] {
+				return fmt.Errorf("service %q: duplicate metric name %q", svc.Name, mc.Name)
+			}
+			metricNames[mc.Name] = true
+		}
 		for _, op := range svc.Operations {
+			for i, mc := range op.Metrics {
+				if err := validateMetricConfig(mc, fmt.Sprintf("service %q operation %q: metric[%d]", svc.Name, op.Name, i)); err != nil {
+					return err
+				}
+				if metricNames[mc.Name] {
+					return fmt.Errorf("service %q operation %q: duplicate metric name %q (already defined at service or operation level)", svc.Name, op.Name, mc.Name)
+				}
+				metricNames[mc.Name] = true
+			}
 			ref := svc.Name + "." + op.Name
 			knownOps[ref] = true
 			targets := make(map[string]bool, len(op.Calls))
@@ -660,6 +702,30 @@ func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
 	}
 	if call.Async && call.Timeout != "" {
 		return fmt.Errorf("target %q: async calls cannot have a timeout", call.Target)
+	}
+	return nil
+}
+
+// validateMetricConfig checks a single MetricConfig for structural correctness.
+func validateMetricConfig(mc MetricConfig, prefix string) error {
+	if mc.Name == "" {
+		return fmt.Errorf("%s: name is required", prefix)
+	}
+	if !validMetricType[mc.Type] {
+		return fmt.Errorf("%s %q: type must be one of counter, updowncounter, histogram, gauge; got %q", prefix, mc.Name, mc.Type)
+	}
+	if mc.Value != "" {
+		if _, err := ParseFloatDistribution(mc.Value); err != nil {
+			return fmt.Errorf("%s %q: invalid value: %w", prefix, mc.Name, err)
+		}
+	}
+	if mc.Type == "gauge" && mc.Value == "" {
+		return fmt.Errorf("%s %q: gauge metrics require a value (gauges are point-in-time, not span-derived)", prefix, mc.Name)
+	}
+	for attrName, attrCfg := range mc.Attributes {
+		if _, err := NewAttributeGenerator(attrCfg); err != nil {
+			return fmt.Errorf("%s %q: attribute %q: %w", prefix, mc.Name, attrName, err)
+		}
 	}
 	return nil
 }

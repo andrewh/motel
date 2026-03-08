@@ -96,6 +96,11 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)
 			}
+			for _, obs := range observers {
+				if sso, ok := obs.(SpanStartObserver); ok {
+					sso.ObserveStart(plan.Service, plan.Operation)
+				}
+			}
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
 		} else {
 			ls := live[ev.Index]

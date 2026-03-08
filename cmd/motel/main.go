@@ -606,7 +606,8 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			return fmt.Errorf("creating metric providers: %w", mErr)
 		}
 		defer shutdownMetrics()
-		obs, mErr := synth.NewMetricObserver(meters)
+		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
+		obs, mErr := synth.NewMetricObserver(meters, topo, rng)
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}

@@ -150,6 +150,131 @@ func TestDistributionSample(t *testing.T) {
 	})
 }
 
+func TestParseFloatDistribution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		mean    float64
+		stddev  float64
+		wantErr string
+	}{
+		{
+			name:   "fixed value",
+			input:  "0.65",
+			mean:   0.65,
+			stddev: 0,
+		},
+		{
+			name:   "with +/-",
+			input:  "0.65 +/- 0.1",
+			mean:   0.65,
+			stddev: 0.1,
+		},
+		{
+			name:   "with unicode ±",
+			input:  "0.65 ± 0.1",
+			mean:   0.65,
+			stddev: 0.1,
+		},
+		{
+			name:   "integer value",
+			input:  "100",
+			mean:   100,
+			stddev: 0,
+		},
+		{
+			name:   "integer with variance",
+			input:  "100 +/- 10",
+			mean:   100,
+			stddev: 10,
+		},
+		{
+			name:   "extra whitespace",
+			input:  "  0.5  +/-  0.2  ",
+			mean:   0.5,
+			stddev: 0.2,
+		},
+		{
+			name:   "negative mean",
+			input:  "-1.5",
+			mean:   -1.5,
+			stddev: 0,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: "value is required",
+		},
+		{
+			name:    "invalid mean",
+			input:   "abc",
+			wantErr: "invalid mean value",
+		},
+		{
+			name:    "invalid stddev",
+			input:   "0.5 +/- xyz",
+			wantErr: "invalid stddev value",
+		},
+		{
+			name:    "negative stddev",
+			input:   "0.5 +/- -0.1",
+			wantErr: "stddev must not be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d, err := ParseFloatDistribution(tt.input)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tt.mean, d.Mean, 1e-9)
+			assert.InDelta(t, tt.stddev, d.StdDev, 1e-9)
+		})
+	}
+}
+
+func TestFloatDistributionSample(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero stddev returns mean", func(t *testing.T) {
+		t.Parallel()
+		d := FloatDistribution{Mean: 0.65, StdDev: 0}
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
+		for range 100 {
+			assert.Equal(t, 0.65, d.Sample(rng))
+		}
+	})
+
+	t.Run("samples cluster around mean", func(t *testing.T) {
+		t.Parallel()
+		d := FloatDistribution{Mean: 0.65, StdDev: 0.1}
+		rng := rand.New(rand.NewPCG(42, 0)) //nolint:gosec // deterministic seed for testing
+
+		var total float64
+		n := 10000
+		for range n {
+			total += d.Sample(rng)
+		}
+		avg := total / float64(n)
+		assert.InDelta(t, 0.65, avg, 0.01, "average should be close to mean")
+	})
+}
+
+func TestFloatDistributionString(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "0.65", FloatDistribution{Mean: 0.65}.String())
+	assert.Equal(t, "0.65 +/- 0.1", FloatDistribution{Mean: 0.65, StdDev: 0.1}.String())
+	assert.Equal(t, "100 +/- 10", FloatDistribution{Mean: 100, StdDev: 10}.String())
+}
+
 func TestDistributionString(t *testing.T) {
 	t.Parallel()
 
