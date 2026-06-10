@@ -22,6 +22,7 @@ type MetricDefinition struct {
 	Type       string
 	Unit       string
 	Value      *FloatDistribution
+	Interval   time.Duration // emit on a timer instead of per span; zero = span-coupled
 	Walk       time.Duration // mean-reversion timescale for gauge random walk; zero = independent samples
 	Min        *float64      // optional lower bound for gauge values
 	Max        *float64      // optional upper bound for gauge values
@@ -299,6 +300,17 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 				return nil, fmt.Errorf("%s: metric %q: invalid walk: %w", ctx, mc.Name, err)
 			}
 			def.Walk = walk
+		}
+		if mc.Interval != "" {
+			interval, err := time.ParseDuration(mc.Interval)
+			if err != nil {
+				ctx := fmt.Sprintf("service %q", svcName)
+				if opName != "" {
+					ctx = fmt.Sprintf("service %q operation %q", svcName, opName)
+				}
+				return nil, fmt.Errorf("%s: metric %q: invalid interval: %w", ctx, mc.Name, err)
+			}
+			def.Interval = interval
 		}
 		if mc.Value != "" {
 			dist, err := ParseFloatDistribution(mc.Value)

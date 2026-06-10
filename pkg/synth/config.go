@@ -126,6 +126,7 @@ type MetricConfig struct {
 	Type       string                          `yaml:"type"`
 	Unit       string                          `yaml:"unit,omitempty"`
 	Value      string                          `yaml:"value,omitempty"`
+	Interval   string                          `yaml:"interval,omitempty"`
 	Walk       string                          `yaml:"walk,omitempty"`
 	Min        *float64                        `yaml:"min,omitempty"`
 	Max        *float64                        `yaml:"max,omitempty"`
@@ -787,6 +788,24 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 	}
 	if mc.Type == metricTypeGauge && mc.Value == "" {
 		return fmt.Errorf("%s %q: gauge metrics require a value (gauges are point-in-time, not span-derived)", prefix, mc.Name)
+	}
+	if mc.Interval != "" {
+		if mc.Type == metricTypeGauge {
+			return fmt.Errorf("%s %q: interval is not valid for gauge metrics (gauges already emit on the collection cycle)", prefix, mc.Name)
+		}
+		if mc.Value == "" {
+			return fmt.Errorf("%s %q: interval requires a value (span-derived metrics are emitted per span)", prefix, mc.Name)
+		}
+		if mc.ErrorsOnly {
+			return fmt.Errorf("%s %q: interval cannot be combined with errors_only", prefix, mc.Name)
+		}
+		d, err := time.ParseDuration(mc.Interval)
+		if err != nil {
+			return fmt.Errorf("%s %q: invalid interval: %w", prefix, mc.Name, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s %q: interval must be positive", prefix, mc.Name)
+		}
 	}
 	if mc.Walk != "" {
 		if mc.Type != metricTypeGauge {

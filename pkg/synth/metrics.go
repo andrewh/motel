@@ -28,15 +28,17 @@ type metricInstrument struct {
 	value      *FloatDistribution // nil = span-derived
 	unit       string
 	attrGens   map[string]AttributeGenerator
-	operation  string // non-empty if operation-level (fires only for this op)
-	errorsOnly bool   // if true, counter only increments for error spans
+	operation  string        // non-empty if operation-level (fires only for this op)
+	errorsOnly bool          // if true, counter only increments for error spans
+	interval   time.Duration // non-zero = emit on a wall-clock timer instead of per span
 }
 
 // MetricObserver records derived metrics for each observed span.
 type MetricObserver struct {
-	services map[string][]metricInstrument
-	rng      *rand.Rand
-	mu       sync.Mutex
+	services  map[string][]metricInstrument
+	intervals []metricInstrument // emitted on their own timers, not per span
+	rng       *rand.Rand
+	mu        sync.Mutex
 
 	overrideMu sync.RWMutex
 	overrides  map[string]Override // active scenario overrides, set by the engine
@@ -64,7 +66,10 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 			if err != nil {
 				return nil, err
 			}
-			if keep {
+			switch {
+			case keep && inst.interval > 0:
+				m.intervals = append(m.intervals, inst)
+			case keep:
 				instruments = append(instruments, inst)
 			}
 		}
@@ -76,7 +81,10 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 				if err != nil {
 					return nil, err
 				}
-				if keep {
+				switch {
+				case keep && inst.interval > 0:
+					m.intervals = append(m.intervals, inst)
+				case keep:
 					instruments = append(instruments, inst)
 				}
 			}
@@ -130,6 +138,7 @@ func (m *MetricObserver) createInstrument(meter metric.Meter, md MetricDefinitio
 		attrGens:   md.Attributes,
 		operation:  operation,
 		errorsOnly: md.ErrorsOnly,
+		interval:   md.Interval,
 	}
 
 	switch md.Type {
@@ -213,6 +222,58 @@ func (m *MetricObserver) createInstrument(meter metric.Meter, md MetricDefinitio
 	}
 
 	return inst, true, nil
+}
+
+// Start launches background emitters for interval-driven metrics: one
+// goroutine per instrument with an interval field, each recording a sampled
+// value on its own wall-clock ticker, independent of trace rate. The returned
+// stop function halts the emitters and waits for them to exit. Call it before
+// shutting down the meter providers. Returns a no-op when no interval metrics
+// are defined.
+func (m *MetricObserver) Start() (stop func()) {
+	if len(m.intervals) == 0 {
+		return func() {}
+	}
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range m.intervals {
+		inst := &m.intervals[i]
+		wg.Go(func() {
+			ticker := time.NewTicker(inst.interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					m.recordInterval(inst)
+				}
+			}
+		})
+	}
+
+	return func() {
+		close(done)
+		wg.Wait()
+	}
+}
+
+// recordInterval records one sampled measurement for an interval-driven instrument.
+func (m *MetricObserver) recordInterval(inst *metricInstrument) {
+	m.mu.Lock()
+	attrs := buildMetricAttrs(inst.attrGens, inst.operation, m.rng)
+	sampledValue := m.effectiveValue(inst.scopeRef, inst.name, inst.value).Sample(m.rng)
+	m.mu.Unlock()
+
+	switch {
+	case inst.float64Counter != nil:
+		inst.float64Counter.Add(context.Background(), max(0, sampledValue), attrs)
+	case inst.float64UpDownCounter != nil:
+		inst.float64UpDownCounter.Add(context.Background(), sampledValue, attrs)
+	case inst.float64Histogram != nil:
+		inst.float64Histogram.Record(context.Background(), sampledValue, attrs)
+	}
 }
 
 // gaugeCallback returns the observation callback for a topology-defined gauge.

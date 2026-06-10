@@ -614,6 +614,8 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
+		stopIntervals := obs.Start()
+		defer stopIntervals()
 		observers = append(observers, obs)
 	}
 

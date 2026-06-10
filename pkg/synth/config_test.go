@@ -2444,3 +2444,88 @@ func TestValidateConfigMetricWalkAndBounds(t *testing.T) {
 		assert.Contains(t, err.Error(), "min must be less than max")
 	})
 }
+
+func TestValidateConfigMetricInterval(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := func(metrics []MetricConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:    "svc",
+				Metrics: metrics,
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "50ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+	}
+
+	t.Run("interval counter with value is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "gc.count", Type: "counter", Value: "1", Interval: "10s",
+		}})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("interval histogram with value is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "gc.pause", Type: "histogram", Unit: "ms", Value: "2.5 +/- 0.8", Interval: "10s",
+		}})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("interval on gauge rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "cpu", Type: "gauge", Value: "0.5", Interval: "10s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval is not valid for gauge")
+	})
+
+	t.Run("interval without value rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "req.count", Type: "counter", Interval: "10s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval requires a value")
+	})
+
+	t.Run("interval with errors_only rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "err.count", Type: "counter", Value: "1", ErrorsOnly: true, Interval: "10s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "errors_only")
+	})
+
+	t.Run("invalid interval rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "gc.count", Type: "counter", Value: "1", Interval: "soon",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid interval")
+	})
+
+	t.Run("non-positive interval rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "gc.count", Type: "counter", Value: "1", Interval: "0s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "interval must be positive")
+	})
+}

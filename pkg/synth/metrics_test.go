@@ -736,3 +736,134 @@ func TestMetricObserverGaugeBounds(t *testing.T) {
 		assert.LessOrEqual(t, v, upper)
 	}
 }
+
+func TestMetricObserverIntervalCounter(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 5, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "gc.count", Type: "counter", Value: &dist, Interval: 10 * time.Millisecond},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	t.Cleanup(stop)
+
+	// No spans observed — emission is driven purely by the timer.
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.count")
+		if m == nil {
+			return false
+		}
+		sum, ok := m.Data.(metricdata.Sum[float64])
+		return ok && len(sum.DataPoints) == 1 && sum.DataPoints[0].Value >= 10
+	}, 2*time.Second, 10*time.Millisecond, "interval counter should accumulate without any spans")
+
+	// Span observation must not double-record interval instruments.
+	before := func() float64 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.count")
+		require.NotNil(t, m)
+		return m.Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	}()
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "gc.count")
+	require.NotNil(t, m)
+	after := m.Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	assert.Less(t, after-before, 5.0, "Observe must not record interval-driven instruments")
+}
+
+func TestMetricObserverIntervalHistogram(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 2.5, StdDev: 0}
+	topo := testTopology("svc", nil, "op", []MetricDefinition{
+		{Name: "gc.pause", Type: "histogram", Unit: "ms", Value: &dist, Interval: 10 * time.Millisecond},
+	})
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	t.Cleanup(stop)
+
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.pause")
+		if m == nil {
+			return false
+		}
+		hist, ok := m.Data.(metricdata.Histogram[float64])
+		return ok && len(hist.DataPoints) == 1 && hist.DataPoints[0].Count >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "gc.pause")
+	hist := m.Data.(metricdata.Histogram[float64])
+	dp := hist.DataPoints[0]
+	assert.InDelta(t, 2.5, dp.Sum/float64(dp.Count), 0.001, "each tick records the sampled value")
+
+	// Operation-level interval metrics carry the operation.name attribute.
+	expected := attribute.NewSet(attribute.String("operation.name", "op"))
+	assert.True(t, dp.Attributes.Equals(&expected), "got %v", dp.Attributes)
+}
+
+func TestMetricObserverIntervalStop(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 1, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "tick.count", Type: "counter", Value: &dist, Interval: 5 * time.Millisecond},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		return findMetric(rm, "tick.count") != nil
+	}, 2*time.Second, 5*time.Millisecond)
+	stop()
+
+	rm := collectMetrics(t, reader)
+	before := findMetric(rm, "tick.count").Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	time.Sleep(30 * time.Millisecond)
+	rm = collectMetrics(t, reader)
+	after := findMetric(rm, "tick.count").Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	assert.Equal(t, before, after, "no emission after stop")
+}
+
+func TestMetricObserverStartNoIntervals(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "req.count", Type: "counter"},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	stop() // must not panic or block
+}

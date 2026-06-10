@@ -318,6 +318,7 @@ running; if no metrics are defined the signal is silently empty.
 | `type`       | string | `counter`, `updowncounter`, `histogram`, or `gauge` (required) |
 | `unit`       | string | OTel unit string, e.g. `ms`, `s`, `{request}` (optional) |
 | `value`      | string | Distribution to sample, e.g. `0.65` or `0.65 +/- 0.1`. Omit for span-derived behaviour (see below) |
+| `interval`   | string | Emit on a timer instead of per span, e.g. `10s`. Requires `value`; not valid for gauges (see below) |
 | `walk`       | string | Gauge only: mean-reversion timescale for a random walk, e.g. `30s` (see below) |
 | `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
@@ -362,6 +363,23 @@ metrics like utilisation in range:
 
 Walk timescales relate to wall-clock time between collection cycles,
 regardless of simulated time compression.
+
+**Interval-driven metrics (`interval`):** by default, topology-defined
+counters, updowncounters, and histograms record when a span fires, coupling
+their emission rate to the trace rate. Setting `interval` decouples them: the
+instrument records a sampled value on its own timer, so a service with no
+traffic still emits metric data. Intervals are wall-clock durations,
+regardless of simulated time compression. Gauges already behave this way (the
+observable callback fires on the collection cycle) and do not accept
+`interval`; span-derived metrics (no `value`) remain span-coupled.
+
+```yaml
+- name: gateway.gc.pause.duration
+  type: histogram
+  unit: ms
+  value: 2.5 +/- 0.8
+  interval: 10s   # emit every 10 seconds, regardless of trace rate
+```
 
 ```yaml
 services:
