@@ -49,21 +49,25 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 
 		// Service-level metrics (fire for every span in this service)
 		for _, md := range svc.Metrics {
-			inst, err := createInstrument(meter, md, "")
+			inst, keep, err := createInstrument(meter, md, "")
 			if err != nil {
 				return nil, err
 			}
-			instruments = append(instruments, inst)
+			if keep {
+				instruments = append(instruments, inst)
+			}
 		}
 
 		// Operation-level metrics (fire only for the specific operation)
 		for _, op := range svc.Operations {
 			for _, md := range op.Metrics {
-				inst, err := createInstrument(meter, md, op.Name)
+				inst, keep, err := createInstrument(meter, md, op.Name)
 				if err != nil {
 					return nil, err
 				}
-				instruments = append(instruments, inst)
+				if keep {
+					instruments = append(instruments, inst)
+				}
 			}
 		}
 
@@ -76,7 +80,9 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 }
 
 // createInstrument builds a metricInstrument from a MetricDefinition.
-func createInstrument(meter metric.Meter, md MetricDefinition, operation string) (metricInstrument, error) {
+// Returns (inst, true, nil) for instruments that should be appended to the observer's list.
+// Returns (inst, false, nil) for gauge types — the callback handles everything; no instrument entry is needed.
+func createInstrument(meter metric.Meter, md MetricDefinition, operation string) (metricInstrument, bool, error) {
 	inst := metricInstrument{
 		value:     md.Value,
 		unit:      md.Unit,
@@ -94,7 +100,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			}
 			c, err := meter.Float64Counter(md.Name, copts...)
 			if err != nil {
-				return metricInstrument{}, err
+				return metricInstrument{}, false, err
 			}
 			inst.float64Counter = c
 		} else {
@@ -105,7 +111,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			}
 			c, err := meter.Int64Counter(md.Name, copts...)
 			if err != nil {
-				return metricInstrument{}, err
+				return metricInstrument{}, false, err
 			}
 			inst.int64Counter = c
 		}
@@ -118,7 +124,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			}
 			c, err := meter.Float64UpDownCounter(md.Name, copts...)
 			if err != nil {
-				return metricInstrument{}, err
+				return metricInstrument{}, false, err
 			}
 			inst.float64UpDownCounter = c
 		} else {
@@ -129,7 +135,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			}
 			c, err := meter.Int64UpDownCounter(md.Name, copts...)
 			if err != nil {
-				return metricInstrument{}, err
+				return metricInstrument{}, false, err
 			}
 			inst.int64UpDownCounter = c
 		}
@@ -141,7 +147,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		}
 		h, err := meter.Float64Histogram(md.Name, hopts...)
 		if err != nil {
-			return metricInstrument{}, err
+			return metricInstrument{}, false, err
 		}
 		inst.float64Histogram = h
 
@@ -153,7 +159,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			gopts = append(gopts, metric.WithUnit(md.Unit))
 		}
 		// The gauge callback is registered via WithFloat64Callback on the gauge itself.
-		// We don't store it in the instrument — it fires on collection.
+		// No instrument entry is needed — the callback fires on collection, not per span.
 		dist := md.Value
 		gaugeAttrs := md.Attributes
 		gaugeOp := operation
@@ -167,13 +173,12 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		}))
 		_, err := meter.Float64ObservableGauge(md.Name, gopts...)
 		if err != nil {
-			return metricInstrument{}, err
+			return metricInstrument{}, false, err
 		}
-		// No instrument stored — the callback handles everything.
-		return inst, nil
+		return inst, false, nil
 	}
 
-	return inst, nil
+	return inst, true, nil
 }
 
 // buildMetricAttrs constructs metric attributes from generators and adds operation.name.
@@ -216,7 +221,7 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 			inst.int64Counter.Add(context.Background(), 1, attrs)
 
 		case inst.float64Counter != nil:
-			inst.float64Counter.Add(context.Background(), inst.value.Sample(m.rng), attrs)
+			inst.float64Counter.Add(context.Background(), max(0, inst.value.Sample(m.rng)), attrs)
 
 		case inst.int64UpDownCounter != nil:
 			// -1 on span end (the +1 happens in ObserveStart)

@@ -624,6 +624,11 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 	stats.Errors++
 
 	if len(e.Observers) > 0 {
+		for _, obs := range e.Observers {
+			if sso, ok := obs.(SpanStartObserver); ok {
+				sso.ObserveStart(op.Service.Name, op.Name)
+			}
+		}
 		info := SpanInfo{
 			Service:   op.Service.Name,
 			Operation: op.Name,

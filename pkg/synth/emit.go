@@ -56,7 +56,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 
 		select {
 		case <-ctx.Done():
-			endAllOpen(live, rstats)
+			endAllOpen(live, plans, observers, rstats)
 			return
 		case <-timer.C:
 		}
@@ -177,7 +177,8 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 
 // endAllOpen ends all open spans on context cancellation.
 // Iterates in reverse order so children end before parents.
-func endAllOpen(live []liveSpan, rstats *realtimeStats) {
+// Fires Observe for each cancelled span to balance updowncounter increments from ObserveStart.
+func endAllOpen(live []liveSpan, plans []SpanPlan, observers []SpanObserver, rstats *realtimeStats) {
 	now := time.Now()
 	for i := len(live) - 1; i >= 0; i-- {
 		if live[i].Span == nil {
@@ -187,5 +188,21 @@ func endAllOpen(live []liveSpan, rstats *realtimeStats) {
 		live[i].Span.End(trace.WithTimestamp(now))
 		rstats.Spans.Add(1)
 		rstats.Errors.Add(1)
+		if len(observers) > 0 {
+			plan := &plans[i]
+			info := SpanInfo{
+				Service:   plan.Service,
+				Operation: plan.Operation,
+				Timestamp: plan.StartTime,
+				Duration:  now.Sub(plan.StartTime),
+				IsError:   true,
+				Kind:      plan.Kind,
+				Attrs:     plan.Attrs,
+				Scenarios: plan.Scenarios,
+			}
+			for _, obs := range observers {
+				obs.Observe(info)
+			}
+		}
 	}
 }

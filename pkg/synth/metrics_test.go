@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"math/rand/v2"
+	"sync"
 	"testing"
 	"time"
 
@@ -355,6 +356,42 @@ func TestMetricObserverTopologyDefinedCounter(t *testing.T) {
 	require.True(t, ok, "topology-defined counter should be Sum[float64]")
 	require.Len(t, sum.DataPoints, 1)
 	assert.InDelta(t, 1024.0, sum.DataPoints[0].Value, 0.1)
+}
+
+func TestMetricObserverConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "active", Type: "updowncounter"},
+		{Name: "count", Type: "counter"},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	const goroutines = 10
+	const iters = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 2)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range iters {
+				obs.ObserveStart("svc", "op")
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range iters {
+				obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestMetricObserverHistogramDurationUnits(t *testing.T) {
