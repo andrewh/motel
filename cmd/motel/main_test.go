@@ -1210,3 +1210,30 @@ traffic:
 		assert.NotContains(t, errOut.String(), "warning:")
 	})
 }
+
+func TestValidateCommandSemconvUnsetUnitWarning(t *testing.T) {
+	t.Parallel()
+	cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+	path := writeTestConfig(t, cfg)
+	root := rootCmd()
+	root.SetArgs([]string{"validate", path})
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+
+	require.NoError(t, root.Execute())
+	assert.Contains(t, errOut.String(), `unit is not set; semantic convention specifies "s"`)
+	assert.NotContains(t, errOut.String(), `unit ""`)
+}

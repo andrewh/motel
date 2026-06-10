@@ -126,6 +126,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 	var stats Stats
 	startTime := time.Now()
 	deadline := startTime.Add(e.Duration)
+	var lastActive []Scenario
 
 	for {
 		select {
@@ -161,7 +162,13 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 					}
 				}
 			}
-			notifyOverrides(e.Observers, overrides)
+			// Scenario contents are static, so the merged overrides only
+			// change when the active set does — notify observers on
+			// transitions rather than every iteration.
+			if !activeScenariosEqual(active, lastActive) {
+				notifyOverrides(e.Observers, overrides)
+				lastActive = active
+			}
 		}
 
 		rate := trafficPattern.Rate(elapsed)
@@ -242,6 +249,7 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 	sem := make(chan struct{}, e.maxInFlightTraces())
 
 	var rstats realtimeStats
+	var lastActive []Scenario
 
 	intervalTimer := time.NewTimer(0)
 	defer intervalTimer.Stop()
@@ -284,7 +292,13 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 					}
 				}
 			}
-			notifyOverrides(e.Observers, overrides)
+			// Scenario contents are static, so the merged overrides only
+			// change when the active set does — notify observers on
+			// transitions rather than every iteration.
+			if !activeScenariosEqual(active, lastActive) {
+				notifyOverrides(e.Observers, overrides)
+				lastActive = active
+			}
 		}
 
 		rate := trafficPattern.Rate(elapsed)
@@ -662,6 +676,14 @@ func (e *Engine) executeCall(ctx context.Context, call Call, callStart time.Time
 	}
 
 	return callStart, true // unreachable: loop always returns on final iteration
+}
+
+// activeScenariosEqual reports whether two active scenario sets are the same.
+// Used to skip redundant observer notifications between activation transitions.
+func activeScenariosEqual(a, b []Scenario) bool {
+	return slices.EqualFunc(a, b, func(x, y Scenario) bool {
+		return x.Name == y.Name && x.Start == y.Start && x.End == y.End && x.Priority == y.Priority
+	})
 }
 
 // isRoot checks whether an operation is a root (entry point) in the topology.

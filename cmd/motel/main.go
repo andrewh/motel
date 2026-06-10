@@ -932,8 +932,13 @@ func semconvMetricWarnings(cfg *synth.Config, reg *semconv.Registry) []string {
 				scope, mc.Name, mc.Type, g.Instrument))
 		}
 		if g.Unit != "" && mc.Unit != g.Unit {
-			warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit %q does not match semantic convention unit %q",
-				scope, mc.Name, mc.Unit, g.Unit))
+			if mc.Unit == "" {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit is not set; semantic convention specifies %q",
+					scope, mc.Name, g.Unit))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit %q does not match semantic convention unit %q",
+					scope, mc.Name, mc.Unit, g.Unit))
+			}
 		}
 	}
 	for _, svc := range cfg.Services {
