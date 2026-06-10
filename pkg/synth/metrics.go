@@ -107,19 +107,21 @@ func (m *MetricObserver) SetOverrides(overrides map[string]Override) {
 }
 
 // effectiveValue returns the value distribution for a metric, applying any
-// active scenario override for its scope. Returns nil for span-derived metrics.
-func (m *MetricObserver) effectiveValue(scopeRef, name string, base *FloatDistribution) *FloatDistribution {
+// active scenario override for its scope. Returns false for span-derived
+// metrics, which have no value distribution. Returned by value to avoid a
+// heap allocation on the per-span hot path.
+func (m *MetricObserver) effectiveValue(scopeRef, name string, base *FloatDistribution) (FloatDistribution, bool) {
 	if base == nil {
-		return nil
+		return FloatDistribution{}, false
 	}
 	m.overrideMu.RLock()
 	defer m.overrideMu.RUnlock()
 	if ov, ok := m.overrides[scopeRef]; ok {
 		if dist, ok := ov.Metrics[name]; ok {
-			return &dist
+			return dist, true
 		}
 	}
-	return base
+	return *base, true
 }
 
 // createInstrument builds a metricInstrument from a MetricDefinition.
@@ -263,7 +265,8 @@ func (m *MetricObserver) Start() (stop func()) {
 func (m *MetricObserver) recordInterval(inst *metricInstrument) {
 	m.mu.Lock()
 	attrs := buildMetricAttrs(inst.attrGens, inst.operation, m.rng)
-	sampledValue := m.effectiveValue(inst.scopeRef, inst.name, inst.value).Sample(m.rng)
+	dist, _ := m.effectiveValue(inst.scopeRef, inst.name, inst.value)
+	sampledValue := dist.Sample(m.rng)
 	m.mu.Unlock()
 
 	switch {
@@ -294,7 +297,7 @@ func (m *MetricObserver) gaugeCallback(md MetricDefinition, scopeRef, operation 
 		// during collection and cannot share the observer's rng.
 		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data
 		attrs := buildMetricAttrs(md.Attributes, operation, rng)
-		dist := m.effectiveValue(scopeRef, md.Name, base)
+		dist, _ := m.effectiveValue(scopeRef, md.Name, base)
 
 		if md.Walk <= 0 {
 			obs.Observe(clampValue(dist.Sample(rng), md.Min, md.Max), attrs)
@@ -369,7 +372,7 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 		m.mu.Lock()
 		attrs := buildMetricAttrs(inst.attrGens, info.Operation, m.rng)
 		var sampledValue float64
-		if dist := m.effectiveValue(inst.scopeRef, inst.name, inst.value); dist != nil {
+		if dist, ok := m.effectiveValue(inst.scopeRef, inst.name, inst.value); ok {
 			sampledValue = dist.Sample(m.rng)
 		}
 		m.mu.Unlock()
