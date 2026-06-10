@@ -1119,3 +1119,59 @@ func TestMetricShutdownExporterOrder(t *testing.T) {
 			"provider %d shut down after exporter", i)
 	}
 }
+
+func TestCheckCommandScenarios(t *testing.T) {
+	t.Parallel()
+
+	const cfg = `
+version: 1
+services:
+  svc:
+    operations:
+      a:
+        duration: 10ms
+        calls:
+          - svc.b
+      b:
+        duration: 10ms
+      c:
+        duration: 10ms
+scenarios:
+  - name: deepen
+    at: +1m
+    duration: 1m
+    override:
+      svc.b:
+        add_calls:
+          - svc.c
+traffic:
+  rate: 10/s
+`
+
+	t.Run("scenario worst case reported and fails tight limit", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"check", path, "--max-depth", "1", "--samples", "10", "--seed", "42"})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err, "depth 2 under scenario must fail limit 1")
+		assert.Contains(t, out.String(), "FAIL  max-depth: 2")
+		assert.Contains(t, out.String(), "scenarios: deepen")
+	})
+
+	t.Run("skip-scenarios checks baseline only", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"check", path, "--max-depth", "1", "--samples", "10", "--seed", "42", "--skip-scenarios"})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err, "baseline depth 1 passes limit 1")
+		assert.NotContains(t, out.String(), "scenarios:")
+	})
+}
