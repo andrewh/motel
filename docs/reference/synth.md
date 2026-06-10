@@ -25,6 +25,12 @@ motel validate <topology.yaml | URL>
 
 Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root operations`) or a precise error on failure including the service name, operation name, and field.
 
+When a metric name matches a known OpenTelemetry semantic convention metric, validate also checks the instrument type and unit against the convention. Mismatches are reported as warnings on stderr, not errors — users may intentionally deviate, and custom metric names are never warned about:
+
+```
+warning: service "gateway": metric "http.server.request.duration": unit "ms" does not match semantic convention unit "s"
+```
+
 ### run
 
 Generate synthetic signals from a topology definition.

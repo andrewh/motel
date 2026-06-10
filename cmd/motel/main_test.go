@@ -1119,3 +1119,94 @@ func TestMetricShutdownExporterOrder(t *testing.T) {
 			"provider %d shut down after exporter", i)
 	}
 }
+
+func TestValidateCommandSemconvMetricWarnings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("warns on type and unit mismatch", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: counter
+        unit: ms
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.Contains(t, out.String(), "Configuration valid", "warnings must not fail validation")
+		assert.Contains(t, errOut.String(), `type "counter" does not match semantic convention instrument "histogram"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "s"`)
+	})
+
+	t.Run("warns on operation-level metric mismatch", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 50ms
+        metrics:
+          - name: http.server.active_requests
+            type: updowncounter
+            unit: ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.Contains(t, errOut.String(), `service "gateway" operation "handle"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "{request}"`)
+	})
+
+	t.Run("no warnings for compliant or custom metrics", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: s
+      - name: my.custom.metric
+        type: counter
+        unit: ms
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.NotContains(t, errOut.String(), "warning:")
+	})
+}

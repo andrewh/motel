@@ -103,9 +103,10 @@ services:
     metrics:
       - name: http.server.request.duration
         type: histogram
-        unit: ms
+        unit: s
       - name: http.server.active_requests
         type: updowncounter
+        unit: "{request}"
     operations:
       GET /api:
         duration: 45ms +/- 12ms

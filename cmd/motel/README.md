@@ -323,6 +323,10 @@ running; if no metrics are defined the signal is silently empty.
 | `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
 
+Metric names that match a known OTel semantic convention metric are checked
+by `motel validate`: a `type` or `unit` that disagrees with the convention
+produces a warning (not an error). Custom metric names are never warned about.
+
 **Span-derived behaviour (no `value`):** the instrument records a value derived
 from the span being observed.
 
@@ -385,13 +389,14 @@ observable callback fires on the collection cycle) and do not accept
 services:
   gateway:
     metrics:
-      # Span-derived histogram: records span duration in milliseconds
+      # Span-derived histogram: records span duration in seconds
       - name: http.server.request.duration
         type: histogram
-        unit: ms
+        unit: s
       # Span-derived updowncounter: tracks currently active requests
       - name: http.server.active_requests
         type: updowncounter
+        unit: "{request}"
       # Topology-defined gauge: independent of spans, sampled on collection
       - name: gateway.cpu.utilisation
         type: gauge
