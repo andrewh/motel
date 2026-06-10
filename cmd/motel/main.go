@@ -623,7 +623,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			return fmt.Errorf("creating log providers: %w", lErr)
 		}
 		defer shutdownLogs()
-		observers = append(observers, synth.NewLogObserver(loggers, opts.slowThreshold))
+		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
+		obs, lErr := synth.NewLogObserver(loggers, topo, opts.slowThreshold, rng)
+		if lErr != nil {
+			return fmt.Errorf("creating log observer: %w", lErr)
+		}
+		observers = append(observers, obs)
 	}
 
 	duration := opts.duration

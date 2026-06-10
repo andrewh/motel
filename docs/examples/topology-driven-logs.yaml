@@ -1,0 +1,51 @@
+# Topology-driven logs example
+# Demonstrates severity levels, body templates, conditions, probability,
+# timing anchors, and structured attributes at service and operation level.
+# Run with:
+#   motel run --stdout --signals traces,logs --slow-threshold 100ms --duration 10s docs/examples/topology-driven-logs.yaml
+
+version: 1
+
+services:
+  gateway:
+    logs:
+      # Service-level: emitted for every gateway span, timestamped at span start
+      - severity: INFO
+        body: "handled {operation.name} method={http.request.method}"
+    operations:
+      GET /api:
+        duration: 40ms +/- 10ms
+        error_rate: 2%
+        attributes:
+          http.request.method:
+            value: GET
+        logs:
+          # Only when the span errors, timestamped at span end
+          - severity: ERROR
+            body: "upstream timeout for {operation.name}"
+            condition: error
+            at: end
+            attributes:
+              error.type:
+                value: TimeoutError
+          # Sampled debug log, 5ms after span start
+          - severity: DEBUG
+            body: "cache lookup key={cache.key}"
+            probability: 0.25
+            delay: 5ms
+            attributes:
+              cache.key:
+                sequence: "user:{n}"
+        calls:
+          - backend.process
+
+  # backend defines no logs: it keeps the built-in derived behaviour
+  # (ERROR log per error span, WARN log per span over --slow-threshold)
+  backend:
+    operations:
+      process:
+        duration: 80ms +/- 40ms
+        error_rate: 1%
+
+traffic:
+  rate: 20/s

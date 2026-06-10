@@ -2231,3 +2231,166 @@ func TestValidateConfigMetrics(t *testing.T) {
 		require.NoError(t, ValidateConfig(cfg))
 	})
 }
+
+func TestLoadConfigLogs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("service and operation level logs", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  gateway:
+    logs:
+      - severity: INFO
+        body: "request handled"
+    operations:
+      handle:
+        duration: 50ms
+        logs:
+          - severity: ERROR
+            body: "upstream timeout after {timeout.ms}ms"
+            condition: error
+            probability: 0.5
+            at: end
+            delay: 5ms
+            attributes:
+              error.type:
+                value: TimeoutError
+traffic:
+  rate: 10/s
+`)
+		cfg, err := LoadConfig(path)
+		require.NoError(t, err)
+		require.Len(t, cfg.Services, 1)
+
+		svc := cfg.Services[0]
+		require.Len(t, svc.Logs, 1)
+		assert.Equal(t, "INFO", svc.Logs[0].Severity)
+		assert.Equal(t, "request handled", svc.Logs[0].Body)
+
+		require.Len(t, svc.Operations[0].Logs, 1)
+		opLog := svc.Operations[0].Logs[0]
+		assert.Equal(t, "ERROR", opLog.Severity)
+		assert.Equal(t, "upstream timeout after {timeout.ms}ms", opLog.Body)
+		assert.Equal(t, "error", opLog.Condition)
+		require.NotNil(t, opLog.Probability)
+		assert.InDelta(t, 0.5, *opLog.Probability, 1e-9)
+		assert.Equal(t, "end", opLog.At)
+		assert.Equal(t, "5ms", opLog.Delay)
+		require.Contains(t, opLog.Attributes, "error.type")
+
+		require.NoError(t, ValidateConfig(cfg))
+	})
+}
+
+func TestValidateConfigLogs(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := func(svcLogs []LogConfig, opLogs []LogConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Logs: svcLogs,
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "50ms",
+					Logs:     opLogs,
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+	}
+
+	t.Run("valid minimal log", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "INFO", Body: "hello"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("lowercase severity accepted", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "warn", Body: "hello"}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("missing severity", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Body: "hello"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "severity is required")
+	})
+
+	t.Run("invalid severity", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "CRITICAL", Body: "hello"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "severity must be one of")
+	})
+
+	t.Run("missing body", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "INFO"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "body is required")
+	})
+
+	t.Run("invalid condition", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig(nil, []LogConfig{{Severity: "INFO", Body: "b", Condition: "sometimes"}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "condition must be")
+	})
+
+	t.Run("probability out of range", func(t *testing.T) {
+		t.Parallel()
+		p := 1.5
+		cfg := baseConfig([]LogConfig{{Severity: "INFO", Body: "b", Probability: &p}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "probability must be between 0 and 1")
+	})
+
+	t.Run("invalid at", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "INFO", Body: "b", At: "middle"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at must be")
+	})
+
+	t.Run("invalid delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "INFO", Body: "b", Delay: "soon"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid delay")
+	})
+
+	t.Run("negative delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{Severity: "INFO", Body: "b", Delay: "-5ms"}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "delay must not be negative")
+	})
+
+	t.Run("invalid log attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]LogConfig{{
+			Severity: "INFO",
+			Body:     "b",
+			Attributes: map[string]AttributeValueConfig{
+				"bad": {Range: []int64{1}}, // range needs 2 elements
+			},
+		}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attribute")
+	})
+}

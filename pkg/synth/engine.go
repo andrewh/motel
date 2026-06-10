@@ -571,6 +571,7 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 			startTime, endTime.Sub(startTime),
 			isError, kind,
 			attrsCopy, scenarioNames,
+			span.SpanContext(),
 		)
 		for _, obs := range e.Observers {
 			obs.Observe(info)
@@ -626,6 +627,7 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 				attribute.String("synth.rejection_reason", reason),
 			},
 			scenarioNames,
+			span.SpanContext(),
 		)
 		for _, obs := range e.Observers {
 			obs.Observe(info)

@@ -2255,9 +2255,9 @@ func TestEngineTimeOffset(t *testing.T) {
 			sdklog.WithProcessor(sdklog.NewSimpleProcessor(logExporter)),
 		)
 		t.Cleanup(func() { _ = lp.Shutdown(context.Background()) })
-		engine.Observers = []SpanObserver{
-			NewLogObserver(map[string]otellog.Logger{"svc": lp.Logger("motel")}, 0),
-		}
+		logObs, lErr := NewLogObserver(map[string]otellog.Logger{"svc": lp.Logger("motel")}, nil, 0, nil)
+		require.NoError(t, lErr)
+		engine.Observers = []SpanObserver{logObs}
 
 		before := time.Now()
 		_, err := engine.Run(context.Background())

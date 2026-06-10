@@ -483,3 +483,71 @@ func TestBuildTopology(t *testing.T) {
 		assert.Empty(t, producerOp.Links)
 	})
 }
+
+func TestBuildTopologyLogs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves service and operation logs", func(t *testing.T) {
+		t.Parallel()
+		p := 0.25
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "gateway",
+				Logs: []LogConfig{{Severity: "info", Body: "handled"}},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Logs: []LogConfig{{
+						Severity:    "ERROR",
+						Body:        "boom",
+						Condition:   "error",
+						Probability: &p,
+						At:          "end",
+						Delay:       "5ms",
+						Attributes: map[string]AttributeValueConfig{
+							"error.type": {Value: "TimeoutError"},
+						},
+					}},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+
+		topo, err := BuildTopology(cfg)
+		require.NoError(t, err)
+
+		svc := topo.Services["gateway"]
+		require.Len(t, svc.Logs, 1)
+		assert.Equal(t, "INFO", svc.Logs[0].Severity, "severity should be normalised to uppercase")
+		assert.Equal(t, "handled", svc.Logs[0].Body)
+		assert.InDelta(t, 1.0, svc.Logs[0].Probability, 1e-9, "probability defaults to 1")
+		assert.False(t, svc.Logs[0].AtEnd)
+
+		opLogs := svc.Operations["handle"].Logs
+		require.Len(t, opLogs, 1)
+		assert.Equal(t, "ERROR", opLogs[0].Severity)
+		assert.Equal(t, "error", opLogs[0].Condition)
+		assert.InDelta(t, 0.25, opLogs[0].Probability, 1e-9)
+		assert.True(t, opLogs[0].AtEnd)
+		assert.Equal(t, 5*time.Millisecond, opLogs[0].Delay)
+		require.Contains(t, opLogs[0].Attributes, "error.type")
+	})
+
+	t.Run("rejects invalid delay", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{{
+				Name: "svc",
+				Logs: []LogConfig{{Severity: "INFO", Body: "b", Delay: "soon"}},
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		_, err := BuildTopology(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid delay")
+	})
+}

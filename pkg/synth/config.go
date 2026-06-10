@@ -45,6 +45,39 @@ var validMetricType = map[string]bool{
 	metricTypeGauge:         true,
 }
 
+// Log severity constants matching the OTel log data model severity text values.
+const (
+	logSeverityTrace = "TRACE"
+	logSeverityDebug = "DEBUG"
+	logSeverityInfo  = "INFO"
+	logSeverityWarn  = "WARN"
+	logSeverityError = "ERROR"
+	logSeverityFatal = "FATAL"
+)
+
+// validLogSeverity lists supported log severity levels.
+var validLogSeverity = map[string]bool{
+	logSeverityTrace: true,
+	logSeverityDebug: true,
+	logSeverityInfo:  true,
+	logSeverityWarn:  true,
+	logSeverityError: true,
+	logSeverityFatal: true,
+}
+
+// Log condition constants controlling when a topology log record is emitted.
+const (
+	logConditionError   = "error"
+	logConditionSuccess = "success"
+	logConditionSlow    = "slow"
+)
+
+// Log timing anchor constants for the at: field.
+const (
+	logAtStart = "start"
+	logAtEnd   = "end"
+)
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
@@ -66,6 +99,7 @@ type rawServiceConfig struct {
 	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
 	Attributes         map[string]string             `yaml:"attributes,omitempty"`
 	Metrics            []MetricConfig                `yaml:"metrics,omitempty"`
+	Logs               []LogConfig                   `yaml:"logs,omitempty"`
 	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
@@ -120,6 +154,17 @@ type EventConfig struct {
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
+// LogConfig describes a log record template defined in the topology YAML.
+type LogConfig struct {
+	Severity    string                          `yaml:"severity"`
+	Body        string                          `yaml:"body"`
+	Condition   string                          `yaml:"condition,omitempty"`
+	Probability *float64                        `yaml:"probability,omitempty"`
+	At          string                          `yaml:"at,omitempty"`
+	Delay       string                          `yaml:"delay,omitempty"`
+	Attributes  map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
 // MetricConfig describes a metric instrument defined in the topology YAML.
 type MetricConfig struct {
 	Name       string                          `yaml:"name"`
@@ -141,6 +186,7 @@ type rawOperationConfig struct {
 	Events         []EventConfig                   `yaml:"events,omitempty"`
 	Links          []string                        `yaml:"links,omitempty"`
 	Metrics        []MetricConfig                  `yaml:"metrics,omitempty"`
+	Logs           []LogConfig                     `yaml:"logs,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -152,6 +198,7 @@ type ServiceConfig struct {
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
 	Metrics            []MetricConfig
+	Logs               []LogConfig
 	Operations         []OperationConfig
 }
 
@@ -167,6 +214,7 @@ type OperationConfig struct {
 	Events         []EventConfig
 	Links          []string
 	Metrics        []MetricConfig
+	Logs           []LogConfig
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -324,6 +372,7 @@ func LoadConfig(source string) (*Config, error) {
 			ResourceAttributes: rawSvc.ResourceAttributes,
 			Attributes:         rawSvc.Attributes,
 			Metrics:            rawSvc.Metrics,
+			Logs:               rawSvc.Logs,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -345,6 +394,7 @@ func LoadConfig(source string) (*Config, error) {
 				Events:         rawOp.Events,
 				Links:          rawOp.Links,
 				Metrics:        rawOp.Metrics,
+				Logs:           rawOp.Logs,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -392,7 +442,17 @@ func ValidateConfig(cfg *Config) error {
 			}
 			metricNames[mc.Name] = true
 		}
+		for i, lc := range svc.Logs {
+			if err := validateLogConfig(lc, fmt.Sprintf("service %q: log[%d]", svc.Name, i)); err != nil {
+				return err
+			}
+		}
 		for _, op := range svc.Operations {
+			for i, lc := range op.Logs {
+				if err := validateLogConfig(lc, fmt.Sprintf("service %q operation %q: log[%d]", svc.Name, op.Name, i)); err != nil {
+					return err
+				}
+			}
 			for i, mc := range op.Metrics {
 				if err := validateMetricConfig(mc, fmt.Sprintf("service %q operation %q: metric[%d]", svc.Name, op.Name, i)); err != nil {
 					return err
@@ -747,6 +807,47 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 	for attrName, attrCfg := range mc.Attributes {
 		if _, err := NewAttributeGenerator(attrCfg); err != nil {
 			return fmt.Errorf("%s %q: attribute %q: %w", prefix, mc.Name, attrName, err)
+		}
+	}
+	return nil
+}
+
+// validateLogConfig checks a single LogConfig for structural correctness.
+func validateLogConfig(lc LogConfig, prefix string) error {
+	if lc.Severity == "" {
+		return fmt.Errorf("%s: severity is required (one of TRACE, DEBUG, INFO, WARN, ERROR, FATAL)", prefix)
+	}
+	if !validLogSeverity[strings.ToUpper(lc.Severity)] {
+		return fmt.Errorf("%s: severity must be one of TRACE, DEBUG, INFO, WARN, ERROR, FATAL; got %q", prefix, lc.Severity)
+	}
+	if lc.Body == "" {
+		return fmt.Errorf("%s: body is required", prefix)
+	}
+	switch lc.Condition {
+	case "", logConditionError, logConditionSuccess, logConditionSlow:
+	default:
+		return fmt.Errorf("%s: condition must be %q, %q, or %q; got %q", prefix, logConditionError, logConditionSuccess, logConditionSlow, lc.Condition)
+	}
+	if lc.Probability != nil && (*lc.Probability < 0 || *lc.Probability > 1) {
+		return fmt.Errorf("%s: probability must be between 0 and 1, got %v", prefix, *lc.Probability)
+	}
+	switch lc.At {
+	case "", logAtStart, logAtEnd:
+	default:
+		return fmt.Errorf("%s: at must be %q or %q; got %q", prefix, logAtStart, logAtEnd, lc.At)
+	}
+	if lc.Delay != "" {
+		d, err := time.ParseDuration(lc.Delay)
+		if err != nil {
+			return fmt.Errorf("%s: invalid delay: %w", prefix, err)
+		}
+		if d < 0 {
+			return fmt.Errorf("%s: delay must not be negative", prefix)
+		}
+	}
+	for attrName, attrCfg := range lc.Attributes {
+		if _, err := NewAttributeGenerator(attrCfg); err != nil {
+			return fmt.Errorf("%s: attribute %q: %w", prefix, attrName, err)
 		}
 	}
 	return nil

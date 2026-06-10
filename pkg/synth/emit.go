@@ -160,6 +160,7 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 			plan.StartTime, plan.EndTime.Sub(plan.StartTime),
 			plan.IsError, plan.Kind,
 			plan.Attrs, plan.Scenarios,
+			span.SpanContext(),
 		)
 		for _, obs := range observers {
 			obs.Observe(info)
@@ -187,6 +188,7 @@ func endAllOpen(live []liveSpan, plans []SpanPlan, observers []SpanObserver, rst
 				plan.StartTime, now.Sub(plan.StartTime),
 				true, plan.Kind,
 				plan.Attrs, plan.Scenarios,
+				live[i].Span.SpanContext(),
 			)
 			for _, obs := range observers {
 				obs.Observe(info)
