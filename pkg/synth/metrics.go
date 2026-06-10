@@ -21,10 +21,11 @@ type metricInstrument struct {
 	float64Histogram     metric.Float64Histogram
 	float64UpDownCounter metric.Float64UpDownCounter
 
-	value     *FloatDistribution // nil = span-derived
-	unit      string
-	attrGens  map[string]AttributeGenerator
-	operation string // non-empty if operation-level (fires only for this op)
+	value      *FloatDistribution // nil = span-derived
+	unit       string
+	attrGens   map[string]AttributeGenerator
+	operation  string // non-empty if operation-level (fires only for this op)
+	errorsOnly bool   // if true, counter only increments for error spans
 }
 
 // MetricObserver records derived metrics for each observed span.
@@ -84,14 +85,15 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 // Returns (inst, false, nil) for gauge types — the callback handles everything; no instrument entry is needed.
 func createInstrument(meter metric.Meter, md MetricDefinition, operation string) (metricInstrument, bool, error) {
 	inst := metricInstrument{
-		value:     md.Value,
-		unit:      md.Unit,
-		attrGens:  md.Attributes,
-		operation: operation,
+		value:      md.Value,
+		unit:       md.Unit,
+		attrGens:   md.Attributes,
+		operation:  operation,
+		errorsOnly: md.ErrorsOnly,
 	}
 
 	switch md.Type {
-	case "counter":
+	case metricTypeCounter:
 		if md.Value != nil {
 			// Topology-defined: sampled float value per recording
 			var copts []metric.Float64CounterOption
@@ -116,7 +118,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			inst.int64Counter = c
 		}
 
-	case "updowncounter":
+	case metricTypeUpDownCounter:
 		if md.Value != nil {
 			var copts []metric.Float64UpDownCounterOption
 			if md.Unit != "" {
@@ -140,7 +142,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			inst.int64UpDownCounter = c
 		}
 
-	case "histogram":
+	case metricTypeHistogram:
 		var hopts []metric.Float64HistogramOption
 		if md.Unit != "" {
 			hopts = append(hopts, metric.WithUnit(md.Unit))
@@ -151,7 +153,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		}
 		inst.float64Histogram = h
 
-	case "gauge":
+	case metricTypeGauge:
 		// Gauges are always topology-defined (validated earlier).
 		// Register an observable gauge with a callback that samples the distribution.
 		var gopts []metric.Float64ObservableGaugeOption
@@ -203,38 +205,43 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 		return
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	for i := range instruments {
 		inst := &instruments[i]
 
-		// Operation-level metrics only fire for their specific operation.
 		if inst.operation != "" && inst.operation != info.Operation {
 			continue
 		}
+		if inst.errorsOnly && !info.IsError {
+			continue
+		}
 
+		// Lock only while sampling the RNG and building attributes.
+		m.mu.Lock()
 		attrs := buildMetricAttrs(inst.attrGens, info.Operation, m.rng)
+		var sampledValue float64
+		if inst.value != nil {
+			sampledValue = inst.value.Sample(m.rng)
+		}
+		m.mu.Unlock()
 
 		switch {
 		case inst.int64Counter != nil:
 			inst.int64Counter.Add(context.Background(), 1, attrs)
 
 		case inst.float64Counter != nil:
-			inst.float64Counter.Add(context.Background(), max(0, inst.value.Sample(m.rng)), attrs)
+			inst.float64Counter.Add(context.Background(), max(0, sampledValue), attrs)
 
 		case inst.int64UpDownCounter != nil:
 			// -1 on span end (the +1 happens in ObserveStart)
 			inst.int64UpDownCounter.Add(context.Background(), -1, attrs)
 
 		case inst.float64UpDownCounter != nil:
-			inst.float64UpDownCounter.Add(context.Background(), inst.value.Sample(m.rng), attrs)
+			inst.float64UpDownCounter.Add(context.Background(), sampledValue, attrs)
 
 		case inst.float64Histogram != nil:
 			if inst.value != nil {
-				inst.float64Histogram.Record(context.Background(), inst.value.Sample(m.rng), attrs)
+				inst.float64Histogram.Record(context.Background(), sampledValue, attrs)
 			} else {
-				// Span-derived: record span duration in the configured unit
 				duration := durationInUnit(info.Duration, inst.unit)
 				inst.float64Histogram.Record(context.Background(), duration, attrs)
 			}
@@ -249,9 +256,6 @@ func (m *MetricObserver) ObserveStart(service, operation string) {
 		return
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	for i := range instruments {
 		inst := &instruments[i]
 		if inst.int64UpDownCounter == nil {
@@ -261,7 +265,10 @@ func (m *MetricObserver) ObserveStart(service, operation string) {
 			continue
 		}
 
+		m.mu.Lock()
 		attrs := buildMetricAttrs(inst.attrGens, operation, m.rng)
+		m.mu.Unlock()
+
 		inst.int64UpDownCounter.Add(context.Background(), 1, attrs)
 	}
 }

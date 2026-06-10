@@ -22,6 +22,7 @@ type MetricDefinition struct {
 	Type       string
 	Unit       string
 	Value      *FloatDistribution
+	ErrorsOnly bool
 	Attributes map[string]AttributeGenerator
 }
 
@@ -278,9 +279,10 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 	defs := make([]MetricDefinition, len(configs))
 	for i, mc := range configs {
 		def := MetricDefinition{
-			Name: mc.Name,
-			Type: mc.Type,
-			Unit: mc.Unit,
+			Name:       mc.Name,
+			Type:       mc.Type,
+			Unit:       mc.Unit,
+			ErrorsOnly: mc.ErrorsOnly,
 		}
 		if mc.Value != "" {
 			dist, err := ParseFloatDistribution(mc.Value)
@@ -292,6 +294,13 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 				return nil, fmt.Errorf("%s: metric %q: %w", ctx, mc.Name, err)
 			}
 			def.Value = &dist
+		}
+		if mc.Type == metricTypeGauge && def.Value == nil {
+			ctx := fmt.Sprintf("service %q", svcName)
+			if opName != "" {
+				ctx = fmt.Sprintf("service %q operation %q", svcName, opName)
+			}
+			return nil, fmt.Errorf("%s: metric %q: gauge requires a value", ctx, mc.Name)
 		}
 		if len(mc.Attributes) > 0 {
 			def.Attributes = make(map[string]AttributeGenerator, len(mc.Attributes))

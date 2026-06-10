@@ -29,12 +29,20 @@ var reservedResourceAttribute = map[string]bool{
 	"motel.version": true,
 }
 
+// Metric type constants for OTel instrument types.
+const (
+	metricTypeCounter       = "counter"
+	metricTypeUpDownCounter = "updowncounter"
+	metricTypeHistogram     = "histogram"
+	metricTypeGauge         = "gauge"
+)
+
 // validMetricType lists supported OTel instrument types.
 var validMetricType = map[string]bool{
-	"counter":       true,
-	"updowncounter": true,
-	"histogram":     true,
-	"gauge":         true,
+	metricTypeCounter:       true,
+	metricTypeUpDownCounter: true,
+	metricTypeHistogram:     true,
+	metricTypeGauge:         true,
 }
 
 // Config is the top-level YAML configuration for a synthetic topology.
@@ -118,6 +126,7 @@ type MetricConfig struct {
 	Type       string                          `yaml:"type"`
 	Unit       string                          `yaml:"unit,omitempty"`
 	Value      string                          `yaml:"value,omitempty"`
+	ErrorsOnly bool                            `yaml:"errors_only,omitempty"`
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
@@ -719,8 +728,11 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 			return fmt.Errorf("%s %q: invalid value: %w", prefix, mc.Name, err)
 		}
 	}
-	if mc.Type == "gauge" && mc.Value == "" {
+	if mc.Type == metricTypeGauge && mc.Value == "" {
 		return fmt.Errorf("%s %q: gauge metrics require a value (gauges are point-in-time, not span-derived)", prefix, mc.Name)
+	}
+	if mc.ErrorsOnly && mc.Type != metricTypeCounter {
+		return fmt.Errorf("%s %q: errors_only is only valid for counter metrics", prefix, mc.Name)
 	}
 	for attrName, attrCfg := range mc.Attributes {
 		if _, err := NewAttributeGenerator(attrCfg); err != nil {

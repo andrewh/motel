@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"math/rand/v2"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -435,4 +436,117 @@ func TestMetricObserverHistogramDurationUnits(t *testing.T) {
 			assert.InDelta(t, tt.expected, hist.DataPoints[0].Sum, 0.1)
 		})
 	}
+}
+
+func TestMetricObserverErrorsOnly(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "error.count", Type: "counter", ErrorsOnly: true},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: 10 * time.Millisecond, IsError: false})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: 10 * time.Millisecond, IsError: true})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: 10 * time.Millisecond, IsError: false})
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "error.count")
+	require.NotNil(t, m)
+
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	assert.Equal(t, int64(1), sum.DataPoints[0].Value, "only error spans should increment the counter")
+}
+
+// TestMetricObserverEndToEnd verifies the full path: YAML → LoadConfig → BuildTopology →
+// NewMetricObserver → Observe → collect. Tests all four instrument types.
+func TestMetricObserverEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	const yamlContent = `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: ms
+      - name: http.server.active_requests
+        type: updowncounter
+      - name: gateway.cpu.utilisation
+        type: gauge
+        value: "0.5"
+      - name: backend.response.bytes
+        type: counter
+        unit: By
+        value: "1024"
+    operations:
+      GET /api:
+        duration: 40ms
+        error_rate: 0%
+traffic:
+  rate: 1/s
+`
+
+	f := t.TempDir() + "/topology.yaml"
+	require.NoError(t, os.WriteFile(f, []byte(yamlContent), 0o600))
+
+	cfg, err := LoadConfig(f)
+	require.NoError(t, err)
+	require.NoError(t, ValidateConfig(cfg))
+
+	topo, err := BuildTopology(cfg)
+	require.NoError(t, err)
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	obs, err := NewMetricObserver(testMeters(mp, "gateway"), topo, testRng())
+	require.NoError(t, err)
+
+	obs.ObserveStart("gateway", "GET /api")
+	obs.Observe(SpanInfo{
+		Service:   "gateway",
+		Operation: "GET /api",
+		Duration:  40 * time.Millisecond,
+		IsError:   false,
+		Kind:      trace.SpanKindServer,
+	})
+
+	rm := collectMetrics(t, reader)
+
+	hist := findMetric(rm, "http.server.request.duration")
+	require.NotNil(t, hist, "histogram must be present")
+	hd, ok := hist.Data.(metricdata.Histogram[float64])
+	require.True(t, ok)
+	require.Len(t, hd.DataPoints, 1)
+	assert.InDelta(t, 40.0, hd.DataPoints[0].Sum, 1.0)
+
+	udc := findMetric(rm, "http.server.active_requests")
+	require.NotNil(t, udc, "updowncounter must be present")
+	udSum, ok := udc.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, udSum.DataPoints, 1)
+	assert.Equal(t, int64(0), udSum.DataPoints[0].Value, "start +1 and end -1 should cancel")
+
+	gauge := findMetric(rm, "gateway.cpu.utilisation")
+	require.NotNil(t, gauge, "gauge must be present")
+	_, ok = gauge.Data.(metricdata.Gauge[float64])
+	require.True(t, ok)
+
+	cnt := findMetric(rm, "backend.response.bytes")
+	require.NotNil(t, cnt, "float64 counter must be present")
+	cntSum, ok := cnt.Data.(metricdata.Sum[float64])
+	require.True(t, ok)
+	require.Len(t, cntSum.DataPoints, 1)
+	assert.Greater(t, cntSum.DataPoints[0].Value, 0.0)
 }

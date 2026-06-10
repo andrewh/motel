@@ -96,11 +96,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)
 			}
-			for _, obs := range observers {
-				if sso, ok := obs.(SpanStartObserver); ok {
-					sso.ObserveStart(plan.Service, plan.Operation)
-				}
-			}
+			notifySpanStart(observers, plan.Service, plan.Operation)
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
 		} else {
 			ls := live[ev.Index]
@@ -159,16 +155,12 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 	span.End(trace.WithTimestamp(plan.EndTime))
 
 	if len(observers) > 0 {
-		info := SpanInfo{
-			Service:   plan.Service,
-			Operation: plan.Operation,
-			Timestamp: plan.StartTime,
-			Duration:  plan.EndTime.Sub(plan.StartTime),
-			IsError:   plan.IsError,
-			Kind:      plan.Kind,
-			Attrs:     plan.Attrs,
-			Scenarios: plan.Scenarios,
-		}
+		info := newSpanInfo(
+			plan.Service, plan.Operation,
+			plan.StartTime, plan.EndTime.Sub(plan.StartTime),
+			plan.IsError, plan.Kind,
+			plan.Attrs, plan.Scenarios,
+		)
 		for _, obs := range observers {
 			obs.Observe(info)
 		}
@@ -190,16 +182,12 @@ func endAllOpen(live []liveSpan, plans []SpanPlan, observers []SpanObserver, rst
 		rstats.Errors.Add(1)
 		if len(observers) > 0 {
 			plan := &plans[i]
-			info := SpanInfo{
-				Service:   plan.Service,
-				Operation: plan.Operation,
-				Timestamp: plan.StartTime,
-				Duration:  now.Sub(plan.StartTime),
-				IsError:   true,
-				Kind:      plan.Kind,
-				Attrs:     plan.Attrs,
-				Scenarios: plan.Scenarios,
-			}
+			info := newSpanInfo(
+				plan.Service, plan.Operation,
+				plan.StartTime, now.Sub(plan.StartTime),
+				true, plan.Kind,
+				plan.Attrs, plan.Scenarios,
+			)
 			for _, obs := range observers {
 				obs.Observe(info)
 			}
