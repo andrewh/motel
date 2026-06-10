@@ -398,6 +398,6 @@ quickly.
 
 ## Further Reading
 
-- [`docs/examples/`](../../docs/examples/) — example topology configs
-- [`docs/tutorials/`](../../docs/tutorials/) — getting started tutorial
-- [`pkg/synth/`](../../pkg/synth/) — implementation source
+- [`docs/examples/`](../../docs/examples/README.md) — example topology configs
+- [`docs/tutorials/`](../../docs/tutorials/getting-started.md) — getting started tutorial
+- [`pkg/synth/`](https://github.com/andrewh/motel/tree/main/pkg/synth) — implementation source

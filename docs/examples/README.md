@@ -30,7 +30,7 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 
 | Directory | Description |
 |-----------|-------------|
-| [`dsb/`](dsb/) | DeathStarBench microservice topologies (Social Network, Hotel Reservation). |
+| [`dsb/`](dsb/README.md) | DeathStarBench microservice topologies (Social Network, Hotel Reservation). |
 
 ## Further reading
 
