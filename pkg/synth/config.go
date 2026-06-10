@@ -126,6 +126,9 @@ type MetricConfig struct {
 	Type       string                          `yaml:"type"`
 	Unit       string                          `yaml:"unit,omitempty"`
 	Value      string                          `yaml:"value,omitempty"`
+	Walk       string                          `yaml:"walk,omitempty"`
+	Min        *float64                        `yaml:"min,omitempty"`
+	Max        *float64                        `yaml:"max,omitempty"`
 	ErrorsOnly bool                            `yaml:"errors_only,omitempty"`
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
@@ -784,6 +787,24 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 	}
 	if mc.Type == metricTypeGauge && mc.Value == "" {
 		return fmt.Errorf("%s %q: gauge metrics require a value (gauges are point-in-time, not span-derived)", prefix, mc.Name)
+	}
+	if mc.Walk != "" {
+		if mc.Type != metricTypeGauge {
+			return fmt.Errorf("%s %q: walk is only valid for gauge metrics", prefix, mc.Name)
+		}
+		d, err := time.ParseDuration(mc.Walk)
+		if err != nil {
+			return fmt.Errorf("%s %q: invalid walk: %w", prefix, mc.Name, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s %q: walk must be positive", prefix, mc.Name)
+		}
+	}
+	if (mc.Min != nil || mc.Max != nil) && mc.Type != metricTypeGauge {
+		return fmt.Errorf("%s %q: min and max bounds are only valid for gauge metrics", prefix, mc.Name)
+	}
+	if mc.Min != nil && mc.Max != nil && *mc.Min >= *mc.Max {
+		return fmt.Errorf("%s %q: min must be less than max", prefix, mc.Name)
 	}
 	if mc.ErrorsOnly && mc.Type != metricTypeCounter {
 		return fmt.Errorf("%s %q: errors_only is only valid for counter metrics", prefix, mc.Name)

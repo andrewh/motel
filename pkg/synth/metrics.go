@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -203,20 +204,7 @@ func (m *MetricObserver) createInstrument(meter metric.Meter, md MetricDefinitio
 		}
 		// The gauge callback fires on collection, not per span.
 		// No instrument entry is needed.
-		base := md.Value
-		gaugeName := md.Name
-		gaugeScope := scopeRef
-		gaugeAttrs := md.Attributes
-		gaugeOp := operation
-		gopts = append(gopts, metric.WithFloat64Callback(func(_ context.Context, obs metric.Float64Observer) error {
-			// Create a fresh rng inside the callback — it runs asynchronously
-			// during collection and cannot share the observer's rng.
-			rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data
-			attrs := buildMetricAttrs(gaugeAttrs, gaugeOp, rng)
-			dist := m.effectiveValue(gaugeScope, gaugeName, base)
-			obs.Observe(dist.Sample(rng), attrs)
-			return nil
-		}))
+		gopts = append(gopts, metric.WithFloat64Callback(m.gaugeCallback(md, scopeRef, operation)))
 		_, err := meter.Float64ObservableGauge(md.Name, gopts...)
 		if err != nil {
 			return metricInstrument{}, false, err
@@ -225,6 +213,63 @@ func (m *MetricObserver) createInstrument(meter metric.Meter, md MetricDefinitio
 	}
 
 	return inst, true, nil
+}
+
+// gaugeCallback returns the observation callback for a topology-defined gauge.
+// Without walk, each collection samples independently from the value
+// distribution (white noise). With walk, samples follow an Ornstein-Uhlenbeck
+// process: a mean-reverting random walk whose stationary distribution matches
+// the configured mean and standard deviation, with mean-reversion timescale
+// md.Walk. Walk timescales relate to wall-clock time between collections.
+func (m *MetricObserver) gaugeCallback(md MetricDefinition, scopeRef, operation string) metric.Float64Callback {
+	base := md.Value
+	// Walk state persists across collection cycles in this closure.
+	var walkMu sync.Mutex
+	var current float64
+	var lastSample time.Time
+
+	return func(_ context.Context, obs metric.Float64Observer) error {
+		// Create a fresh rng inside the callback — it runs asynchronously
+		// during collection and cannot share the observer's rng.
+		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data
+		attrs := buildMetricAttrs(md.Attributes, operation, rng)
+		dist := m.effectiveValue(scopeRef, md.Name, base)
+
+		if md.Walk <= 0 {
+			obs.Observe(clampValue(dist.Sample(rng), md.Min, md.Max), attrs)
+			return nil
+		}
+
+		walkMu.Lock()
+		now := time.Now()
+		if lastSample.IsZero() {
+			current = dist.Sample(rng)
+		} else {
+			// Exact OU discretisation: decay toward the mean over the elapsed
+			// interval, plus noise scaled so the stationary std dev is dist.StdDev.
+			decay := math.Exp(-now.Sub(lastSample).Seconds() / md.Walk.Seconds())
+			current = dist.Mean + (current-dist.Mean)*decay +
+				dist.StdDev*math.Sqrt(1-decay*decay)*rng.NormFloat64()
+		}
+		lastSample = now
+		current = clampValue(current, md.Min, md.Max)
+		value := current
+		walkMu.Unlock()
+
+		obs.Observe(value, attrs)
+		return nil
+	}
+}
+
+// clampValue restricts v to the optional [min, max] bounds.
+func clampValue(v float64, minBound, maxBound *float64) float64 {
+	if minBound != nil && v < *minBound {
+		v = *minBound
+	}
+	if maxBound != nil && v > *maxBound {
+		v = *maxBound
+	}
+	return v
 }
 
 // buildMetricAttrs constructs metric attributes from generators and adds operation.name.

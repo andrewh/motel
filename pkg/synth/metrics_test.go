@@ -648,3 +648,91 @@ traffic:
 	require.Len(t, cntSum.DataPoints, 1)
 	assert.Greater(t, cntSum.DataPoints[0].Value, 0.0)
 }
+
+func TestMetricObserverGaugeWalkCorrelation(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	// With a very long mean-reversion timescale and back-to-back collections,
+	// the decay factor is ~1 and the noise term ~0, so consecutive samples
+	// must be nearly identical — unlike independent sampling, where draws
+	// from N(0.5, 0.2) differ.
+	dist := FloatDistribution{Mean: 0.5, StdDev: 0.2}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "cpu", Type: "gauge", Value: &dist, Walk: time.Hour},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	readGauge := func() float64 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "cpu")
+		require.NotNil(t, m)
+		gauge, ok := m.Data.(metricdata.Gauge[float64])
+		require.True(t, ok)
+		require.Len(t, gauge.DataPoints, 1)
+		return gauge.DataPoints[0].Value
+	}
+
+	first := readGauge()
+	second := readGauge()
+	assert.InDelta(t, first, second, 0.01, "walk samples collected back-to-back should be strongly correlated")
+}
+
+func TestMetricObserverGaugeWalkMeanReversion(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	// Zero stddev: the walk has no noise, so every sample equals the mean.
+	dist := FloatDistribution{Mean: 42, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "depth", Type: "gauge", Value: &dist, Walk: time.Second},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	for range 3 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "depth")
+		require.NotNil(t, m)
+		gauge := m.Data.(metricdata.Gauge[float64])
+		assert.InDelta(t, 42.0, gauge.DataPoints[0].Value, 0.001)
+	}
+}
+
+func TestMetricObserverGaugeBounds(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	lower, upper := 0.0, 1.0
+	// Mean near the upper bound with huge variance: unclamped samples
+	// frequently land outside [0, 1].
+	dist := FloatDistribution{Mean: 0.9, StdDev: 10}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "util", Type: "gauge", Value: &dist, Min: &lower, Max: &upper},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	for range 10 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "util")
+		require.NotNil(t, m)
+		gauge := m.Data.(metricdata.Gauge[float64])
+		v := gauge.DataPoints[0].Value
+		assert.GreaterOrEqual(t, v, lower)
+		assert.LessOrEqual(t, v, upper)
+	}
+}

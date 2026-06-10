@@ -318,6 +318,8 @@ running; if no metrics are defined the signal is silently empty.
 | `type`       | string | `counter`, `updowncounter`, `histogram`, or `gauge` (required) |
 | `unit`       | string | OTel unit string, e.g. `ms`, `s`, `{request}` (optional) |
 | `value`      | string | Distribution to sample, e.g. `0.65` or `0.65 +/- 0.1`. Omit for span-derived behaviour (see below) |
+| `walk`       | string | Gauge only: mean-reversion timescale for a random walk, e.g. `30s` (see below) |
+| `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
 
 **Span-derived behaviour (no `value`):** the instrument records a value derived
@@ -339,6 +341,27 @@ normal distribution on each observation.
 | `updowncounter` | sampled float added per completed span |
 | `histogram` | sampled float recorded per completed span |
 | `gauge` | sampled float reported on each collection cycle |
+
+**Random-walk gauges (`walk`):** by default each gauge collection samples
+independently, producing white noise. Setting `walk` turns the gauge into a
+mean-reverting random walk (an Ornstein-Uhlenbeck process): consecutive
+samples are correlated and drift smoothly, while the long-run mean and
+standard deviation still match `value`. The timescale controls how quickly
+the value reverts to the mean — short timescales (a few seconds) look jittery,
+long ones (minutes) drift slowly. Combine with `min`/`max` to keep bounded
+metrics like utilisation in range:
+
+```yaml
+- name: gateway.cpu.utilisation
+  type: gauge
+  value: 0.65 +/- 0.1
+  walk: 30s
+  min: 0
+  max: 1
+```
+
+Walk timescales relate to wall-clock time between collection cycles,
+regardless of simulated time compression.
 
 ```yaml
 services:

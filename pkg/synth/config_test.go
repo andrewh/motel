@@ -2365,3 +2365,82 @@ func TestValidateConfigMetricOverrides(t *testing.T) {
 		require.NoError(t, ValidateConfig(cfg))
 	})
 }
+
+func TestValidateConfigMetricWalkAndBounds(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := func(metrics []MetricConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name:    "svc",
+				Metrics: metrics,
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "50ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+	}
+	fl := func(v float64) *float64 { return &v }
+
+	t.Run("gauge with walk and bounds is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "cpu", Type: "gauge", Value: "0.65 +/- 0.1",
+			Walk: "30s", Min: fl(0), Max: fl(1),
+		}})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("walk on counter rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "bytes", Type: "counter", Value: "1024", Walk: "30s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "walk is only valid for gauge")
+	})
+
+	t.Run("invalid walk duration rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "cpu", Type: "gauge", Value: "0.5", Walk: "fast",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid walk")
+	})
+
+	t.Run("non-positive walk rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "cpu", Type: "gauge", Value: "0.5", Walk: "-10s",
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "walk must be positive")
+	})
+
+	t.Run("bounds on histogram rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "dur", Type: "histogram", Min: fl(0),
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "only valid for gauge")
+	})
+
+	t.Run("min >= max rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "cpu", Type: "gauge", Value: "0.5", Min: fl(1), Max: fl(0),
+		}})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "min must be less than max")
+	})
+}
