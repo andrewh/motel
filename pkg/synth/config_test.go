@@ -2190,4 +2190,44 @@ func TestValidateConfigMetrics(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "attribute")
 	})
+
+	t.Run("span-derived updowncounter with static attribute is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "active",
+			Type: "updowncounter",
+			Attributes: map[string]AttributeValueConfig{
+				"region": {Value: "us-east"},
+			},
+		}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("span-derived updowncounter with random attribute is rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name: "active",
+			Type: "updowncounter",
+			Attributes: map[string]AttributeValueConfig{
+				"bucket": {Range: []int64{1, 10}},
+			},
+		}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "span-derived updowncounter attribute")
+		assert.Contains(t, err.Error(), "static value")
+	})
+
+	t.Run("topology-defined updowncounter with random attribute is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{
+			Name:  "bytes",
+			Type:  "updowncounter",
+			Value: "512",
+			Attributes: map[string]AttributeValueConfig{
+				"bucket": {Range: []int64{1, 10}},
+			},
+		}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
 }

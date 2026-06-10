@@ -734,6 +734,16 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 	if mc.ErrorsOnly && mc.Type != metricTypeCounter {
 		return fmt.Errorf("%s %q: errors_only is only valid for counter metrics", prefix, mc.Name)
 	}
+	if mc.Type == metricTypeUpDownCounter && mc.Value == "" {
+		// Span-derived updowncounters record +1 at span start and -1 at span end.
+		// The two observations use independently generated attribute values, so
+		// non-static generators produce mismatched time series that never balance.
+		for attrName, attrCfg := range mc.Attributes {
+			if !IsStaticAttributeConfig(attrCfg) {
+				return fmt.Errorf("%s %q: span-derived updowncounter attribute %q must be a static value (random attributes cause +1/-1 to land on different time series)", prefix, mc.Name, attrName)
+			}
+		}
+	}
 	for attrName, attrCfg := range mc.Attributes {
 		if _, err := NewAttributeGenerator(attrCfg); err != nil {
 			return fmt.Errorf("%s %q: attribute %q: %w", prefix, mc.Name, attrName, err)

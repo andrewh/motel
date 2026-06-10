@@ -4,6 +4,7 @@ package synth
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -154,14 +155,16 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		inst.float64Histogram = h
 
 	case metricTypeGauge:
-		// Gauges are always topology-defined (validated earlier).
+		if md.Value == nil {
+			return metricInstrument{}, false, fmt.Errorf("gauge metric %q has no value; gauges require an explicit value distribution", md.Name)
+		}
 		// Register an observable gauge with a callback that samples the distribution.
 		var gopts []metric.Float64ObservableGaugeOption
 		if md.Unit != "" {
 			gopts = append(gopts, metric.WithUnit(md.Unit))
 		}
-		// The gauge callback is registered via WithFloat64Callback on the gauge itself.
-		// No instrument entry is needed — the callback fires on collection, not per span.
+		// The gauge callback fires on collection, not per span.
+		// No instrument entry is needed.
 		dist := md.Value
 		gaugeAttrs := md.Attributes
 		gaugeOp := operation
