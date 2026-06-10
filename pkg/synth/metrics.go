@@ -5,6 +5,7 @@ package synth
 import (
 	"context"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -30,6 +31,7 @@ type metricInstrument struct {
 type MetricObserver struct {
 	services map[string][]metricInstrument
 	rng      *rand.Rand
+	mu       sync.Mutex
 }
 
 // NewMetricObserver creates a MetricObserver from topology metric definitions.
@@ -196,6 +198,9 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 		return
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for i := range instruments {
 		inst := &instruments[i]
 
@@ -238,6 +243,9 @@ func (m *MetricObserver) ObserveStart(service, operation string) {
 	if len(instruments) == 0 {
 		return
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for i := range instruments {
 		inst := &instruments[i]
