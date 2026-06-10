@@ -1,0 +1,133 @@
+# Alibaba-style call graph modelled on published trace studies
+#
+# Models the structural characteristics reported by Luo et al., "An In-Depth
+# Study of Microservice Call Graph and Runtime Performance" (IEEE TPDS 2022):
+#   - Call graph depth 6 (top services show depths 2-6)
+#   - Maximum children set size 10 (reported range 1-10)
+#   - Repeated call rate 3/18 = 16.7% of call edges (reported: 16.2%)
+#   - Memcached-dominated leaf tier (the paper reports heavy cache access)
+#
+# Expected `motel check` static results: depth 6, fan-out 10, spans 24.
+# Validated by TestEmpiricalAlibaba* in pkg/synth/empirical_test.go.
+
+version: 1
+
+services:
+  gateway:
+    resource_attributes:
+      deployment.environment: production
+    operations:
+      POST /checkout:
+        duration: 45ms +/- 15ms
+        error_rate: 0.1%
+        calls:
+          - target: orchestrator.compose
+
+  orchestrator:
+    operations:
+      compose:
+        duration: 30ms +/- 10ms
+        error_rate: 0.2%
+        call_style: parallel
+        calls:
+          - target: product.detail
+          - target: customer.profile
+          - target: cart.summary
+            probability: 0.9
+          - target: promotion.evaluate
+            probability: 0.7
+          - target: memcached.get
+            count: 3
+          - target: shipping.estimate
+            probability: 0.8
+          - target: recommend.related
+            count: 2
+            probability: 0.5
+
+  product:
+    operations:
+      detail:
+        duration: 15ms +/- 5ms
+        calls:
+          - target: inventory.check
+            probability: 0.75
+          - target: memcached.get
+
+  inventory:
+    operations:
+      check:
+        duration: 10ms +/- 3ms
+        calls:
+          - target: reservation.hold
+            probability: 0.8
+
+  reservation:
+    operations:
+      hold:
+        duration: 8ms +/- 2ms
+        calls:
+          - target: cache.get
+            probability: 0.9
+
+  cache:
+    operations:
+      get:
+        duration: 2ms +/- 1ms
+        calls:
+          - target: memcached.get
+            count: 2
+
+  customer:
+    operations:
+      profile:
+        duration: 12ms +/- 4ms
+        calls:
+          - target: db.query
+
+  cart:
+    operations:
+      summary:
+        duration: 10ms +/- 3ms
+        calls:
+          - target: memcached.get
+
+  promotion:
+    operations:
+      evaluate:
+        duration: 9ms +/- 3ms
+        calls:
+          - target: db.query
+
+  shipping:
+    operations:
+      estimate:
+        duration: 14ms +/- 5ms
+        calls:
+          - target: geo.lookup
+
+  recommend:
+    operations:
+      related:
+        duration: 11ms +/- 4ms
+        calls:
+          - target: memcached.get
+
+  memcached:
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+        error_rate: 0.01%
+
+  db:
+    operations:
+      query:
+        duration: 5ms +/- 2ms
+        error_rate: 0.1%
+
+  geo:
+    operations:
+      lookup:
+        duration: 6ms +/- 2ms
+
+traffic:
+  rate: 20/s
