@@ -50,6 +50,7 @@ and optional resource attributes.
 |------------------------|------|-------------|
 | `resource_attributes`  | map  | Static string key-value pairs attached to the OTel resource (not spans). Use for `deployment.environment`, `service.version`, `service.namespace`, etc. `service.name` and `motel.version` are set automatically and cannot be overridden |
 | `attributes`           | map  | Static string key-value pairs added to every span from this service |
+| `metrics`              | list | Metric instruments emitted by this service (see [metrics](#metrics)) |
 | `operations`           | map  | Operation definitions (required) |
 
 ```yaml
@@ -74,6 +75,7 @@ Each operation defines the span it produces.
 | `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
+| `metrics`    | list   | Metric instruments scoped to this operation (see [metrics](#metrics)) |
 | `events`     | list   | Span events emitted during the operation (see below) |
 | `links`      | list   | Cross-trace span links to other operations (see below) |
 | `calls`      | list   | Downstream calls to other operations |
@@ -281,6 +283,83 @@ scenarios:
         error_rate: 15%
     traffic:
       rate: 200/s
+```
+
+### metrics
+
+Topology-driven metric instruments. Define them at the service level (fire for
+every span in the service) or at the operation level (fire only for that
+operation). Requires `--signals metrics` or `--signals traces,metrics` when
+running; if no metrics are defined the signal is silently empty.
+
+| Field        | Type   | Description |
+|-------------|--------|-------------|
+| `name`       | string | OTel instrument name (required) |
+| `type`       | string | `counter`, `updowncounter`, `histogram`, or `gauge` (required) |
+| `unit`       | string | OTel unit string, e.g. `ms`, `s`, `{request}` (optional) |
+| `value`      | string | Distribution to sample, e.g. `0.65` or `0.65 +/- 0.1`. Omit for span-derived behaviour (see below) |
+| `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
+
+**Span-derived behaviour (no `value`):** the instrument records a value derived
+from the span being observed.
+
+| Type | Span-derived recording |
+|------|----------------------|
+| `counter` | `+1` per completed span |
+| `updowncounter` | `+1` on span start, `−1` on span end — tracks active-span count |
+| `histogram` | span duration, converted to the configured `unit` |
+| `gauge` | not valid — gauge requires `value` |
+
+**Topology-defined behaviour (`value` present):** the value is sampled from a
+normal distribution on each observation.
+
+| Type | Topology-defined recording |
+|------|---------------------------|
+| `counter` | sampled float added per completed span (clamped ≥ 0) |
+| `updowncounter` | sampled float added per completed span |
+| `histogram` | sampled float recorded per completed span |
+| `gauge` | sampled float reported on each collection cycle |
+
+```yaml
+services:
+  gateway:
+    metrics:
+      # Span-derived histogram: records span duration in milliseconds
+      - name: http.server.request.duration
+        type: histogram
+        unit: ms
+      # Span-derived updowncounter: tracks currently active requests
+      - name: http.server.active_requests
+        type: updowncounter
+      # Topology-defined gauge: independent of spans, sampled on collection
+      - name: gateway.cpu.utilisation
+        type: gauge
+        value: 0.65 +/- 0.1
+    operations:
+      handle:
+        duration: 50ms +/- 10ms
+        metrics:
+          # Operation-level metric: only fires for this operation
+          - name: gateway.cache.hit_ratio
+            type: gauge
+            value: 0.85 +/- 0.05
+```
+
+**Migrating from the built-in instruments:** earlier versions of motel emitted
+three hard-coded instruments automatically (`motel.span.duration`,
+`motel.span.count`, `motel.span.errors`). These have been replaced by
+topology-driven metrics. To restore equivalent behaviour, add the following to
+each service that previously produced those instruments:
+
+```yaml
+metrics:
+  - name: motel.span.duration
+    type: histogram
+    unit: ms
+  - name: motel.span.count
+    type: counter
+  - name: motel.span.errors
+    type: counter
 ```
 
 ## Derived Signals

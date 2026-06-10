@@ -94,13 +94,29 @@ If you use the OpenTelemetry Collector's span metrics connector before the sampl
 
 ### Application-level metrics
 
-Motel can generate metrics directly, bypassing trace sampling entirely:
+Motel can generate metrics directly, bypassing trace sampling entirely. Define
+the instruments you want in the topology, then run with `--signals metrics`:
+
+```yaml
+services:
+  web-gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: ms
+      - name: http.server.active_requests
+        type: updowncounter
+    operations:
+      GET /api:
+        duration: 45ms +/- 12ms
+        error_rate: 0.1%
+```
 
 ```sh
 motel run --signals metrics --duration 15m --endpoint http://localhost:4318 alert-test.yaml
 ```
 
-This is the most predictable path for alert testing. The configured error rate is exactly what your alerting backend sees, with no sampling distortion.
+This is the most predictable path for alert testing. The configured error rate is exactly what your alerting backend sees, with no sampling distortion. See the [metrics DSL reference](../../cmd/motel/README.md#metrics) for the full list of instrument types and value options.
 
 **Recommendation:** understand where in your pipeline metrics are derived. If metrics come from sampled traces, calibrate motel's error rates to account for the sampler. If metrics come from a pre-sampling connector or directly from motel, use the target error rate directly.
 

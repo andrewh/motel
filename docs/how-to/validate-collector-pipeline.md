@@ -114,12 +114,28 @@ If spans do not appear:
 If your pipeline carries metrics or logs as well as traces, verify those separately:
 
 ```sh
-# Metrics only
+# Metrics only (requires metrics: definitions in topology — see below)
 motel run --endpoint localhost:4318 --signals metrics --duration 10s topology.yaml
 
 # All signals
 motel run --endpoint localhost:4318 --signals traces,metrics,logs --duration 10s topology.yaml
 ```
+
+For metrics to flow, the topology must define at least one `metrics:` entry on a
+service or operation. A minimal example:
+
+```yaml
+services:
+  pipeline-test:
+    metrics:
+      - name: pipeline.test.requests
+        type: counter
+    operations:
+      validate:
+        duration: 10ms
+```
+
+See the [metrics DSL reference](../../cmd/motel/README.md#metrics) for all instrument types.
 
 ## Common failure modes
 
