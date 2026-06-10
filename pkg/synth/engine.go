@@ -450,6 +450,8 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 		e.linkRegistry.store(op.Ref, span.SpanContext())
 	}
 
+	notifySpanStart(e.Observers, op.Service.Name, op.Name)
+
 	// Collect attributes for both the span and observers
 	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(opAttrs))
 	for k, v := range op.Service.Attributes {
@@ -564,16 +566,12 @@ func (e *Engine) walkTrace(ctx context.Context, op *Operation, startTime time.Ti
 	if len(e.Observers) > 0 {
 		attrsCopy := make([]attribute.KeyValue, len(spanAttrs))
 		copy(attrsCopy, spanAttrs)
-		info := SpanInfo{
-			Service:   op.Service.Name,
-			Operation: op.Name,
-			Timestamp: startTime,
-			Duration:  endTime.Sub(startTime),
-			IsError:   isError,
-			Kind:      kind,
-			Attrs:     attrsCopy,
-			Scenarios: scenarioNames,
-		}
+		info := newSpanInfo(
+			op.Service.Name, op.Name,
+			startTime, endTime.Sub(startTime),
+			isError, kind,
+			attrsCopy, scenarioNames,
+		)
 		for _, obs := range e.Observers {
 			obs.Observe(info)
 		}
@@ -618,19 +616,17 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op *Operation, startTime
 	stats.Errors++
 
 	if len(e.Observers) > 0 {
-		info := SpanInfo{
-			Service:   op.Service.Name,
-			Operation: op.Name,
-			Timestamp: startTime,
-			Duration:  rejectionDuration,
-			IsError:   true,
-			Kind:      kind,
-			Attrs: []attribute.KeyValue{
+		notifySpanStart(e.Observers, op.Service.Name, op.Name)
+		info := newSpanInfo(
+			op.Service.Name, op.Name,
+			startTime, rejectionDuration,
+			true, kind,
+			[]attribute.KeyValue{
 				attribute.Bool("synth.rejected", true),
 				attribute.String("synth.rejection_reason", reason),
 			},
-			Scenarios: scenarioNames,
-		}
+			scenarioNames,
+		)
 		for _, obs := range e.Observers {
 			obs.Observe(info)
 		}

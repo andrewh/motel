@@ -25,3 +25,32 @@ type SpanInfo struct {
 type SpanObserver interface {
 	Observe(info SpanInfo)
 }
+
+// SpanStartObserver receives notification when a span starts.
+// Observers that need to track active spans (e.g. updowncounter) implement this.
+type SpanStartObserver interface {
+	ObserveStart(service, operation string)
+}
+
+// notifySpanStart dispatches ObserveStart to all observers that implement SpanStartObserver.
+func notifySpanStart(observers []SpanObserver, service, operation string) {
+	for _, obs := range observers {
+		if sso, ok := obs.(SpanStartObserver); ok {
+			sso.ObserveStart(service, operation)
+		}
+	}
+}
+
+// newSpanInfo constructs a SpanInfo from its component fields.
+func newSpanInfo(service, operation string, timestamp time.Time, duration time.Duration, isError bool, kind trace.SpanKind, attrs []attribute.KeyValue, scenarios []string) SpanInfo {
+	return SpanInfo{
+		Service:   service,
+		Operation: operation,
+		Timestamp: timestamp,
+		Duration:  duration,
+		IsError:   isError,
+		Kind:      kind,
+		Attrs:     attrs,
+		Scenarios: scenarios,
+	}
+}

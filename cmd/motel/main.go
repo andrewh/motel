@@ -601,12 +601,16 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
+		if !topoHasMetrics(topo) {
+			fmt.Fprintln(os.Stderr, "warning: --signals includes metrics but the topology defines no metric instruments; no metric data will be emitted. Add a metrics: section to at least one service or operation.")
+		}
 		meters, shutdownMetrics, mErr := createMetricProviders(ctx, opts, serviceResources)
 		if mErr != nil {
 			return fmt.Errorf("creating metric providers: %w", mErr)
 		}
 		defer shutdownMetrics()
-		obs, mErr := synth.NewMetricObserver(meters)
+		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
+		obs, mErr := synth.NewMetricObserver(meters, topo, rng)
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
@@ -891,6 +895,21 @@ func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error
 		reg = reg.Merge(userReg)
 	}
 	return synth.BuildTopology(cfg, domainResolver(reg))
+}
+
+// topoHasMetrics reports whether any service or operation in the topology defines at least one metric.
+func topoHasMetrics(topo *synth.Topology) bool {
+	for _, svc := range topo.Services {
+		if len(svc.Metrics) > 0 {
+			return true
+		}
+		for _, op := range svc.Operations {
+			if len(op.Metrics) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func domainResolver(reg *semconv.Registry) synth.DomainResolver {
