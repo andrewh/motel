@@ -466,6 +466,104 @@ func TestMetricObserverErrorsOnly(t *testing.T) {
 	assert.Equal(t, int64(1), sum.DataPoints[0].Value, "only error spans should increment the counter")
 }
 
+func TestMetricObserverScenarioOverrideCounter(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 10, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "bytes.sent", Type: "counter", Value: &dist},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	// Activate a service-scope override
+	obs.SetOverrides(map[string]Override{
+		"svc": {Metrics: map[string]FloatDistribution{"bytes.sent": {Mean: 100, StdDev: 0}}},
+	})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	// Clear overrides — back to the base distribution
+	obs.SetOverrides(nil)
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "bytes.sent")
+	require.NotNil(t, m)
+
+	sum, ok := m.Data.(metricdata.Sum[float64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	assert.InDelta(t, 120.0, sum.DataPoints[0].Value, 0.1, "10 base + 100 overridden + 10 base")
+}
+
+func TestMetricObserverScenarioOverrideGauge(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 0.4, StdDev: 0}
+	topo := testTopology("svc", nil, "op", []MetricDefinition{
+		{Name: "cache.hit_ratio", Type: "gauge", Value: &dist},
+	})
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "cache.hit_ratio")
+	require.NotNil(t, m)
+	gauge := m.Data.(metricdata.Gauge[float64])
+	assert.InDelta(t, 0.4, gauge.DataPoints[0].Value, 0.001)
+
+	// Operation-scope override changes the value observed at the next collection
+	obs.SetOverrides(map[string]Override{
+		"svc.op": {Metrics: map[string]FloatDistribution{"cache.hit_ratio": {Mean: 0.05, StdDev: 0}}},
+	})
+
+	rm = collectMetrics(t, reader)
+	m = findMetric(rm, "cache.hit_ratio")
+	require.NotNil(t, m)
+	gauge = m.Data.(metricdata.Gauge[float64])
+	assert.InDelta(t, 0.05, gauge.DataPoints[0].Value, 0.001)
+}
+
+func TestMetricObserverOverrideOtherScopeIgnored(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 10, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "bytes.sent", Type: "counter", Value: &dist},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	// Override targets a different scope (operation, not service) — no effect
+	obs.SetOverrides(map[string]Override{
+		"svc.op": {Metrics: map[string]FloatDistribution{"bytes.sent": {Mean: 100, StdDev: 0}}},
+	})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "bytes.sent")
+	require.NotNil(t, m)
+	sum := m.Data.(metricdata.Sum[float64])
+	assert.InDelta(t, 10.0, sum.DataPoints[0].Value, 0.1, "service-scope metric ignores operation-scope override")
+}
+
 // TestMetricObserverEndToEnd verifies the full path: YAML → LoadConfig → BuildTopology →
 // NewMetricObserver → Observe → collect. Tests all four instrument types.
 func TestMetricObserverEndToEnd(t *testing.T) {

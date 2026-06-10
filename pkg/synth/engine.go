@@ -161,6 +161,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 					}
 				}
 			}
+			notifyOverrides(e.Observers, overrides)
 		}
 
 		rate := trafficPattern.Rate(elapsed)
@@ -283,6 +284,7 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 					}
 				}
 			}
+			notifyOverrides(e.Observers, overrides)
 		}
 
 		rate := trafficPattern.Rate(elapsed)

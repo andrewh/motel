@@ -22,6 +22,8 @@ type metricInstrument struct {
 	float64Histogram     metric.Float64Histogram
 	float64UpDownCounter metric.Float64UpDownCounter
 
+	name       string
+	scopeRef   string             // service name or "service.operation" — key into scenario overrides
 	value      *FloatDistribution // nil = span-derived
 	unit       string
 	attrGens   map[string]AttributeGenerator
@@ -34,12 +36,18 @@ type MetricObserver struct {
 	services map[string][]metricInstrument
 	rng      *rand.Rand
 	mu       sync.Mutex
+
+	overrideMu sync.RWMutex
+	overrides  map[string]Override // active scenario overrides, set by the engine
 }
 
 // NewMetricObserver creates a MetricObserver from topology metric definitions.
 // Each meter should carry a resource with the correct service.name for its service.
 func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand.Rand) (*MetricObserver, error) {
-	services := make(map[string][]metricInstrument)
+	m := &MetricObserver{
+		services: make(map[string][]metricInstrument),
+		rng:      rng,
+	}
 
 	for svcName, svc := range topo.Services {
 		meter := meters[svcName]
@@ -51,7 +59,7 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 
 		// Service-level metrics (fire for every span in this service)
 		for _, md := range svc.Metrics {
-			inst, keep, err := createInstrument(meter, md, "")
+			inst, keep, err := m.createInstrument(meter, md, svcName, "")
 			if err != nil {
 				return nil, err
 			}
@@ -63,7 +71,7 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 		// Operation-level metrics (fire only for the specific operation)
 		for _, op := range svc.Operations {
 			for _, md := range op.Metrics {
-				inst, keep, err := createInstrument(meter, md, op.Name)
+				inst, keep, err := m.createInstrument(meter, md, svcName, op.Name)
 				if err != nil {
 					return nil, err
 				}
@@ -74,18 +82,48 @@ func NewMetricObserver(meters map[string]metric.Meter, topo *Topology, rng *rand
 		}
 
 		if len(instruments) > 0 {
-			services[svcName] = instruments
+			m.services[svcName] = instruments
 		}
 	}
 
-	return &MetricObserver{services: services, rng: rng}, nil
+	return m, nil
+}
+
+// SetOverrides replaces the active scenario overrides. The engine calls this
+// as scenario windows open and close; a nil map clears all overrides.
+func (m *MetricObserver) SetOverrides(overrides map[string]Override) {
+	m.overrideMu.Lock()
+	m.overrides = overrides
+	m.overrideMu.Unlock()
+}
+
+// effectiveValue returns the value distribution for a metric, applying any
+// active scenario override for its scope. Returns nil for span-derived metrics.
+func (m *MetricObserver) effectiveValue(scopeRef, name string, base *FloatDistribution) *FloatDistribution {
+	if base == nil {
+		return nil
+	}
+	m.overrideMu.RLock()
+	defer m.overrideMu.RUnlock()
+	if ov, ok := m.overrides[scopeRef]; ok {
+		if dist, ok := ov.Metrics[name]; ok {
+			return &dist
+		}
+	}
+	return base
 }
 
 // createInstrument builds a metricInstrument from a MetricDefinition.
 // Returns (inst, true, nil) for instruments that should be appended to the observer's list.
 // Returns (inst, false, nil) for gauge types — the callback handles everything; no instrument entry is needed.
-func createInstrument(meter metric.Meter, md MetricDefinition, operation string) (metricInstrument, bool, error) {
+func (m *MetricObserver) createInstrument(meter metric.Meter, md MetricDefinition, service, operation string) (metricInstrument, bool, error) {
+	scopeRef := service
+	if operation != "" {
+		scopeRef = service + "." + operation
+	}
 	inst := metricInstrument{
+		name:       md.Name,
+		scopeRef:   scopeRef,
 		value:      md.Value,
 		unit:       md.Unit,
 		attrGens:   md.Attributes,
@@ -165,7 +203,9 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 		}
 		// The gauge callback fires on collection, not per span.
 		// No instrument entry is needed.
-		dist := md.Value
+		base := md.Value
+		gaugeName := md.Name
+		gaugeScope := scopeRef
 		gaugeAttrs := md.Attributes
 		gaugeOp := operation
 		gopts = append(gopts, metric.WithFloat64Callback(func(_ context.Context, obs metric.Float64Observer) error {
@@ -173,6 +213,7 @@ func createInstrument(meter metric.Meter, md MetricDefinition, operation string)
 			// during collection and cannot share the observer's rng.
 			rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data
 			attrs := buildMetricAttrs(gaugeAttrs, gaugeOp, rng)
+			dist := m.effectiveValue(gaugeScope, gaugeName, base)
 			obs.Observe(dist.Sample(rng), attrs)
 			return nil
 		}))
@@ -222,8 +263,8 @@ func (m *MetricObserver) Observe(info SpanInfo) {
 		m.mu.Lock()
 		attrs := buildMetricAttrs(inst.attrGens, info.Operation, m.rng)
 		var sampledValue float64
-		if inst.value != nil {
-			sampledValue = inst.value.Sample(m.rng)
+		if dist := m.effectiveValue(inst.scopeRef, inst.name, inst.value); dist != nil {
+			sampledValue = dist.Sample(m.rng)
 		}
 		m.mu.Unlock()
 

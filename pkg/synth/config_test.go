@@ -2231,3 +2231,137 @@ func TestValidateConfigMetrics(t *testing.T) {
 		require.NoError(t, ValidateConfig(cfg))
 	})
 }
+
+func TestValidateConfigMetricOverrides(t *testing.T) {
+	t.Parallel()
+
+	configWithScenario := func(override map[string]OverrideConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "gateway",
+				Metrics: []MetricConfig{
+					{Name: "gateway.cpu.utilisation", Type: "gauge", Value: "0.65 +/- 0.1"},
+					{Name: "request.count", Type: "counter"},
+				},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "50ms",
+					Metrics: []MetricConfig{
+						{Name: "gateway.cache.hit_ratio", Type: "gauge", Value: "0.85 +/- 0.05"},
+					},
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+			Scenarios: []ScenarioConfig{{
+				Name:     "test",
+				At:       "+1m",
+				Duration: "5m",
+				Override: override,
+			}},
+		}
+	}
+
+	t.Run("service-scope metric override is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cpu.utilisation": {Value: "0.95 +/- 0.02"},
+			}},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("operation-scope metric override is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway.handle": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cache.hit_ratio": {Value: "0.10 +/- 0.05"},
+			}},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("unknown override key rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"nosuch": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cpu.utilisation": {Value: "0.95"},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown operation or service")
+	})
+
+	t.Run("service-scope override with non-metric field rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {ErrorRate: "10%"},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "service-level overrides support only metrics")
+	})
+
+	t.Run("metric not defined at scope rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cache.hit_ratio": {Value: "0.10"},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not defined at this scope")
+	})
+
+	t.Run("span-derived metric override rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Metrics: map[string]MetricOverrideConfig{
+				"request.count": {Value: "100"},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "span-derived")
+	})
+
+	t.Run("missing value rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cpu.utilisation": {},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value is required")
+	})
+
+	t.Run("invalid value distribution rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Metrics: map[string]MetricOverrideConfig{
+				"gateway.cpu.utilisation": {Value: "not-a-number"},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid value")
+	})
+
+	t.Run("operation override may combine metrics with other fields", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway.handle": {
+				Duration: "200ms",
+				Metrics: map[string]MetricOverrideConfig{
+					"gateway.cache.hit_ratio": {Value: "0.10"},
+				},
+			},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+}

@@ -265,12 +265,12 @@ Time-windowed overrides to operation behaviour and traffic.
 | `at`       | string | Start offset from simulation start, e.g. `+5s`, `30s` |
 | `duration` | string | How long the scenario is active |
 | `priority` | int    | Higher priority wins when scenarios overlap (default: 0) |
-| `override` | map    | Per-operation overrides keyed by `service.operation` |
+| `override` | map    | Per-operation overrides keyed by `service.operation`, or per-service overrides keyed by service name |
 | `traffic`  | object | Traffic pattern override for this window |
 
-Each override can set `duration`, `error_rate`, and `attributes`. Overlapping
-scenarios merge overrides by priority — higher-priority values win per field,
-attributes merge per key.
+Each operation override can set `duration`, `error_rate`, `attributes`, and
+`metrics`. Overlapping scenarios merge overrides by priority — higher-priority
+values win per field, attributes and metrics merge per key.
 
 ```yaml
 scenarios:
@@ -283,6 +283,26 @@ scenarios:
         error_rate: 15%
     traffic:
       rate: 200/s
+```
+
+A `metrics` override replaces the `value` distribution of a topology-defined
+metric for the scenario window. The metric must be defined with a `value` at
+the same scope — a service name key overrides service-level metrics, a
+`service.operation` key overrides operation-level metrics. Span-derived
+metrics (no `value`) cannot be overridden, and `name`, `type`, and `unit` are
+fixed at instrument creation time. An override keyed by a bare service name
+may only contain `metrics`.
+
+```yaml
+scenarios:
+  - name: cpu spike
+    at: +2m
+    duration: 5m
+    override:
+      gateway:
+        metrics:
+          gateway.cpu.utilisation:
+            value: 0.95 +/- 0.02
 ```
 
 ### metrics
