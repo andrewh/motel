@@ -55,15 +55,16 @@ const (
 	logSeverityFatal = "FATAL"
 )
 
-// validLogSeverity lists supported log severity levels.
-var validLogSeverity = map[string]bool{
-	logSeverityTrace: true,
-	logSeverityDebug: true,
-	logSeverityInfo:  true,
-	logSeverityWarn:  true,
-	logSeverityError: true,
-	logSeverityFatal: true,
-}
+// validLogSeverity lists supported log severity levels. It is derived from
+// severityByName so the validation set cannot drift from the severities the
+// LogObserver can emit.
+var validLogSeverity = func() map[string]bool {
+	m := make(map[string]bool, len(severityByName))
+	for name := range severityByName {
+		m[name] = true
+	}
+	return m
+}()
 
 // Log condition constants controlling when a topology log record is emitted.
 const (

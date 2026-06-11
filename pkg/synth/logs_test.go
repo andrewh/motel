@@ -601,6 +601,26 @@ func TestLogObserverScenarioDisableMutesDerived(t *testing.T) {
 	assert.Empty(t, exporter.get(), "disable should mute derived error logs too")
 }
 
+func TestLogObserverScenarioDisableOperationScopeMutesDerived(t *testing.T) {
+	t.Parallel()
+
+	// Service with no topology logs: derived error logs normally fire.
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {DisableLogs: true},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+	assert.Empty(t, exporter.get(), "operation-scoped disable should mute derived logs for that operation")
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "other", IsError: true})
+	records := exporter.get()
+	require.Len(t, records, 1, "derived logs should still fire for other operations")
+	assert.Equal(t, otellog.SeverityError, records[0].Severity())
+}
+
 func TestLogObserverScenarioAddAndDisableReplaces(t *testing.T) {
 	t.Parallel()
 

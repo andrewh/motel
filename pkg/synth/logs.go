@@ -81,11 +81,7 @@ func NewLogObserver(loggers map[string]log.Logger, topo *Topology, slowThreshold
 
 			// Service-level logs (fire for every span in this service)
 			for _, ld := range svc.Logs {
-				tpl, err := newLogTemplate(ld, "")
-				if err != nil {
-					return nil, fmt.Errorf("service %q: %w", svcName, err)
-				}
-				tpls = append(tpls, tpl)
+				tpls = append(tpls, newLogTemplate(ld, ""))
 			}
 
 			// Operation-level logs (fire only for the specific operation)
@@ -96,11 +92,7 @@ func NewLogObserver(loggers map[string]log.Logger, topo *Topology, slowThreshold
 			slices.Sort(opNames)
 			for _, opName := range opNames {
 				for _, ld := range svc.Operations[opName].Logs {
-					tpl, err := newLogTemplate(ld, opName)
-					if err != nil {
-						return nil, fmt.Errorf("service %q operation %q: %w", svcName, opName, err)
-					}
-					tpls = append(tpls, tpl)
+					tpls = append(tpls, newLogTemplate(ld, opName))
 				}
 			}
 
@@ -138,15 +130,11 @@ func (l *LogObserver) SetOverrides(overrides map[string]Override) {
 			continue
 		}
 		svcName, opName := l.splitScopeRef(ref)
+		if added == nil {
+			added = make(map[string][]logTemplate)
+		}
 		for _, ld := range ov.AddLogs {
-			tpl, err := newLogTemplate(ld, opName)
-			if err != nil {
-				continue // severity was validated at config load; unreachable
-			}
-			if added == nil {
-				added = make(map[string][]logTemplate)
-			}
-			added[svcName] = append(added[svcName], tpl)
+			added[svcName] = append(added[svcName], newLogTemplate(ld, opName))
 		}
 	}
 	l.overrideMu.Lock()
@@ -170,18 +158,19 @@ func (l *LogObserver) splitScopeRef(ref string) (service, operation string) {
 }
 
 // newLogTemplate builds a logTemplate from a resolved LogDefinition.
-func newLogTemplate(ld LogDefinition, operation string) (logTemplate, error) {
-	sev, ok := severityByName[ld.Severity]
-	if !ok {
-		return logTemplate{}, fmt.Errorf("log severity %q is not one of TRACE, DEBUG, INFO, WARN, ERROR, FATAL", ld.Severity)
-	}
+// Severity is validated at config load (resolveLogs rejects names outside
+// validLogSeverity, which is derived from severityByName), so the lookup
+// cannot miss for resolved definitions. A hand-constructed definition with
+// an unknown severity maps to log.SeverityUndefined while preserving the
+// severity text, so the record still surfaces rather than disappearing.
+func newLogTemplate(ld LogDefinition, operation string) logTemplate {
 	attrKeys := make([]string, 0, len(ld.Attributes))
 	for k := range ld.Attributes {
 		attrKeys = append(attrKeys, k)
 	}
 	slices.Sort(attrKeys)
 	return logTemplate{
-		severity:     sev,
+		severity:     severityByName[ld.Severity],
 		severityText: ld.Severity,
 		body:         ld.Body,
 		condition:    ld.Condition,
@@ -191,7 +180,7 @@ func newLogTemplate(ld LogDefinition, operation string) (logTemplate, error) {
 		attrGens:     ld.Attributes,
 		attrKeys:     attrKeys,
 		operation:    operation,
-	}, nil
+	}
 }
 
 // Observe emits log records for the completed span. Services with topology
