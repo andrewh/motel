@@ -64,23 +64,23 @@ nav:
       - docs/explanation/performance-profile.md
       - docs/explanation/property-testing.md
   - Demos:
-      - demo-async-calls.md
-      - demo-backpressure.md
-      - demo-call-topology.md
-      - demo-cascading-failure.md
-      - demo-check.md
-      - demo-custom-semconv.md
-      - demo-dgg.md
-      - demo-emit.md
-      - demo-import.md
-      - demo-otel-failure-modes.md
-      - demo-preview.md
-      - demo-quickstart.md
-      - demo-scenarios.md
-      - demo-span-events.md
-      - demo-time-offset.md
-      - demo-traffic.md
-      - demo-url-loading.md
+      - docs/demos/demo-async-calls.md
+      - docs/demos/demo-backpressure.md
+      - docs/demos/demo-call-topology.md
+      - docs/demos/demo-cascading-failure.md
+      - docs/demos/demo-check.md
+      - docs/demos/demo-custom-semconv.md
+      - docs/demos/demo-dgg.md
+      - docs/demos/demo-emit.md
+      - docs/demos/demo-import.md
+      - docs/demos/demo-otel-failure-modes.md
+      - docs/demos/demo-preview.md
+      - docs/demos/demo-quickstart.md
+      - docs/demos/demo-scenarios.md
+      - docs/demos/demo-span-events.md
+      - docs/demos/demo-time-offset.md
+      - docs/demos/demo-traffic.md
+      - docs/demos/demo-url-loading.md
   - Research:
       - docs/research/empirical-validation.md
       - docs/research/related-work.md
