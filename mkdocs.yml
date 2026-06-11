@@ -82,8 +82,8 @@ nav:
       - demo-traffic.md
       - demo-url-loading.md
   - Research:
-      - empirical-validation.md
-      - related-work.md
+      - docs/research/empirical-validation.md
+      - docs/research/related-work.md
   - Reference:
       - CLI reference: docs/reference/synth.md
       - DSL reference: cmd/motel/README.md
