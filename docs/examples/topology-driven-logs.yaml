@@ -1,6 +1,7 @@
 # Topology-driven logs example
 # Demonstrates severity levels, body templates, conditions, probability,
-# timing anchors, and structured attributes at service and operation level.
+# timing anchors, structured attributes at service and operation level,
+# and scenario log overrides (add incident logs, mute base logs).
 # Run with:
 #   motel run --stdout --signals traces,logs --slow-threshold 100ms --duration 10s docs/examples/topology-driven-logs.yaml
 
@@ -49,3 +50,25 @@ services:
 
 traffic:
   rate: 20/s
+
+scenarios:
+  - name: db-degradation
+    at: 3s
+    duration: 4s
+    override:
+      backend.process:
+        error_rate: 15%
+        logs:
+          # Incident-specific log records, emitted only during the window.
+          # Adding logs switches backend from derived to topology logs.
+          add:
+            - severity: ERROR
+              body: "connection pool exhausted"
+              condition: error
+              attributes:
+                error.type:
+                  value: PoolExhaustedError
+      # Mute all of the gateway's base logs during the incident window
+      gateway:
+        logs:
+          disable: true

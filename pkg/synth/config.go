@@ -264,6 +264,16 @@ type OverrideConfig struct {
 	AddCalls    []CallConfig                    `yaml:"add_calls,omitempty"`
 	RemoveCalls []RemoveCallConfig              `yaml:"remove_calls,omitempty"`
 	Metrics     map[string]MetricOverrideConfig `yaml:"metrics,omitempty"`
+	Logs        *LogOverrideConfig              `yaml:"logs,omitempty"`
+}
+
+// LogOverrideConfig modifies topology log output during a scenario window.
+// Add defines extra log records emitted only while the scenario is active;
+// Disable mutes the base log definitions (topology templates and derived
+// error/slow logs) at the override's scope for the duration of the window.
+type LogOverrideConfig struct {
+	Add     []LogConfig `yaml:"add,omitempty"`
+	Disable bool        `yaml:"disable,omitempty"`
 }
 
 // MetricOverrideConfig overrides the value distribution of a named metric
@@ -669,10 +679,13 @@ func ValidateConfig(cfg *Config) error {
 				}
 				if override.Duration != "" || override.ErrorRate != "" || len(override.Attributes) > 0 ||
 					len(override.AddCalls) > 0 || len(override.RemoveCalls) > 0 {
-					return fmt.Errorf("scenario %q: override %q: service-level overrides support only metrics (use %s.<operation> for operation overrides)", sc.Name, ref, ref)
+					return fmt.Errorf("scenario %q: override %q: service-level overrides support only metrics and logs (use %s.<operation> for operation overrides)", sc.Name, ref, ref)
 				}
 			}
 			if err := validateMetricOverrides(sc.Name, ref, override.Metrics, metricsByScope[ref]); err != nil {
+				return err
+			}
+			if err := validateLogOverrides(sc.Name, ref, override.Logs); err != nil {
 				return err
 			}
 			if override.Duration != "" {
@@ -901,6 +914,23 @@ func validateMetricConfig(mc MetricConfig, prefix string) error {
 	for attrName, attrCfg := range mc.Attributes {
 		if _, err := NewAttributeGenerator(attrCfg); err != nil {
 			return fmt.Errorf("%s %q: attribute %q: %w", prefix, mc.Name, attrName, err)
+		}
+	}
+	return nil
+}
+
+// validateLogOverrides checks a scenario log override for structural correctness.
+func validateLogOverrides(scenarioName, ref string, lo *LogOverrideConfig) error {
+	if lo == nil {
+		return nil
+	}
+	if len(lo.Add) == 0 && !lo.Disable {
+		return fmt.Errorf("scenario %q: override %q: logs override must set add or disable", scenarioName, ref)
+	}
+	for i, lc := range lo.Add {
+		prefix := fmt.Sprintf("scenario %q: override %q: logs: add[%d]", scenarioName, ref, i)
+		if err := validateLogConfig(lc, prefix); err != nil {
+			return err
 		}
 	}
 	return nil

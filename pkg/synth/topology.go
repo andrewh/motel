@@ -138,7 +138,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 			svc.Metrics = resolved
 		}
 		if len(svcCfg.Logs) > 0 {
-			resolved, err := resolveLogs(svcCfg.Logs, svcCfg.Name, "")
+			resolved, err := resolveLogs(svcCfg.Logs, fmt.Sprintf("service %q", svcCfg.Name))
 			if err != nil {
 				return nil, err
 			}
@@ -196,7 +196,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				op.Metrics = resolved
 			}
 			if len(opCfg.Logs) > 0 {
-				resolved, lErr := resolveLogs(opCfg.Logs, svcCfg.Name, opCfg.Name)
+				resolved, lErr := resolveLogs(opCfg.Logs, fmt.Sprintf("service %q operation %q", svcCfg.Name, opCfg.Name))
 				if lErr != nil {
 					return nil, lErr
 				}
@@ -378,13 +378,8 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 
 // resolveLogs converts LogConfig entries into LogDefinitions.
 // Severity is normalised to uppercase; delay strings are parsed to durations.
-func resolveLogs(configs []LogConfig, svcName, opName string) ([]LogDefinition, error) {
-	logCtx := func() string {
-		if opName != "" {
-			return fmt.Sprintf("service %q operation %q", svcName, opName)
-		}
-		return fmt.Sprintf("service %q", svcName)
-	}
+// errCtx prefixes error messages (e.g. `service "gateway"` or `scenario "incident" override "svc.op"`).
+func resolveLogs(configs []LogConfig, errCtx string) ([]LogDefinition, error) {
 	defs := make([]LogDefinition, len(configs))
 	for i, lc := range configs {
 		def := LogDefinition{
@@ -395,7 +390,7 @@ func resolveLogs(configs []LogConfig, svcName, opName string) ([]LogDefinition, 
 			Probability: 1.0,
 		}
 		if !validLogSeverity[def.Severity] {
-			return nil, fmt.Errorf("%s: log[%d]: invalid severity %q", logCtx(), i, lc.Severity)
+			return nil, fmt.Errorf("%s: log[%d]: invalid severity %q", errCtx, i, lc.Severity)
 		}
 		if lc.Probability != nil {
 			def.Probability = *lc.Probability
@@ -403,7 +398,7 @@ func resolveLogs(configs []LogConfig, svcName, opName string) ([]LogDefinition, 
 		if lc.Delay != "" {
 			d, err := time.ParseDuration(lc.Delay)
 			if err != nil {
-				return nil, fmt.Errorf("%s: log[%d]: invalid delay: %w", logCtx(), i, err)
+				return nil, fmt.Errorf("%s: log[%d]: invalid delay: %w", errCtx, i, err)
 			}
 			def.Delay = d
 		}
@@ -412,7 +407,7 @@ func resolveLogs(configs []LogConfig, svcName, opName string) ([]LogDefinition, 
 			for name, acfg := range lc.Attributes {
 				gen, err := NewAttributeGenerator(acfg)
 				if err != nil {
-					return nil, fmt.Errorf("%s: log[%d] attribute %q: %w", logCtx(), i, name, err)
+					return nil, fmt.Errorf("%s: log[%d] attribute %q: %w", errCtx, i, name, err)
 				}
 				def.Attributes[name] = gen
 			}
