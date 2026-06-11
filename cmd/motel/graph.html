@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRAPH_TITLE - motel topology</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #fafafa; }
+  canvas { display: block; }
+  #legend {
+    position: fixed; top: 12px; left: 12px;
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px; color: #444;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd; border-radius: 6px;
+    padding: 8px 12px; pointer-events: none;
+  }
+  #legend .title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  #legend .hint { color: #888; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="legend">
+  <div class="title">GRAPH_TITLE</div>
+  <div>&#9632; entry point &nbsp; &#9633; service &nbsp; &#8943; async call</div>
+  <div class="hint">drag nodes &middot; hover for operations</div>
+</div>
+<script>
+"use strict";
+
+const graph = /*GRAPH_DATA*/null;
+
+// Layout tuning
+const REPULSION = 60000;     // node-node repulsion strength
+const SPRING = 0.015;        // edge spring strength
+const SPRING_LENGTH = 180;   // edge rest length
+const CENTERING = 0.012;     // pull toward canvas centre
+const DAMPING = 0.85;
+const NODE_W = 130;
+const NODE_H = 36;
+
+const COLOR_ROOT = "#2563eb";
+const COLOR_ROOT_FILL = "#dbeafe";
+const COLOR_NODE = "#6b7280";
+const COLOR_NODE_FILL = "#ffffff";
+const COLOR_EDGE = "#9ca3af";
+const COLOR_EDGE_HOVER = "#f59e0b";
+
+let nodes = [];
+let edges = [];
+let nodeByID = {};
+let dragged = null;
+let hovered = null;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  textFont("-apple-system, 'Segoe UI', Roboto, sans-serif");
+
+  // Seed positions on a circle so the simulation starts untangled
+  const cx = width / 2, cy = height / 2;
+  const r = Math.min(width, height) / 3;
+  graph.nodes.forEach((n, i) => {
+    const a = (TWO_PI * i) / graph.nodes.length;
+    const node = {
+      ...n,
+      x: cx + r * Math.cos(a),
+      y: cy + r * Math.sin(a),
+      vx: 0, vy: 0,
+      pinned: false,
+    };
+    nodes.push(node);
+    nodeByID[n.id] = node;
+  });
+
+  edges = graph.edges.map(e => ({
+    ...e,
+    from: nodeByID[e.source],
+    to: nodeByID[e.target],
+  }));
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function applyForces() {
+  for (const n of nodes) { n.fx = 0; n.fy = 0; }
+
+  // Pairwise repulsion
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
+      const f = REPULSION / d2;
+      const d = Math.sqrt(d2);
+      a.fx += (dx / d) * f; a.fy += (dy / d) * f;
+      b.fx -= (dx / d) * f; b.fy -= (dy / d) * f;
+    }
+  }
+
+  // Edge springs
+  for (const e of edges) {
+    const dx = e.to.x - e.from.x, dy = e.to.y - e.from.y;
+    const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const f = SPRING * (d - SPRING_LENGTH);
+    e.from.fx += (dx / d) * f; e.from.fy += (dy / d) * f;
+    e.to.fx -= (dx / d) * f; e.to.fy -= (dy / d) * f;
+  }
+
+  // Gentle pull toward centre
+  for (const n of nodes) {
+    n.fx += (width / 2 - n.x) * CENTERING;
+    n.fy += (height / 2 - n.y) * CENTERING;
+  }
+
+  // Integrate
+  for (const n of nodes) {
+    if (n.pinned || n === dragged) continue;
+    n.vx = (n.vx + n.fx) * DAMPING;
+    n.vy = (n.vy + n.fy) * DAMPING;
+    n.x += constrain(n.vx, -12, 12);
+    n.y += constrain(n.vy, -12, 12);
+    n.x = constrain(n.x, NODE_W / 2, width - NODE_W / 2);
+    n.y = constrain(n.y, NODE_H / 2, height - NODE_H / 2);
+  }
+}
+
+function edgeWidth(weight) {
+  return 1 + 2.5 * Math.log(1 + weight);
+}
+
+// Clip the edge endpoint to the boundary of the node's rectangle so
+// arrowheads sit on the node border rather than its centre.
+function clipToNode(x1, y1, node) {
+  const dx = x1 - node.x, dy = y1 - node.y;
+  const sx = Math.abs(dx) > 0.01 ? (NODE_W / 2 + 6) / Math.abs(dx) : Infinity;
+  const sy = Math.abs(dy) > 0.01 ? (NODE_H / 2 + 6) / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy, 1);
+  return { x: node.x + dx * s, y: node.y + dy * s };
+}
+
+function drawArrow(x1, y1, x2, y2, w, isHover) {
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  const size = 7 + w;
+  push();
+  translate(x2, y2);
+  rotate(a);
+  noStroke();
+  fill(isHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
+  triangle(0, 0, -size, -size / 2.2, -size, size / 2.2);
+  pop();
+}
+
+function drawEdge(e) {
+  const touchesHover = hovered && (e.from === hovered || e.to === hovered);
+  const w = edgeWidth(e.weight);
+
+  if (e.from === e.to) {
+    // Self-call: loop above the node
+    noFill();
+    stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
+    strokeWeight(w);
+    if (e.async) drawingContext.setLineDash([6, 6]);
+    arc(e.from.x, e.from.y - NODE_H / 2, 50, 50, PI * 0.9, PI * 2.1);
+    drawingContext.setLineDash([]);
+    return;
+  }
+
+  const start = clipToNode(e.to.x, e.to.y, e.from);
+  const end = clipToNode(e.from.x, e.from.y, e.to);
+
+  stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
+  strokeWeight(w);
+  if (e.async) drawingContext.setLineDash([6, 6]);
+  line(start.x, start.y, end.x, end.y);
+  drawingContext.setLineDash([]);
+  drawArrow(start.x, start.y, end.x, end.y, w, touchesHover);
+}
+
+function drawNode(n) {
+  const isHover = n === hovered;
+  stroke(n.isRoot ? COLOR_ROOT : COLOR_NODE);
+  strokeWeight(isHover ? 2.5 : 1.5);
+  fill(n.isRoot ? COLOR_ROOT_FILL : COLOR_NODE_FILL);
+  rectMode(CENTER);
+  rect(n.x, n.y, NODE_W, NODE_H, 8);
+
+  noStroke();
+  fill("#1f2937");
+  textAlign(CENTER, CENTER);
+  textSize(12);
+  textStyle(n.isRoot ? BOLD : NORMAL);
+  text(n.id, n.x, n.y, NODE_W - 12, NODE_H);
+  textStyle(NORMAL);
+}
+
+function drawTooltip(n) {
+  const lines = [n.id + (n.isRoot ? "  (entry point)" : "")];
+  for (const op of n.operations) lines.push("  " + op);
+  for (const e of edges) {
+    if (e.from !== n) continue;
+    for (const c of e.calls) {
+      let label = "  " + c.from + " → " + e.target + "." + c.to;
+      const mods = [];
+      if (c.probability < 1) mods.push(Math.round(c.probability * 100) + "%");
+      if (c.count > 1) mods.push("×" + c.count);
+      if (c.async) mods.push("async");
+      if (mods.length) label += "  [" + mods.join(", ") + "]";
+      lines.push(label);
+    }
+  }
+
+  textSize(11);
+  textAlign(LEFT, TOP);
+  let boxW = 0;
+  for (const l of lines) boxW = Math.max(boxW, textWidth(l));
+  boxW += 20;
+  const boxH = lines.length * 16 + 12;
+  let tx = n.x + NODE_W / 2 + 10;
+  let ty = n.y - boxH / 2;
+  tx = constrain(tx, 4, width - boxW - 4);
+  ty = constrain(ty, 4, height - boxH - 4);
+
+  stroke("#d1d5db");
+  strokeWeight(1);
+  fill(255, 255, 255, 242);
+  rectMode(CORNER);
+  rect(tx, ty, boxW, boxH, 6);
+
+  noStroke();
+  for (let i = 0; i < lines.length; i++) {
+    fill(i === 0 ? "#111827" : "#4b5563");
+    textStyle(i === 0 ? BOLD : NORMAL);
+    text(lines[i], tx + 10, ty + 8 + i * 16);
+  }
+  textStyle(NORMAL);
+}
+
+function nodeAt(x, y) {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    if (Math.abs(x - n.x) <= NODE_W / 2 && Math.abs(y - n.y) <= NODE_H / 2) return n;
+  }
+  return null;
+}
+
+function draw() {
+  background("#fafafa");
+  applyForces();
+
+  hovered = dragged || nodeAt(mouseX, mouseY);
+  cursor(hovered ? HAND : ARROW);
+
+  for (const e of edges) drawEdge(e);
+  for (const n of nodes) drawNode(n);
+  if (hovered) drawTooltip(hovered);
+}
+
+function mousePressed() {
+  dragged = nodeAt(mouseX, mouseY);
+}
+
+function mouseDragged() {
+  if (dragged) {
+    dragged.x = constrain(mouseX, NODE_W / 2, width - NODE_W / 2);
+    dragged.y = constrain(mouseY, NODE_H / 2, height - NODE_H / 2);
+    dragged.vx = 0;
+    dragged.vy = 0;
+    dragged.pinned = true;
+  }
+}
+
+function mouseReleased() {
+  dragged = null;
+}
+
+function doubleClicked() {
+  const n = nodeAt(mouseX, mouseY);
+  if (n) n.pinned = false;
+}
+</script>
+</body>
+</html>
