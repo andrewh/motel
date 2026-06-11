@@ -466,6 +466,104 @@ func TestMetricObserverErrorsOnly(t *testing.T) {
 	assert.Equal(t, int64(1), sum.DataPoints[0].Value, "only error spans should increment the counter")
 }
 
+func TestMetricObserverScenarioOverrideCounter(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 10, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "bytes.sent", Type: "counter", Value: &dist},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	// Activate a service-scope override
+	obs.SetOverrides(map[string]Override{
+		"svc": {Metrics: map[string]FloatDistribution{"bytes.sent": {Mean: 100, StdDev: 0}}},
+	})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	// Clear overrides — back to the base distribution
+	obs.SetOverrides(nil)
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "bytes.sent")
+	require.NotNil(t, m)
+
+	sum, ok := m.Data.(metricdata.Sum[float64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	assert.InDelta(t, 120.0, sum.DataPoints[0].Value, 0.1, "10 base + 100 overridden + 10 base")
+}
+
+func TestMetricObserverScenarioOverrideGauge(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 0.4, StdDev: 0}
+	topo := testTopology("svc", nil, "op", []MetricDefinition{
+		{Name: "cache.hit_ratio", Type: "gauge", Value: &dist},
+	})
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "cache.hit_ratio")
+	require.NotNil(t, m)
+	gauge := m.Data.(metricdata.Gauge[float64])
+	assert.InDelta(t, 0.4, gauge.DataPoints[0].Value, 0.001)
+
+	// Operation-scope override changes the value observed at the next collection
+	obs.SetOverrides(map[string]Override{
+		"svc.op": {Metrics: map[string]FloatDistribution{"cache.hit_ratio": {Mean: 0.05, StdDev: 0}}},
+	})
+
+	rm = collectMetrics(t, reader)
+	m = findMetric(rm, "cache.hit_ratio")
+	require.NotNil(t, m)
+	gauge = m.Data.(metricdata.Gauge[float64])
+	assert.InDelta(t, 0.05, gauge.DataPoints[0].Value, 0.001)
+}
+
+func TestMetricObserverOverrideOtherScopeIgnored(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 10, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "bytes.sent", Type: "counter", Value: &dist},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	// Override targets a different scope (operation, not service) — no effect
+	obs.SetOverrides(map[string]Override{
+		"svc.op": {Metrics: map[string]FloatDistribution{"bytes.sent": {Mean: 100, StdDev: 0}}},
+	})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "bytes.sent")
+	require.NotNil(t, m)
+	sum := m.Data.(metricdata.Sum[float64])
+	assert.InDelta(t, 10.0, sum.DataPoints[0].Value, 0.1, "service-scope metric ignores operation-scope override")
+}
+
 // TestMetricObserverEndToEnd verifies the full path: YAML → LoadConfig → BuildTopology →
 // NewMetricObserver → Observe → collect. Tests all four instrument types.
 func TestMetricObserverEndToEnd(t *testing.T) {
@@ -549,4 +647,223 @@ traffic:
 	require.True(t, ok)
 	require.Len(t, cntSum.DataPoints, 1)
 	assert.Greater(t, cntSum.DataPoints[0].Value, 0.0)
+}
+
+func TestMetricObserverGaugeWalkCorrelation(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	// With a very long mean-reversion timescale and back-to-back collections,
+	// the decay factor is ~1 and the noise term ~0, so consecutive samples
+	// must be nearly identical — unlike independent sampling, where draws
+	// from N(0.5, 0.2) differ.
+	dist := FloatDistribution{Mean: 0.5, StdDev: 0.2}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "cpu", Type: "gauge", Value: &dist, Walk: time.Hour},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	readGauge := func() float64 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "cpu")
+		require.NotNil(t, m)
+		gauge, ok := m.Data.(metricdata.Gauge[float64])
+		require.True(t, ok)
+		require.Len(t, gauge.DataPoints, 1)
+		return gauge.DataPoints[0].Value
+	}
+
+	first := readGauge()
+	second := readGauge()
+	assert.InDelta(t, first, second, 0.01, "walk samples collected back-to-back should be strongly correlated")
+}
+
+func TestMetricObserverGaugeWalkMeanReversion(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	// Zero stddev: the walk has no noise, so every sample equals the mean.
+	dist := FloatDistribution{Mean: 42, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "depth", Type: "gauge", Value: &dist, Walk: time.Second},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	for range 3 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "depth")
+		require.NotNil(t, m)
+		gauge := m.Data.(metricdata.Gauge[float64])
+		assert.InDelta(t, 42.0, gauge.DataPoints[0].Value, 0.001)
+	}
+}
+
+func TestMetricObserverGaugeBounds(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	lower, upper := 0.0, 1.0
+	// Mean near the upper bound with huge variance: unclamped samples
+	// frequently land outside [0, 1].
+	dist := FloatDistribution{Mean: 0.9, StdDev: 10}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "util", Type: "gauge", Value: &dist, Min: &lower, Max: &upper},
+	}, "op", nil)
+
+	_, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	for range 10 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "util")
+		require.NotNil(t, m)
+		gauge := m.Data.(metricdata.Gauge[float64])
+		v := gauge.DataPoints[0].Value
+		assert.GreaterOrEqual(t, v, lower)
+		assert.LessOrEqual(t, v, upper)
+	}
+}
+
+func TestMetricObserverIntervalCounter(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 5, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "gc.count", Type: "counter", Value: &dist, Interval: 10 * time.Millisecond},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	t.Cleanup(stop)
+
+	// No spans observed — emission is driven purely by the timer.
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.count")
+		if m == nil {
+			return false
+		}
+		sum, ok := m.Data.(metricdata.Sum[float64])
+		return ok && len(sum.DataPoints) == 1 && sum.DataPoints[0].Value >= 10
+	}, 2*time.Second, 10*time.Millisecond, "interval counter should accumulate without any spans")
+
+	// Span observation must not double-record interval instruments.
+	before := func() float64 {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.count")
+		require.NotNil(t, m)
+		return m.Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	}()
+	obs.Observe(SpanInfo{Service: "svc", Operation: "op", Duration: time.Millisecond})
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "gc.count")
+	require.NotNil(t, m)
+	after := m.Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	assert.Less(t, after-before, 5.0, "Observe must not record interval-driven instruments")
+}
+
+func TestMetricObserverIntervalHistogram(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 2.5, StdDev: 0}
+	topo := testTopology("svc", nil, "op", []MetricDefinition{
+		{Name: "gc.pause", Type: "histogram", Unit: "ms", Value: &dist, Interval: 10 * time.Millisecond},
+	})
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	t.Cleanup(stop)
+
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		m := findMetric(rm, "gc.pause")
+		if m == nil {
+			return false
+		}
+		hist, ok := m.Data.(metricdata.Histogram[float64])
+		return ok && len(hist.DataPoints) == 1 && hist.DataPoints[0].Count >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+
+	rm := collectMetrics(t, reader)
+	m := findMetric(rm, "gc.pause")
+	hist := m.Data.(metricdata.Histogram[float64])
+	dp := hist.DataPoints[0]
+	assert.InDelta(t, 2.5, dp.Sum/float64(dp.Count), 0.001, "each tick records the sampled value")
+
+	// Operation-level interval metrics carry the operation.name attribute.
+	expected := attribute.NewSet(attribute.String("operation.name", "op"))
+	assert.True(t, dp.Attributes.Equals(&expected), "got %v", dp.Attributes)
+}
+
+func TestMetricObserverIntervalStop(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	dist := FloatDistribution{Mean: 1, StdDev: 0}
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "tick.count", Type: "counter", Value: &dist, Interval: 5 * time.Millisecond},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	require.Eventually(t, func() bool {
+		rm := collectMetrics(t, reader)
+		return findMetric(rm, "tick.count") != nil
+	}, 2*time.Second, 5*time.Millisecond)
+	stop()
+
+	rm := collectMetrics(t, reader)
+	before := findMetric(rm, "tick.count").Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	time.Sleep(30 * time.Millisecond)
+	rm = collectMetrics(t, reader)
+	after := findMetric(rm, "tick.count").Data.(metricdata.Sum[float64]).DataPoints[0].Value
+	assert.Equal(t, before, after, "no emission after stop")
+}
+
+func TestMetricObserverStartNoIntervals(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	topo := testTopology("svc", []MetricDefinition{
+		{Name: "req.count", Type: "counter"},
+	}, "op", nil)
+
+	obs, err := NewMetricObserver(testMeters(mp, "svc"), topo, testRng())
+	require.NoError(t, err)
+
+	stop := obs.Start()
+	stop() // must not panic or block
 }

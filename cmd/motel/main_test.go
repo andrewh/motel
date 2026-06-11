@@ -1172,58 +1172,120 @@ func TestMetricShutdownExporterOrder(t *testing.T) {
 	}
 }
 
-func TestCheckCommandScenarios(t *testing.T) {
+func TestValidateCommandSemconvMetricWarnings(t *testing.T) {
 	t.Parallel()
 
-	const cfg = `
+	t.Run("warns on type and unit mismatch", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
 version: 1
 services:
-  svc:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: counter
+        unit: ms
     operations:
-      a:
-        duration: 10ms
-        calls:
-          - svc.b
-      b:
-        duration: 10ms
-      c:
-        duration: 10ms
-scenarios:
-  - name: deepen
-    at: +1m
-    duration: 1m
-    override:
-      svc.b:
-        add_calls:
-          - svc.c
+      handle:
+        duration: 50ms
 traffic:
   rate: 10/s
 `
-
-	t.Run("scenario worst case reported and fails tight limit", func(t *testing.T) {
-		t.Parallel()
 		path := writeTestConfig(t, cfg)
 		root := rootCmd()
-		root.SetArgs([]string{"check", path, "--max-depth", "1", "--samples", "10", "--seed", "42"})
-		var out bytes.Buffer
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
 		root.SetOut(&out)
+		root.SetErr(&errOut)
 
-		err := root.Execute()
-		require.Error(t, err, "depth 2 under scenario must fail limit 1")
-		assert.Contains(t, out.String(), "FAIL  max-depth: 2")
-		assert.Contains(t, out.String(), "scenarios: deepen")
+		require.NoError(t, root.Execute())
+		assert.Contains(t, out.String(), "Configuration valid", "warnings must not fail validation")
+		assert.Contains(t, errOut.String(), `type "counter" does not match semantic convention instrument "histogram"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "s"`)
 	})
 
-	t.Run("skip-scenarios checks baseline only", func(t *testing.T) {
+	t.Run("warns on operation-level metric mismatch", func(t *testing.T) {
 		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 50ms
+        metrics:
+          - name: http.server.active_requests
+            type: updowncounter
+            unit: ms
+traffic:
+  rate: 10/s
+`
 		path := writeTestConfig(t, cfg)
 		root := rootCmd()
-		root.SetArgs([]string{"check", path, "--max-depth", "1", "--samples", "10", "--seed", "42", "--skip-scenarios"})
-		var out bytes.Buffer
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
 		root.SetOut(&out)
+		root.SetErr(&errOut)
 
-		err := root.Execute()
-		require.NoError(t, err, "baseline depth 1 passes limit 1")
-		assert.NotContains(t, out.String(), "scenarios:")
+		require.NoError(t, root.Execute())
+		assert.Contains(t, errOut.String(), `service "gateway" operation "handle"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "{request}"`)
 	})
+
+	t.Run("no warnings for compliant or custom metrics", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: s
+      - name: my.custom.metric
+        type: counter
+        unit: ms
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.NotContains(t, errOut.String(), "warning:")
+	})
+}
+
+func TestValidateCommandSemconvUnsetUnitWarning(t *testing.T) {
+	t.Parallel()
+	cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+	path := writeTestConfig(t, cfg)
+	root := rootCmd()
+	root.SetArgs([]string{"validate", path})
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+
+	require.NoError(t, root.Execute())
+	assert.Contains(t, errOut.String(), `unit is not set; semantic convention specifies "s"`)
+	assert.NotContains(t, errOut.String(), `unit ""`)
 }

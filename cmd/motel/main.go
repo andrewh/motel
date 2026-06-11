@@ -344,9 +344,16 @@ func validateCmd() *cobra.Command {
 			if err := synth.ValidateConfig(cfg); err != nil {
 				return err
 			}
-			topo, err := buildTopology(cfg, semconvDir)
+			reg, err := loadRegistry(semconvDir)
 			if err != nil {
 				return err
+			}
+			topo, err := synth.BuildTopology(cfg, domainResolver(reg))
+			if err != nil {
+				return err
+			}
+			for _, w := range semconvMetricWarnings(cfg, reg) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 			}
 			svcLabel := "services"
 			if len(topo.Services) == 1 {
@@ -614,6 +621,8 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
+		stopIntervals := obs.Start()
+		defer stopIntervals()
 		observers = append(observers, obs)
 	}
 
@@ -876,6 +885,16 @@ func shutdownAll[S shutdownable](ctx context.Context, items []S, label string) {
 }
 
 func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {
+	reg, err := loadRegistry(semconvDir)
+	if err != nil {
+		return nil, err
+	}
+	return synth.BuildTopology(cfg, domainResolver(reg))
+}
+
+// loadRegistry loads the embedded semantic convention registry, merged with
+// any additional YAML files from semconvDir.
+func loadRegistry(semconvDir string) (*semconv.Registry, error) {
 	reg, err := semconv.LoadEmbedded()
 	if err != nil {
 		return nil, fmt.Errorf("loading semantic conventions: %w", err)
@@ -894,7 +913,45 @@ func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error
 		}
 		reg = reg.Merge(userReg)
 	}
-	return synth.BuildTopology(cfg, domainResolver(reg))
+	return reg, nil
+}
+
+// semconvMetricWarnings checks topology metric definitions whose names match
+// known semantic convention metrics, returning warnings for instrument type
+// and unit mismatches. Unknown metric names are not warned about — users may
+// define custom metrics freely.
+func semconvMetricWarnings(cfg *synth.Config, reg *semconv.Registry) []string {
+	var warnings []string
+	check := func(scope string, mc synth.MetricConfig) {
+		g := reg.MetricByName(mc.Name)
+		if g == nil {
+			return
+		}
+		if g.Instrument != "" && mc.Type != g.Instrument {
+			warnings = append(warnings, fmt.Sprintf("%s: metric %q: type %q does not match semantic convention instrument %q",
+				scope, mc.Name, mc.Type, g.Instrument))
+		}
+		if g.Unit != "" && mc.Unit != g.Unit {
+			if mc.Unit == "" {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit is not set; semantic convention specifies %q",
+					scope, mc.Name, g.Unit))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit %q does not match semantic convention unit %q",
+					scope, mc.Name, mc.Unit, g.Unit))
+			}
+		}
+	}
+	for _, svc := range cfg.Services {
+		for _, mc := range svc.Metrics {
+			check(fmt.Sprintf("service %q", svc.Name), mc)
+		}
+		for _, op := range svc.Operations {
+			for _, mc := range op.Metrics {
+				check(fmt.Sprintf("service %q operation %q", svc.Name, op.Name), mc)
+			}
+		}
+	}
+	return warnings
 }
 
 // topoHasMetrics reports whether any service or operation in the topology defines at least one metric.

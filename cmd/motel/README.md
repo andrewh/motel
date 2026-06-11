@@ -316,20 +316,12 @@ Time-windowed overrides to operation behaviour and traffic.
 | `at`       | string | Start offset from simulation start, e.g. `+5s`, `30s` |
 | `duration` | string | How long the scenario is active |
 | `priority` | int    | Higher priority wins when scenarios overlap (default: 0) |
-| `override` | map    | Per-operation overrides keyed by `service.operation` |
+| `override` | map    | Per-operation overrides keyed by `service.operation`, or per-service overrides keyed by service name |
 | `traffic`  | object | Traffic pattern override for this window |
 
-Each override can set `duration`, `error_rate`, `attributes`, `add_calls`,
-and `remove_calls`. Overlapping scenarios merge overrides by priority —
-higher-priority values win per field, attributes merge per key.
-
-| Override field | Type | Description |
-|----------------|------|-------------|
-| `duration`     | string | Replaces the operation's duration for the window |
-| `error_rate`   | string | Replaces the operation's error rate for the window |
-| `attributes`   | map    | Attribute generators merged into the operation's attributes |
-| `add_calls`    | list   | Downstream calls added for the window — same syntax as [calls](#calls) |
-| `remove_calls` | list   | Calls to remove for the window, by `service.operation` target. The target must be a call the operation actually makes |
+Each operation override can set `duration`, `error_rate`, `attributes`, and
+`metrics`. Overlapping scenarios merge overrides by priority — higher-priority
+values win per field, attributes and metrics merge per key.
 
 ```yaml
 scenarios:
@@ -349,6 +341,26 @@ scenarios:
       rate: 200/s
 ```
 
+A `metrics` override replaces the `value` distribution of a topology-defined
+metric for the scenario window. The metric must be defined with a `value` at
+the same scope — a service name key overrides service-level metrics, a
+`service.operation` key overrides operation-level metrics. Span-derived
+metrics (no `value`) cannot be overridden, and `name`, `type`, and `unit` are
+fixed at instrument creation time. An override keyed by a bare service name
+may only contain `metrics`.
+
+```yaml
+scenarios:
+  - name: cpu spike
+    at: +2m
+    duration: 5m
+    override:
+      gateway:
+        metrics:
+          gateway.cpu.utilisation:
+            value: 0.95 +/- 0.02
+```
+
 ### metrics
 
 Topology-driven metric instruments. Define them at the service level (fire for
@@ -363,8 +375,14 @@ metric data.
 | `type`       | string | `counter`, `updowncounter`, `histogram`, or `gauge` (required) |
 | `unit`       | string | OTel unit string, e.g. `ms`, `s`, `{request}` (optional) |
 | `value`      | string | Distribution to sample, e.g. `0.65` or `0.65 +/- 0.1`. Omit for span-derived behaviour (see below) |
-| `errors_only` | bool  | Record only for error spans. Only valid for `counter` instruments |
+| `interval`   | string | Emit on a timer instead of per span, e.g. `10s`. Requires `value`; not valid for gauges (see below) |
+| `walk`       | string | Gauge only: mean-reversion timescale for a random walk, e.g. `30s` (see below) |
+| `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
+
+Metric names that match a known OTel semantic convention metric are checked
+by `motel validate`: a `type` or `unit` that disagrees with the convention
+produces a warning (not an error). Custom metric names are never warned about.
 
 **Span-derived behaviour (no `value`):** the instrument records a value derived
 from the span being observed.
@@ -386,17 +404,56 @@ normal distribution on each observation.
 | `histogram` | sampled float recorded per completed span |
 | `gauge` | sampled float reported on each collection cycle |
 
+**Random-walk gauges (`walk`):** by default each gauge collection samples
+independently, producing white noise. Setting `walk` turns the gauge into a
+mean-reverting random walk (an Ornstein-Uhlenbeck process): consecutive
+samples are correlated and drift smoothly, while the long-run mean and
+standard deviation still match `value`. The timescale controls how quickly
+the value reverts to the mean — short timescales (a few seconds) look jittery,
+long ones (minutes) drift slowly. Combine with `min`/`max` to keep bounded
+metrics like utilisation in range:
+
+```yaml
+- name: gateway.cpu.utilisation
+  type: gauge
+  value: 0.65 +/- 0.1
+  walk: 30s
+  min: 0
+  max: 1
+```
+
+Walk timescales relate to wall-clock time between collection cycles,
+regardless of simulated time compression.
+
+**Interval-driven metrics (`interval`):** by default, topology-defined
+counters, updowncounters, and histograms record when a span fires, coupling
+their emission rate to the trace rate. Setting `interval` decouples them: the
+instrument records a sampled value on its own timer, so a service with no
+traffic still emits metric data. Intervals are wall-clock durations,
+regardless of simulated time compression. Gauges already behave this way (the
+observable callback fires on the collection cycle) and do not accept
+`interval`; span-derived metrics (no `value`) remain span-coupled.
+
+```yaml
+- name: gateway.gc.pause.duration
+  type: histogram
+  unit: ms
+  value: 2.5 +/- 0.8
+  interval: 10s   # emit every 10 seconds, regardless of trace rate
+```
+
 ```yaml
 services:
   gateway:
     metrics:
-      # Span-derived histogram: records span duration in milliseconds
+      # Span-derived histogram: records span duration in seconds
       - name: http.server.request.duration
         type: histogram
-        unit: ms
+        unit: s
       # Span-derived updowncounter: tracks currently active requests
       - name: http.server.active_requests
         type: updowncounter
+        unit: "{request}"
       # Topology-defined gauge: independent of spans, sampled on collection
       - name: gateway.cpu.utilisation
         type: gauge

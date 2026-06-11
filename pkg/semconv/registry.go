@@ -20,10 +20,11 @@ type groupsFile struct {
 
 // Registry holds indexed semantic convention groups and attributes.
 type Registry struct {
-	groups    []Group
-	byGroupID map[string]*Group
-	byAttrID  map[string]*Attribute
-	byDomain  map[string][]*Group
+	groups       []Group
+	byGroupID    map[string]*Group
+	byAttrID     map[string]*Attribute
+	byDomain     map[string][]*Group
+	byMetricName map[string]*Group
 }
 
 // Load parses all YAML files from the given filesystem into a Registry.
@@ -95,6 +96,12 @@ func (r *Registry) Attribute(id string) *Attribute {
 	return r.byAttrID[id]
 }
 
+// MetricByName returns the metric group with the given metric name
+// (e.g. "http.server.request.duration"), or nil if not found.
+func (r *Registry) MetricByName(name string) *Group {
+	return r.byMetricName[name]
+}
+
 // Domain returns all groups belonging to the given domain.
 func (r *Registry) Domain(name string) []*Group {
 	return r.byDomain[name]
@@ -134,10 +141,11 @@ func (r *Registry) Merge(other *Registry) *Registry {
 // buildRegistry indexes groups and resolves attribute references.
 func buildRegistry(groups []Group) *Registry {
 	r := &Registry{
-		groups:    groups,
-		byGroupID: make(map[string]*Group, len(groups)),
-		byAttrID:  make(map[string]*Attribute, len(groups)*4),
-		byDomain:  make(map[string][]*Group),
+		groups:       groups,
+		byGroupID:    make(map[string]*Group, len(groups)),
+		byAttrID:     make(map[string]*Attribute, len(groups)*4),
+		byDomain:     make(map[string][]*Group),
+		byMetricName: make(map[string]*Group),
 	}
 
 	// First pass: index all inline attributes (those with an ID, not a ref).
@@ -146,6 +154,9 @@ func buildRegistry(groups []Group) *Registry {
 		r.byGroupID[g.ID] = g
 		if g.domain != "" {
 			r.byDomain[g.domain] = append(r.byDomain[g.domain], g)
+		}
+		if g.Type == "metric" && g.MetricName != "" {
+			r.byMetricName[g.MetricName] = g
 		}
 		for j := range g.Attributes {
 			attr := &g.Attributes[j]

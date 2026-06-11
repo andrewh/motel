@@ -8,13 +8,14 @@ version: 1
 services:
   gateway:
     metrics:
-      # Span-derived histogram: records each request's duration in milliseconds
+      # Span-derived histogram: records each request's duration in seconds
       - name: http.server.request.duration
         type: histogram
-        unit: ms
+        unit: s
       # Span-derived updowncounter: tracks in-flight requests (requires --realtime for meaningful values)
       - name: http.server.active_requests
         type: updowncounter
+        unit: "{request}"
       # Topology-defined gauge: sampled on each collection cycle, independent of spans
       - name: gateway.cpu.utilisation
         type: gauge
