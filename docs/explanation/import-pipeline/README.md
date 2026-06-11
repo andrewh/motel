@@ -15,7 +15,7 @@ makes is shown against the actual data.
 You can reproduce the import yourself:
 
 ```
-motel import docs/explanation/worked-example/traces.jsonl
+motel import docs/explanation/import-pipeline/traces.jsonl
 ```
 
 ## The source topology
@@ -209,10 +209,10 @@ service-level attributes in the topology.
 | database | *(none)* | — | — |
 | cache | *(none)* | — | — |
 
-Internal attributes (`synth.service`, `synth.trace_id`, etc.) are excluded
-from this analysis.
+Internal attributes (`synth.service`, `synth.operation`, `synth.scenarios`,
+`service.name`, and `telemetry.sdk.*`) are excluded from this analysis.
 
-Result: only `api` gets an `attributes` section in the YAML.
+Result: only `api` gets a `resource_attributes` section in the YAML.
 
 ## Stage 6: Compute traffic rate
 
@@ -280,7 +280,7 @@ If round-trip validation fails, the import returns an error rather than
 emitting a topology that `motel run` would reject.
 
 ```
-$ motel validate docs/explanation/worked-example/inferred-topology.yaml
+$ motel validate docs/explanation/import-pipeline/inferred-topology.yaml
 Configuration valid: 3 services, 1 root operation
 ```
 
