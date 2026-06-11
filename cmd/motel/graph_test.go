@@ -147,6 +147,78 @@ traffic:
 		assert.Len(t, data.Edges[0].Calls, 2)
 	})
 
+	t.Run("layered layout positions", func(t *testing.T) {
+		t.Parallel()
+		topo := buildTopo(t, `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 10ms
+        calls:
+          - api.process
+  api:
+    operations:
+      process:
+        duration: 10ms
+        calls:
+          - db.query
+  db:
+    operations:
+      query:
+        duration: 5ms
+traffic:
+  rate: 10/s
+`)
+		data := buildGraphData(topo)
+
+		byID := make(map[string]graphNode, len(data.Nodes))
+		for _, n := range data.Nodes {
+			byID[n.ID] = n
+		}
+		assert.Equal(t, 0.0, byID["gateway"].X)
+		assert.Equal(t, 0.5, byID["api"].X)
+		assert.Equal(t, 1.0, byID["db"].X)
+		assert.Equal(t, 0.5, byID["gateway"].Y)
+	})
+
+	t.Run("shared dependency placed at longest call depth", func(t *testing.T) {
+		t.Parallel()
+		topo := buildTopo(t, `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 10ms
+        calls:
+          - api.process
+          - cache.get
+  api:
+    operations:
+      process:
+        duration: 10ms
+        calls:
+          - cache.get
+  cache:
+    operations:
+      get:
+        duration: 1ms
+traffic:
+  rate: 10/s
+`)
+		data := buildGraphData(topo)
+
+		byID := make(map[string]graphNode, len(data.Nodes))
+		for _, n := range data.Nodes {
+			byID[n.ID] = n
+		}
+		assert.Equal(t, 0.0, byID["gateway"].X)
+		assert.Equal(t, 0.5, byID["api"].X)
+		assert.Equal(t, 1.0, byID["cache"].X, "cache sits at its longest call depth")
+	})
+
 	t.Run("async and probability modifiers", func(t *testing.T) {
 		t.Parallel()
 		topo := buildTopo(t, `

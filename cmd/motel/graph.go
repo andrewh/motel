@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -33,8 +34,9 @@ func graphCmd() *cobra.Command {
 		Short: "Render the topology service graph as an interactive HTML page (experimental)",
 		Long: "Render the topology service graph as an interactive HTML page (experimental).\n\n" +
 			"Services are drawn as nodes and call relationships as directed edges in a\n" +
-			"force-directed layout powered by p5.js. Edge thickness reflects call volume,\n" +
-			"dashed edges are async calls, and hovering a service lists its operations.\n\n" +
+			"layered left-to-right layout rendered with p5.js. Edge thickness reflects\n" +
+			"call volume, dashed edges are async calls, and hovering a service lists its\n" +
+			"operations.\n\n" +
 			"The output is a single self-contained HTML file (p5.js is loaded from a CDN).\n" +
 			"The topology source can be a local file path or an HTTP/HTTPS URL.",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -82,11 +84,14 @@ func runGraph(cmd *cobra.Command, configPath, output string) error {
 	return renderGraphHTML(w, data, title)
 }
 
-// graphNode is a service node in the visualised graph.
+// graphNode is a service node in the visualised graph. X and Y are
+// normalised layout coordinates in [0,1], computed by the layered layout.
 type graphNode struct {
 	ID         string   `json:"id"`
 	Operations []string `json:"operations"`
 	IsRoot     bool     `json:"isRoot"`
+	X          float64  `json:"x"`
+	Y          float64  `json:"y"`
 }
 
 // graphCall is a single operation-level call along an edge.
@@ -170,7 +175,122 @@ func buildGraphData(topo *synth.Topology) graphData {
 	for _, key := range slices.Sorted(maps.Keys(edges)) {
 		data.Edges = append(data.Edges, *edges[key])
 	}
+
+	layoutGraph(&data, serviceLayers(topo))
 	return data
+}
+
+// serviceLayers assigns each service a column index: the call depth of its
+// shallowest operation, measured as the longest path from any root. The
+// operation graph is acyclic (BuildTopology rejects cycles), so the longest
+// path is well defined even when the service-level graph contains cycles.
+func serviceLayers(topo *synth.Topology) map[string]int {
+	opDepth := make(map[*synth.Operation]int)
+	var visit func(op *synth.Operation, depth int)
+	visit = func(op *synth.Operation, depth int) {
+		if d, seen := opDepth[op]; seen && d >= depth {
+			return
+		}
+		opDepth[op] = depth
+		for _, call := range op.Calls {
+			visit(call.Operation, depth+1)
+		}
+	}
+	for _, root := range topo.Roots {
+		visit(root, 0)
+	}
+
+	layers := make(map[string]int, len(topo.Services))
+	for op, depth := range opDepth {
+		name := op.Service.Name
+		if cur, seen := layers[name]; !seen || depth < cur {
+			layers[name] = depth
+		}
+	}
+	for name := range topo.Services {
+		if _, seen := layers[name]; !seen {
+			layers[name] = 0
+		}
+	}
+	return layers
+}
+
+const barycenterSweeps = 4
+
+// layoutGraph computes normalised coordinates for a layered left-to-right
+// layout: services in columns by call depth, ordered within each column by
+// repeated barycenter sweeps to reduce edge crossings.
+func layoutGraph(data *graphData, layers map[string]int) {
+	maxLayer := 0
+	for _, l := range layers {
+		maxLayer = max(maxLayer, l)
+	}
+
+	columns := make([][]int, maxLayer+1)
+	for i, n := range data.Nodes {
+		l := layers[n.ID]
+		columns[l] = append(columns[l], i)
+	}
+
+	neighbours := make(map[int][]int)
+	index := make(map[string]int, len(data.Nodes))
+	for i, n := range data.Nodes {
+		index[n.ID] = i
+	}
+	for _, e := range data.Edges {
+		s, t := index[e.Source], index[e.Target]
+		if s == t {
+			continue
+		}
+		neighbours[s] = append(neighbours[s], t)
+		neighbours[t] = append(neighbours[t], s)
+	}
+
+	// rank holds each node's vertical position normalised to [0,1)
+	rank := make([]float64, len(data.Nodes))
+	setRanks := func(col []int) {
+		for pos, i := range col {
+			rank[i] = (float64(pos) + 0.5) / float64(len(col))
+		}
+	}
+	for _, col := range columns {
+		setRanks(col)
+	}
+
+	barycenter := func(i int) float64 {
+		ns := neighbours[i]
+		if len(ns) == 0 {
+			return rank[i]
+		}
+		sum := 0.0
+		for _, n := range ns {
+			sum += rank[n]
+		}
+		return sum / float64(len(ns))
+	}
+
+	for sweep := 0; sweep < barycenterSweeps; sweep++ {
+		for _, col := range columns {
+			slices.SortStableFunc(col, func(a, b int) int {
+				if c := cmp.Compare(barycenter(a), barycenter(b)); c != 0 {
+					return c
+				}
+				return cmp.Compare(data.Nodes[a].ID, data.Nodes[b].ID)
+			})
+			setRanks(col)
+		}
+	}
+
+	for l, col := range columns {
+		x := 0.5
+		if maxLayer > 0 {
+			x = float64(l) / float64(maxLayer)
+		}
+		for pos, i := range col {
+			data.Nodes[i].X = x
+			data.Nodes[i].Y = (float64(pos) + 0.5) / float64(len(col))
+		}
+	}
 }
 
 func renderGraphHTML(w io.Writer, data graphData, title string) error {

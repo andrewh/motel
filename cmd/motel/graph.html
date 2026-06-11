@@ -24,21 +24,17 @@
 <div id="legend">
   <div class="title">GRAPH_TITLE</div>
   <div>&#9632; entry point &nbsp; &#9633; service &nbsp; &#8943; async call</div>
-  <div class="hint">drag nodes &middot; hover for operations</div>
+  <div class="hint">hover a service for operations</div>
 </div>
 <script>
 "use strict";
 
 const graph = /*GRAPH_DATA*/null;
 
-// Layout tuning
-const REPULSION = 60000;     // node-node repulsion strength
-const SPRING = 0.015;        // edge spring strength
-const SPRING_LENGTH = 180;   // edge rest length
-const CENTERING = 0.012;     // pull toward canvas centre
-const DAMPING = 0.85;
 const NODE_W = 130;
 const NODE_H = 36;
+const MARGIN_X = 110;
+const MARGIN_Y = 60;
 
 const COLOR_ROOT = "#2563eb";
 const COLOR_ROOT_FILL = "#dbeafe";
@@ -49,82 +45,40 @@ const COLOR_EDGE_HOVER = "#f59e0b";
 
 let nodes = [];
 let edges = [];
-let nodeByID = {};
-let dragged = null;
 let hovered = null;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   textFont("-apple-system, 'Segoe UI', Roboto, sans-serif");
 
-  // Seed positions on a circle so the simulation starts untangled
-  const cx = width / 2, cy = height / 2;
-  const r = Math.min(width, height) / 3;
-  graph.nodes.forEach((n, i) => {
-    const a = (TWO_PI * i) / graph.nodes.length;
-    const node = {
-      ...n,
-      x: cx + r * Math.cos(a),
-      y: cy + r * Math.sin(a),
-      vx: 0, vy: 0,
-      pinned: false,
-    };
-    nodes.push(node);
+  const nodeByID = {};
+  nodes = graph.nodes.map(n => {
+    const node = { ...n, px: 0, py: 0 };
     nodeByID[n.id] = node;
+    return node;
   });
-
   edges = graph.edges.map(e => ({
     ...e,
     from: nodeByID[e.source],
     to: nodeByID[e.target],
   }));
+
+  placeNodes();
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  placeNodes();
 }
 
-function applyForces() {
-  for (const n of nodes) { n.fx = 0; n.fy = 0; }
-
-  // Pairwise repulsion
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i], b = nodes[j];
-      let dx = a.x - b.x, dy = a.y - b.y;
-      let d2 = dx * dx + dy * dy;
-      if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
-      const f = REPULSION / d2;
-      const d = Math.sqrt(d2);
-      a.fx += (dx / d) * f; a.fy += (dy / d) * f;
-      b.fx -= (dx / d) * f; b.fy -= (dy / d) * f;
-    }
-  }
-
-  // Edge springs
-  for (const e of edges) {
-    const dx = e.to.x - e.from.x, dy = e.to.y - e.from.y;
-    const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-    const f = SPRING * (d - SPRING_LENGTH);
-    e.from.fx += (dx / d) * f; e.from.fy += (dy / d) * f;
-    e.to.fx -= (dx / d) * f; e.to.fy -= (dy / d) * f;
-  }
-
-  // Gentle pull toward centre
+// Map the normalised layout coordinates onto the canvas, leaving margins
+// for node boxes and tooltips.
+function placeNodes() {
+  const w = Math.max(width - 2 * MARGIN_X, 1);
+  const h = Math.max(height - 2 * MARGIN_Y, 1);
   for (const n of nodes) {
-    n.fx += (width / 2 - n.x) * CENTERING;
-    n.fy += (height / 2 - n.y) * CENTERING;
-  }
-
-  // Integrate
-  for (const n of nodes) {
-    if (n.pinned || n === dragged) continue;
-    n.vx = (n.vx + n.fx) * DAMPING;
-    n.vy = (n.vy + n.fy) * DAMPING;
-    n.x += constrain(n.vx, -12, 12);
-    n.y += constrain(n.vy, -12, 12);
-    n.x = constrain(n.x, NODE_W / 2, width - NODE_W / 2);
-    n.y = constrain(n.y, NODE_H / 2, height - NODE_H / 2);
+    n.px = MARGIN_X + n.x * w;
+    n.py = MARGIN_Y + n.y * h;
   }
 }
 
@@ -135,18 +89,18 @@ function edgeWidth(weight) {
 // Clip the edge endpoint to the boundary of the node's rectangle so
 // arrowheads sit on the node border rather than its centre.
 function clipToNode(x1, y1, node) {
-  const dx = x1 - node.x, dy = y1 - node.y;
+  const dx = x1 - node.px, dy = y1 - node.py;
   const sx = Math.abs(dx) > 0.01 ? (NODE_W / 2 + 6) / Math.abs(dx) : Infinity;
   const sy = Math.abs(dy) > 0.01 ? (NODE_H / 2 + 6) / Math.abs(dy) : Infinity;
   const s = Math.min(sx, sy, 1);
-  return { x: node.x + dx * s, y: node.y + dy * s };
+  return { x: node.px + dx * s, y: node.py + dy * s };
 }
 
-function drawArrow(x1, y1, x2, y2, w, isHover) {
-  const a = Math.atan2(y2 - y1, x2 - x1);
+function drawArrow(x, y, fromX, fromY, w, isHover) {
+  const a = Math.atan2(y - fromY, x - fromX);
   const size = 7 + w;
   push();
-  translate(x2, y2);
+  translate(x, y);
   rotate(a);
   noStroke();
   fill(isHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
@@ -158,26 +112,44 @@ function drawEdge(e) {
   const touchesHover = hovered && (e.from === hovered || e.to === hovered);
   const w = edgeWidth(e.weight);
 
+  stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
+  strokeWeight(w);
+  if (e.async) drawingContext.setLineDash([6, 6]);
+
   if (e.from === e.to) {
     // Self-call: loop above the node
     noFill();
-    stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
-    strokeWeight(w);
-    if (e.async) drawingContext.setLineDash([6, 6]);
-    arc(e.from.x, e.from.y - NODE_H / 2, 50, 50, PI * 0.9, PI * 2.1);
+    arc(e.from.px, e.from.py - NODE_H / 2, 50, 50, PI * 0.9, PI * 2.1);
     drawingContext.setLineDash([]);
     return;
   }
 
-  const start = clipToNode(e.to.x, e.to.y, e.from);
-  const end = clipToNode(e.from.x, e.from.y, e.to);
+  const start = clipToNode(e.to.px, e.to.py, e.from);
+  const end = clipToNode(e.from.px, e.from.py, e.to);
 
-  stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
-  strokeWeight(w);
-  if (e.async) drawingContext.setLineDash([6, 6]);
-  line(start.x, start.y, end.x, end.y);
-  drawingContext.setLineDash([]);
-  drawArrow(start.x, start.y, end.x, end.y, w, touchesHover);
+  // Bow edges that span more than one column so they do not run
+  // straight through intermediate nodes.
+  const span = Math.abs(e.to.x - e.from.x);
+  const bow = span > 0.0001 && Math.abs(e.to.px - e.from.px) > NODE_W * 2.2
+    ? Math.min(120, Math.abs(e.to.px - e.from.px) * 0.18)
+    : 0;
+
+  noFill();
+  if (bow > 0) {
+    const mx = (start.x + end.x) / 2;
+    const my = (start.y + end.y) / 2;
+    const dx = end.x - start.x, dy = end.y - start.y;
+    const d = Math.max(Math.hypot(dx, dy), 1);
+    const cx = mx - (dy / d) * bow;
+    const cy = my + (dx / d) * bow;
+    bezier(start.x, start.y, cx, cy, cx, cy, end.x, end.y);
+    drawingContext.setLineDash([]);
+    drawArrow(end.x, end.y, cx, cy, w, touchesHover);
+  } else {
+    line(start.x, start.y, end.x, end.y);
+    drawingContext.setLineDash([]);
+    drawArrow(end.x, end.y, start.x, start.y, w, touchesHover);
+  }
 }
 
 function drawNode(n) {
@@ -186,14 +158,14 @@ function drawNode(n) {
   strokeWeight(isHover ? 2.5 : 1.5);
   fill(n.isRoot ? COLOR_ROOT_FILL : COLOR_NODE_FILL);
   rectMode(CENTER);
-  rect(n.x, n.y, NODE_W, NODE_H, 8);
+  rect(n.px, n.py, NODE_W, NODE_H, 8);
 
   noStroke();
   fill("#1f2937");
   textAlign(CENTER, CENTER);
   textSize(12);
   textStyle(n.isRoot ? BOLD : NORMAL);
-  text(n.id, n.x, n.y, NODE_W - 12, NODE_H);
+  text(n.id, n.px, n.py, NODE_W - 12, NODE_H);
   textStyle(NORMAL);
 }
 
@@ -219,8 +191,8 @@ function drawTooltip(n) {
   for (const l of lines) boxW = Math.max(boxW, textWidth(l));
   boxW += 20;
   const boxH = lines.length * 16 + 12;
-  let tx = n.x + NODE_W / 2 + 10;
-  let ty = n.y - boxH / 2;
+  let tx = n.px + NODE_W / 2 + 10;
+  let ty = n.py - boxH / 2;
   tx = constrain(tx, 4, width - boxW - 4);
   ty = constrain(ty, 4, height - boxH - 4);
 
@@ -242,44 +214,20 @@ function drawTooltip(n) {
 function nodeAt(x, y) {
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
-    if (Math.abs(x - n.x) <= NODE_W / 2 && Math.abs(y - n.y) <= NODE_H / 2) return n;
+    if (Math.abs(x - n.px) <= NODE_W / 2 && Math.abs(y - n.py) <= NODE_H / 2) return n;
   }
   return null;
 }
 
 function draw() {
   background("#fafafa");
-  applyForces();
 
-  hovered = dragged || nodeAt(mouseX, mouseY);
+  hovered = nodeAt(mouseX, mouseY);
   cursor(hovered ? HAND : ARROW);
 
   for (const e of edges) drawEdge(e);
   for (const n of nodes) drawNode(n);
   if (hovered) drawTooltip(hovered);
-}
-
-function mousePressed() {
-  dragged = nodeAt(mouseX, mouseY);
-}
-
-function mouseDragged() {
-  if (dragged) {
-    dragged.x = constrain(mouseX, NODE_W / 2, width - NODE_W / 2);
-    dragged.y = constrain(mouseY, NODE_H / 2, height - NODE_H / 2);
-    dragged.vx = 0;
-    dragged.vy = 0;
-    dragged.pinned = true;
-  }
-}
-
-function mouseReleased() {
-  dragged = null;
-}
-
-function doubleClicked() {
-  const n = nodeAt(mouseX, mouseY);
-  if (n) n.pinned = false;
 }
 </script>
 </body>
