@@ -136,7 +136,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
-	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span timestamps by this duration (e.g. -1h for past, 1h for future)")
+	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span, metric, and log timestamps by this duration (e.g. -1h for past, 1h for future)")
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 
 	return cmd
@@ -762,7 +762,7 @@ func createMetricProviders(ctx context.Context, opts runOptions, resources map[s
 		return nil, func() {}, err
 	}
 
-	wrapper := &noopShutdownMetricExporter{exporter}
+	wrapper := &noopShutdownMetricExporter{synth.NewTimeOffsetMetricExporter(exporter, opts.timeOffset)}
 	providers := make([]*sdkmetric.MeterProvider, 0, len(resources))
 	meters := make(map[string]metric.Meter, len(resources))
 

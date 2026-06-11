@@ -97,7 +97,7 @@ All three signal types are driven by the same topology.
 - [Getting started tutorial](docs/tutorials/getting-started.md)
 - [CLI reference](docs/reference/synth.md)
 - [DSL reference](cmd/motel/README.md) — full topology schema
-- [Example topologies](docs/examples/)
+- [Example topologies](docs/examples/README.md)
 - [Modelling your services](docs/how-to/model-your-services.md)
 - [How import infers a topology](docs/explanation/import-pipeline/README.md)
 - [How motel uses OTel semantic conventions](docs/explanation/semantic-conventions.md)

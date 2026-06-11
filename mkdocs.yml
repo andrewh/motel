@@ -1,0 +1,72 @@
+site_name: motel
+site_description: Synthetic OpenTelemetry generator
+site_url: https://andrewh.github.io/motel/
+repo_url: https://github.com/andrewh/motel
+repo_name: andrewh/motel
+edit_uri: ""
+
+docs_dir: .site
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+validation:
+  links:
+    absolute_links: ignore
+
+not_in_nav: |
+  docs/demos/
+  docs/research/
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - docs/tutorials/getting-started.md
+  - How-to guides:
+      - docs/how-to/model-your-services.md
+      - docs/how-to/validate-collector-pipeline.md
+      - docs/how-to/stress-test-collector.md
+      - docs/how-to/test-tail-sampling.md
+      - docs/how-to/test-ottl-transforms.md
+      - docs/how-to/test-alert-thresholds.md
+      - docs/how-to/test-backend-integration.md
+      - docs/how-to/understand-attribute-placement.md
+      - docs/how-to/use-with-otel-cli.md
+      - docs/how-to/visualise-traces.md
+  - Examples:
+      - Overview: docs/examples/README.md
+      - docs/examples/dsb/README.md
+  - Explanation:
+      - docs/explanation/import-pipeline/README.md
+      - docs/explanation/semantic-conventions.md
+      - docs/explanation/performance-profile.md
+      - docs/explanation/property-testing.md
+  - Reference:
+      - CLI reference: docs/reference/synth.md
+      - DSL reference: cmd/motel/README.md

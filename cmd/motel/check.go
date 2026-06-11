@@ -17,6 +17,7 @@ func checkCmd() *cobra.Command {
 		samples          int
 		seed             uint64
 		semconvDir       string
+		skipScenarios    bool
 	)
 
 	cmd := &cobra.Command{
@@ -24,7 +25,11 @@ func checkCmd() *cobra.Command {
 		Short: "Run structural checks on a topology",
 		Long: "Run structural checks on a topology.\n\n" +
 			"The topology source can be a local file path or an HTTP/HTTPS URL.\n" +
-			"URL fetches have a 10-second timeout and a 10 MB response body limit.",
+			"URL fetches have a 10-second timeout and a 10 MB response body limit.\n\n" +
+			"Scenarios defined in the topology are explored automatically: every\n" +
+			"distinct combination of co-active scenarios is checked alongside the\n" +
+			"baseline, and each check reports the combination that produces the\n" +
+			"worst case. Use --skip-scenarios to check the baseline topology only.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("missing topology file or URL\n\nUsage: motel check <topology.yaml | URL>")
@@ -48,6 +53,14 @@ func checkCmd() *cobra.Command {
 				return err
 			}
 
+			var scenarios []synth.Scenario
+			if !skipScenarios {
+				scenarios, err = synth.BuildScenarios(cfg.Scenarios, topo)
+				if err != nil {
+					return err
+				}
+			}
+
 			opts := synth.CheckOptions{
 				MaxDepth:         maxDepth,
 				MaxFanOut:        maxFanOut,
@@ -55,6 +68,7 @@ func checkCmd() *cobra.Command {
 				MaxSpansPerTrace: maxSpansPerTrace,
 				Samples:          samples,
 				Seed:             seed,
+				Scenarios:        scenarios,
 			}
 
 			results := synth.Check(topo, opts)
@@ -90,6 +104,10 @@ func checkCmd() *cobra.Command {
 					_, _ = fmt.Fprintf(w, "%s  %s: %d (limit: %d)\n", status, r.Name, r.Actual, r.Limit)
 				}
 
+				if len(r.Scenarios) > 0 {
+					_, _ = fmt.Fprintf(w, "      scenarios: %s\n", strings.Join(r.Scenarios, " + "))
+				}
+
 				if r.Distribution != nil {
 					d := r.Distribution
 					_, _ = fmt.Fprintf(w, "      p50: %d  p95: %d  p99: %d  max: %d  (%d samples)\n",
@@ -111,6 +129,7 @@ func checkCmd() *cobra.Command {
 	cmd.Flags().Uint64Var(&seed, "seed", 0, "random seed for reproducibility (0 = random)")
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, fmt.Sprintf("maximum spans per sampled trace (0 = default %d)", synth.DefaultMaxSpansPerTrace))
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
+	cmd.Flags().BoolVar(&skipScenarios, "skip-scenarios", false, "check the baseline topology only, ignoring scenarios")
 
 	return cmd
 }

@@ -32,13 +32,16 @@ Pick a few representative spans and note the attributes you want to change. For 
 ```json
 {
   "Name": "POST /api/checkout",
-  "Attributes": {
-    "httpStatusCode": "200",
-    "request.metadata": "region=eu-west-1;priority=high",
-    "customer.id": "cust-42"
-  }
+  "Attributes": [
+    {"Key": "httpStatusCode", "Value": {"Type": "INT64", "Value": 200}},
+    {"Key": "request.metadata", "Value": {"Type": "STRING", "Value": "region=eu-west-1;priority=high"}},
+    {"Key": "customer.id", "Value": {"Type": "STRING", "Value": "cust-42"}}
+  ]
 }
 ```
+
+Note that `httpStatusCode` is an integer attribute — this matters for OTTL,
+where `Int` and `String` comparisons behave differently.
 
 ## 3. Write a collector config with OTTL rules
 
@@ -143,7 +146,7 @@ The feedback loop is fast because motel generates deterministic, controllable tr
 
 - **Start with one rule at a time.** Add a single statement, verify it works, then add the next. OTTL errors are easier to diagnose in isolation.
 - **Use `--duration 2s` and a low traffic rate** (the example uses `20/s`) so you get enough spans to verify without drowning in output.
-- **Use weighted values to test conditional logic.** The example topology generates `httpStatusCode` with weighted values including `"500"` — you can write OTTL rules that behave differently for error status codes.
+- **Use weighted values to test conditional logic.** The example topology generates `httpStatusCode` with weighted integer values including `500` — you can write OTTL rules that behave differently for error status codes.
 - **Test edge cases with attribute generators.** Use `sequence` to produce predictable IDs, `range` for numeric boundaries, and `values` with weights to control the distribution of attribute values your OTTL rules will encounter.
 
 ## Further reading

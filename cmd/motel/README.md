@@ -70,7 +70,7 @@ Each operation defines the span it produces.
 
 | Field        | Type   | Description |
 |-------------|--------|-------------|
-| `duration`   | string | Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
+| `duration`   | string | Required. Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
 | `error_rate` | string | Percentage `0.5%` or decimal `0.005` (0.0 to 1.0) |
 | `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
@@ -80,8 +80,8 @@ Each operation defines the span it produces.
 | `links`      | list   | Cross-trace span links to other operations (see below) |
 | `calls`      | list   | Downstream calls to other operations |
 | `queue_depth`| int    | Max concurrent requests before rejection (0 = unlimited) |
-| `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold |
-| `circuit_breaker`| object | Opens after repeated failures, rejecting requests for a cooldown period |
+| `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold (see below) |
+| `circuit_breaker`| object | Opens after repeated failures, rejecting requests for a cooldown period (see below) |
 
 ```yaml
 operations:
@@ -96,6 +96,57 @@ operations:
       - postgres.query
       - redis.get
 ```
+
+### backpressure
+
+Latency-driven degradation. motel tracks an exponentially weighted moving
+average of the operation's recent latency; while it exceeds
+`latency_threshold`, new requests have their duration multiplied and their
+error rate increased. The effect clears when the average latency drops back
+below the threshold.
+
+| Field                 | Type   | Description |
+|-----------------------|--------|-------------|
+| `latency_threshold`   | string | Required. Average latency above which backpressure activates, e.g. `200ms` |
+| `duration_multiplier` | float  | Span duration multiplier while active (capped at 10; values ≤ 0 are treated as 1) |
+| `error_rate_add`      | string | Added to the operation's error rate while active, e.g. `5%` |
+
+```yaml
+operations:
+  query:
+    duration: 20ms +/- 5ms
+    backpressure:
+      latency_threshold: 200ms
+      duration_multiplier: 3
+      error_rate_add: 10%
+```
+
+### circuit_breaker
+
+Opens after repeated failures, rejecting all requests until a cooldown
+expires. After the cooldown, a single probe request is allowed through:
+success closes the circuit, failure reopens it. All fields are required.
+
+| Field               | Type   | Description |
+|---------------------|--------|-------------|
+| `failure_threshold` | int    | Failures within `window` that open the circuit (must be positive) |
+| `window`            | string | Sliding window over which failures are counted, e.g. `10s` |
+| `cooldown`          | string | How long the circuit stays open before probing, e.g. `30s` |
+
+```yaml
+operations:
+  charge:
+    duration: 80ms +/- 20ms
+    error_rate: 2%
+    circuit_breaker:
+      failure_threshold: 5
+      window: 10s
+      cooldown: 30s
+```
+
+Queue, backpressure, and circuit-breaker state persists across scenario
+boundaries: when a scenario ends, an open circuit stays open until its
+cooldown expires and backpressure stays active until latency recovers.
 
 ### calls
 
@@ -281,6 +332,11 @@ scenarios:
       postgres.query:
         duration: 500ms +/- 100ms
         error_rate: 15%
+      api.checkout:
+        add_calls:
+          - audit.log
+        remove_calls:
+          - cache.get
     traffic:
       rate: 200/s
 ```
@@ -310,7 +366,8 @@ scenarios:
 Topology-driven metric instruments. Define them at the service level (fire for
 every span in the service) or at the operation level (fire only for that
 operation). Requires `--signals metrics` or `--signals traces,metrics` when
-running; if no metrics are defined the signal is silently empty.
+running; if no metrics are defined, motel prints a warning and emits no
+metric data.
 
 | Field        | Type   | Description |
 |-------------|--------|-------------|
@@ -464,6 +521,6 @@ quickly.
 
 ## Further Reading
 
-- [`docs/examples/`](../../docs/examples/) — example topology configs
-- [`docs/tutorials/`](../../docs/tutorials/) — getting started tutorial
-- [`pkg/synth/`](../../pkg/synth/) — implementation source
+- [`docs/examples/`](../../docs/examples/README.md) — example topology configs
+- [`docs/tutorials/`](../../docs/tutorials/getting-started.md) — getting started tutorial
+- [`pkg/synth/`](https://github.com/andrewh/motel/tree/main/pkg/synth) — implementation source
