@@ -775,6 +775,58 @@ func TestImportCommand(t *testing.T) {
 	})
 }
 
+func TestRunStdoutImportRoundTrip(t *testing.T) {
+	// Not parallel: swaps os.Stdout, which the stdouttrace exporter writes to.
+	// Regression test for issue 146: the stdouttrace parser used the constant
+	// instrumentation scope name as the service name, collapsing every span
+	// into one service named after the Go module path.
+	topoPath := writeTestConfig(t, validConfig)
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	var traces bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = traces.ReadFrom(r)
+	}()
+
+	runCmd := rootCmd()
+	runCmd.SetArgs([]string{"run", "--stdout", "--duration", "100ms", topoPath})
+	runErr := runCmd.Execute()
+
+	w.Close()
+	os.Stdout = origStdout
+	<-done
+	require.NoError(t, runErr)
+	require.NotEmpty(t, traces.Bytes(), "run --stdout produced no trace output")
+
+	dir := t.TempDir()
+	tracesPath := filepath.Join(dir, "traces.jsonl")
+	require.NoError(t, os.WriteFile(tracesPath, traces.Bytes(), 0o600))
+
+	importCmd := rootCmd()
+	importCmd.SetArgs([]string{"import", tracesPath})
+	var inferred bytes.Buffer
+	importCmd.SetOut(&inferred)
+	require.NoError(t, importCmd.Execute())
+	assert.Contains(t, inferred.String(), "gateway:")
+	assert.Contains(t, inferred.String(), "backend:")
+	assert.NotContains(t, inferred.String(), "github.com/andrewh/motel")
+
+	inferredPath := filepath.Join(dir, "inferred.yaml")
+	require.NoError(t, os.WriteFile(inferredPath, inferred.Bytes(), 0o600))
+
+	validateCmd := rootCmd()
+	validateCmd.SetArgs([]string{"validate", inferredPath})
+	var validateOut bytes.Buffer
+	validateCmd.SetOut(&validateOut)
+	require.NoError(t, validateCmd.Execute())
+}
+
 // mockShutdownable records shutdown calls and executes a configurable function.
 type mockShutdownable struct {
 	shutdownFunc func(context.Context) error
