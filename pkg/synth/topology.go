@@ -30,6 +30,17 @@ type MetricDefinition struct {
 	Attributes map[string]AttributeGenerator
 }
 
+// LogDefinition is a resolved log record template.
+type LogDefinition struct {
+	Severity    string
+	Body        string
+	Condition   string
+	Probability float64
+	AtEnd       bool
+	Delay       time.Duration
+	Attributes  map[string]AttributeGenerator
+}
+
 // Service represents a resolved service node in the topology graph.
 type Service struct {
 	Name               string
@@ -37,6 +48,7 @@ type Service struct {
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
 	Metrics            []MetricDefinition
+	Logs               []LogDefinition
 }
 
 // ResolvedBackpressure holds parsed backpressure settings for an operation.
@@ -73,6 +85,7 @@ type Operation struct {
 	Events         []Event
 	Links          []*Operation
 	Metrics        []MetricDefinition
+	Logs           []LogDefinition
 	QueueDepth     int
 	Backpressure   *ResolvedBackpressure
 	CircuitBreaker *ResolvedCircuitBreaker
@@ -124,6 +137,13 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 			}
 			svc.Metrics = resolved
 		}
+		if len(svcCfg.Logs) > 0 {
+			resolved, err := resolveLogs(svcCfg.Logs, svcCfg.Name, "")
+			if err != nil {
+				return nil, err
+			}
+			svc.Logs = resolved
+		}
 		for _, opCfg := range svcCfg.Operations {
 			dist, err := ParseDistribution(opCfg.Duration)
 			if err != nil {
@@ -174,6 +194,13 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					return nil, mErr
 				}
 				op.Metrics = resolved
+			}
+			if len(opCfg.Logs) > 0 {
+				resolved, lErr := resolveLogs(opCfg.Logs, svcCfg.Name, opCfg.Name)
+				if lErr != nil {
+					return nil, lErr
+				}
+				op.Logs = resolved
 			}
 			if opCfg.Backpressure != nil {
 				lt, _ := time.ParseDuration(opCfg.Backpressure.LatencyThreshold)
@@ -340,6 +367,52 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 						ctx = fmt.Sprintf("service %q operation %q", svcName, opName)
 					}
 					return nil, fmt.Errorf("%s: metric %q attribute %q: %w", ctx, mc.Name, name, err)
+				}
+				def.Attributes[name] = gen
+			}
+		}
+		defs[i] = def
+	}
+	return defs, nil
+}
+
+// resolveLogs converts LogConfig entries into LogDefinitions.
+// Severity is normalised to uppercase; delay strings are parsed to durations.
+func resolveLogs(configs []LogConfig, svcName, opName string) ([]LogDefinition, error) {
+	logCtx := func() string {
+		if opName != "" {
+			return fmt.Sprintf("service %q operation %q", svcName, opName)
+		}
+		return fmt.Sprintf("service %q", svcName)
+	}
+	defs := make([]LogDefinition, len(configs))
+	for i, lc := range configs {
+		def := LogDefinition{
+			Severity:    strings.ToUpper(lc.Severity),
+			Body:        lc.Body,
+			Condition:   lc.Condition,
+			AtEnd:       lc.At == logAtEnd,
+			Probability: 1.0,
+		}
+		if !validLogSeverity[def.Severity] {
+			return nil, fmt.Errorf("%s: log[%d]: invalid severity %q", logCtx(), i, lc.Severity)
+		}
+		if lc.Probability != nil {
+			def.Probability = *lc.Probability
+		}
+		if lc.Delay != "" {
+			d, err := time.ParseDuration(lc.Delay)
+			if err != nil {
+				return nil, fmt.Errorf("%s: log[%d]: invalid delay: %w", logCtx(), i, err)
+			}
+			def.Delay = d
+		}
+		if len(lc.Attributes) > 0 {
+			def.Attributes = make(map[string]AttributeGenerator, len(lc.Attributes))
+			for name, acfg := range lc.Attributes {
+				gen, err := NewAttributeGenerator(acfg)
+				if err != nil {
+					return nil, fmt.Errorf("%s: log[%d] attribute %q: %w", logCtx(), i, name, err)
 				}
 				def.Attributes[name] = gen
 			}

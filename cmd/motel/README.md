@@ -51,6 +51,7 @@ and optional resource attributes.
 | `resource_attributes`  | map  | Static string key-value pairs attached to the OTel resource (not spans). Use for `deployment.environment`, `service.version`, `service.namespace`, etc. `service.name` and `motel.version` are set automatically and cannot be overridden |
 | `attributes`           | map  | Static string key-value pairs added to every span from this service |
 | `metrics`              | list | Metric instruments emitted by this service (see [metrics](#metrics)) |
+| `logs`                 | list | Log records emitted for every span in this service (see [logs](#logs)) |
 | `operations`           | map  | Operation definitions (required) |
 
 ```yaml
@@ -76,6 +77,7 @@ Each operation defines the span it produces.
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
 | `metrics`    | list   | Metric instruments scoped to this operation (see [metrics](#metrics)) |
+| `logs`       | list   | Log records scoped to this operation (see [logs](#logs)) |
 | `events`     | list   | Span events emitted during the operation (see below) |
 | `links`      | list   | Cross-trace span links to other operations (see below) |
 | `calls`      | list   | Downstream calls to other operations |
@@ -485,6 +487,80 @@ metrics:
     type: counter
 ```
 
+### logs
+
+Topology-driven log records. Define them at the service level (evaluated for
+every span in the service) or at the operation level (evaluated only for that
+operation). Requires `--signals logs` (or `--signals traces,logs`) when
+running.
+
+| Field         | Type   | Description |
+|--------------|--------|-------------|
+| `severity`    | string | `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `FATAL` (required, case-insensitive) |
+| `body`        | string | Log body template with `{key}` placeholders (required, see below) |
+| `condition`   | string | `error`, `success`, or `slow` — emit only for matching spans (default: every span) |
+| `probability` | float  | Chance of emitting per matching span (0-1, default: always) |
+| `at`          | string | Timestamp anchor: `start` or `end` of the span (default: `start`) |
+| `delay`       | string | Offset added to the anchor (Go duration, default: `0`) |
+| `attributes`  | map    | Log record attributes — same generators as span attributes |
+
+**Body templates:** `{key}` placeholders resolve against the log record's own
+attributes first, then the span's attributes, then the built-ins
+`{service.name}` and `{operation.name}`. Unresolved placeholders are left as
+literal text.
+
+**Conditions:** `error` fires for error spans, `success` for non-error spans,
+and `slow` for spans exceeding `--slow-threshold` (never fires when the flag
+is unset). Omit `condition` to emit for every span.
+
+**Trace correlation:** every emitted record carries the trace and span IDs of
+the span that produced it, so log/trace navigation works in any OTel backend.
+
+```yaml
+services:
+  gateway:
+    logs:
+      # Service-level: emitted for every gateway span
+      - severity: INFO
+        body: "handled {operation.name} with method {http.request.method}"
+    operations:
+      handle:
+        duration: 15ms
+        attributes:
+          http.request.method:
+            value: GET
+        logs:
+          # Emitted only when the span errors, timestamped at span end
+          - severity: ERROR
+            body: "upstream timeout for {operation.name}"
+            condition: error
+            at: end
+            attributes:
+              error.type:
+                value: TimeoutError
+          # Sampled debug log, 8ms after span start
+          - severity: DEBUG
+            body: "cache lookup"
+            probability: 0.2
+            delay: 8ms
+```
+
+**Defaults:** services that define no `logs:` (at either level) keep the
+built-in derived behaviour — an ERROR log per error span, plus a WARN log per
+span exceeding `--slow-threshold`. Defining any `logs:` on a service replaces
+the derived logs for that service. To keep equivalent behaviour alongside
+custom logs, add them explicitly:
+
+```yaml
+logs:
+  - severity: ERROR
+    body: "error in {service.name} {operation.name}"
+    condition: error
+  - severity: WARN
+    body: "slow operation {service.name} {operation.name}"
+    condition: slow
+```
+
 ## Derived Signals
 
 By default motel emits traces only. Use `--signals` to add metrics and
@@ -495,9 +571,10 @@ motel run --stdout --signals traces,metrics,logs \
   --slow-threshold 200ms docs/examples/basic-topology.yaml
 ```
 
-`--slow-threshold` controls which spans generate log records (spans exceeding
-the threshold emit a slow-span log). All three signal types are driven by the
-same topology — no separate configuration needed.
+`--slow-threshold` controls which spans generate derived log records (spans
+exceeding the threshold emit a slow-span log) and when the `slow` log
+condition fires. All three signal types are driven by the same topology — see
+[logs](#logs) for customising log output per service or operation.
 
 ## Design Decisions
 

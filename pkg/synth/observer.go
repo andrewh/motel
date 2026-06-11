@@ -11,14 +11,15 @@ import (
 
 // SpanInfo holds span metadata for signal derivation.
 type SpanInfo struct {
-	Service   string
-	Operation string
-	Timestamp time.Time
-	Duration  time.Duration
-	IsError   bool
-	Kind      trace.SpanKind
-	Attrs     []attribute.KeyValue
-	Scenarios []string
+	Service     string
+	Operation   string
+	Timestamp   time.Time
+	Duration    time.Duration
+	IsError     bool
+	Kind        trace.SpanKind
+	Attrs       []attribute.KeyValue
+	Scenarios   []string
+	SpanContext trace.SpanContext
 }
 
 // SpanObserver receives span metadata after each span is emitted.
@@ -60,15 +61,16 @@ func notifyOverrides(observers []SpanObserver, overrides map[string]Override) {
 }
 
 // newSpanInfo constructs a SpanInfo from its component fields.
-func newSpanInfo(service, operation string, timestamp time.Time, duration time.Duration, isError bool, kind trace.SpanKind, attrs []attribute.KeyValue, scenarios []string) SpanInfo {
+func newSpanInfo(service, operation string, timestamp time.Time, duration time.Duration, isError bool, kind trace.SpanKind, attrs []attribute.KeyValue, scenarios []string, spanCtx trace.SpanContext) SpanInfo {
 	return SpanInfo{
-		Service:   service,
-		Operation: operation,
-		Timestamp: timestamp,
-		Duration:  duration,
-		IsError:   isError,
-		Kind:      kind,
-		Attrs:     attrs,
-		Scenarios: scenarios,
+		Service:     service,
+		Operation:   operation,
+		Timestamp:   timestamp,
+		Duration:    duration,
+		IsError:     isError,
+		Kind:        kind,
+		Attrs:       attrs,
+		Scenarios:   scenarios,
+		SpanContext: spanCtx,
 	}
 }
