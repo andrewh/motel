@@ -471,6 +471,7 @@ func ValidateConfig(cfg *Config) error {
 			}
 		}
 		for _, op := range svc.Operations {
+			opRef := svc.Name + "." + op.Name
 			for i, lc := range op.Logs {
 				if err := validateLogConfig(lc, fmt.Sprintf("service %q operation %q: log[%d]", svc.Name, op.Name, i)); err != nil {
 					return err
