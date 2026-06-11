@@ -20,8 +20,12 @@ URL fetches have a 10-second timeout and a 10 MB response body limit. Redirects 
 Check a topology for errors without generating any output.
 
 ```sh
-motel validate <topology.yaml | URL>
+motel validate <topology.yaml | URL> [flags]
 ```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--semconv` | string | | Directory of additional semantic convention YAML files |
 
 Prints a summary on success (e.g. `Configuration valid: 5 services, 2 root operations`) or a precise error on failure including the service name, operation name, and field.
 
@@ -35,13 +39,20 @@ motel run <topology.yaml | URL> [flags]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--duration` | duration | from config, or 1m | Simulation duration |
+| `--duration` | duration | `1m` | Simulation duration |
 | `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318`) |
 | `--protocol` | string | `http/protobuf` | OTLP protocol (`http/protobuf` or `grpc`) |
 | `--signals` | string | `traces` | Comma-separated signals: `traces`, `metrics`, `logs` |
-| `--slow-threshold` | duration | `1s` | Spans exceeding this duration emit a slow-span log record. Only has an effect when `logs` is included in `--signals` |
-| `--max-spans-per-trace` | int | 10000 | Maximum spans per trace (safety limit for deep topologies) |
+| `--slow-threshold` | duration | `1s` | Spans exceeding this duration emit a slow-span log record. Warns and has no effect unless `logs` is included in `--signals` |
+| `--max-spans-per-trace` | int | 0 | Maximum spans per trace (safety limit for deep topologies); 0 means the default of 10000 |
 | `--stdout` | bool | false | Emit signals to stdout as JSON instead of sending to an endpoint |
+| `--semconv` | string | | Directory of additional semantic convention YAML files |
+| `--label-scenarios` | bool | false | Add a `synth.scenarios` attribute to spans listing active scenario names |
+| `--time-offset` | duration | 0 | Shift span timestamps by this duration (e.g. `-1h` for past, `1h` for future) |
+| `--realtime` | bool | false | Emit spans at wall-clock times matching simulated timestamps |
+| `--pprof` | string | | Start a pprof HTTP server on this address (e.g. `:6060`) |
+
+`--realtime` and `--time-offset` are mutually exclusive.
 
 #### Output format
 
@@ -65,6 +76,28 @@ motel run --stdout --duration 5s topology.yaml > spans.jsonl 2> stats.json
 
 The stdout format is the same format accepted by `motel import`, so you can round-trip: generate traces, then infer a topology from them.
 
+### emit
+
+Emit one or more single-span traces from command-line arguments, without a topology file. For multi-service topologies or call graphs, use `motel run`.
+
+```sh
+motel emit --service <name> --operation <name> [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--service` | string | | Service name (required) |
+| `--operation` | string | | Operation name (required) |
+| `--span-duration` | duration | `100ms` | Span duration |
+| `--duration` | duration | | Simulation duration, e.g. `10s`, `5m` |
+| `--error-rate` | string | | Error rate (e.g. `5%`, `0.05`) |
+| `--attr` | string | | Span attribute in `key=value` format (repeatable) |
+| `--count` | int | 1 | Number of traces to emit |
+| `--rate` | string | `10/s` | Trace rate when count > 1 (e.g. `10/s`, `100/m`) |
+| `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318`) |
+| `--protocol` | string | `http/protobuf` | OTLP protocol (`http/protobuf` or `grpc`) |
+| `--stdout` | bool | false | Emit signals to stdout as JSON |
+
 ### check
 
 Run structural checks on a topology before sending traffic.
@@ -82,6 +115,7 @@ Computes worst-case trace depth, fan-out per span, and total spans per trace usi
 | `--max-spans` | int | 10000 | Fail if worst-case spans per trace exceeds this |
 | `--samples` | int | 1000 | Sampled traces for empirical measurement (0 to skip) |
 | `--seed` | uint | 0 | Random seed for reproducibility (0 = random) |
+| `--max-spans-per-trace` | int | 0 | Maximum spans per sampled trace; 0 means the default of 10000 |
 | `--semconv` | string | | Directory of additional semantic convention YAML files |
 
 Output is one line per check showing PASS/FAIL, the measured value, and the limit. Depth checks include the worst-case path; fan-out checks identify the worst operation; span checks show both static worst-case and observed values from sampling.
@@ -105,6 +139,27 @@ The `auto` format detector examines the first line to determine whether the inpu
 
 Output is written to stdout as a YAML topology with a commented header noting how many traces and spans were analysed.
 
+### preview
+
+Render the traffic rate over time as an SVG chart.
+
+```sh
+motel preview <topology.yaml | URL> [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--duration` | duration | inferred from topology | Preview duration |
+| `--output`, `-o` | string | stdout | Output file path |
+
+### version
+
+Print the motel version, commit, and build time.
+
+```sh
+motel version
+```
+
 ## Topology DSL
 
 The full DSL reference — services, operations, calls, attributes, traffic, and scenarios — is documented in the [motel README](../../cmd/motel/README.md).
@@ -112,6 +167,6 @@ The full DSL reference — services, operations, calls, attributes, traffic, and
 ## Further reading
 
 - [Getting started tutorial](../tutorials/getting-started.md)
-- [Example topologies](../examples/)
+- [Example topologies](../examples/README.md)
 - [How import infers a topology](../explanation/import-pipeline/README.md)
 - [Modelling your services](../how-to/model-your-services.md)
