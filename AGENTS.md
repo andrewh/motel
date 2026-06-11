@@ -23,7 +23,7 @@ cmd/motel/          # CLI entry point and cobra commands
 pkg/synth/          # Simulation engine, topology, traffic, scenarios, logs
 pkg/synth/traceimport/  # Import pipeline: parse → tree → stats → marshal → validate
 pkg/semconv/        # OpenTelemetry semantic convention registry
-tools/dgg2motel/    # Converter tool (see tools/dgg2motel/README.md)
+tools/dgg2motel/    # Converts DGG call-graph JSON into motel topology YAML
 third_party/        # Vendored semantic convention YAML data
 docs/               # Documentation, examples, demos, man pages
 docs/explanation/import-pipeline/  # Worked example of the import inference pipeline
