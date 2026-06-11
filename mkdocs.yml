@@ -40,10 +40,6 @@ validation:
   links:
     absolute_links: ignore
 
-not_in_nav: |
-  docs/demos/
-  docs/research/
-
 nav:
   - Home: index.md
   - Tutorials:
