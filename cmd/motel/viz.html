@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>motel topology</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #fafafa; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  #info {
+    position: fixed; top: 12px; left: 16px; pointer-events: none;
+    color: #333; max-width: 360px;
+  }
+  #info h1 { font-size: 16px; margin: 0 0 4px 0; font-weight: 600; }
+  #info p { font-size: 12px; margin: 0; color: #777; }
+  #tooltip {
+    position: fixed; display: none; pointer-events: none;
+    background: rgba(30, 30, 30, 0.92); color: #eee; border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 420px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25); white-space: nowrap;
+  }
+  #tooltip .head { font-weight: 600; color: #fff; }
+  #tooltip .async { color: #f59e0b; }
+</style>
+</head>
+<body>
+<div id="info">
+  <h1 id="title"></h1>
+  <p>Drag nodes to rearrange. Hover a node or edge for details. Blue ring = traffic entry point.</p>
+</div>
+<div id="tooltip"></div>
+<script>
+const graph = /*__GRAPH_DATA__*/null;
+
+const NODE_RADIUS = 26;
+const SPRING_LENGTH = 170;
+const SPRING_K = 0.015;
+const REPULSION = 90000;
+const CENTER_PULL = 0.012;
+const DAMPING = 0.85;
+const SETTLE_FLOOR = 0.02;
+
+let nodes = [];
+let edges = [];
+let nodeByID = {};
+let dragged = null;
+let hoverNode = null;
+let hoverEdge = null;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  document.getElementById('title').textContent = graph.title;
+
+  // Seed positions on a circle so the force layout starts untangled.
+  graph.nodes.forEach((n, i) => {
+    const angle = (i / graph.nodes.length) * TWO_PI;
+    const r = min(width, height) * 0.3;
+    const node = {
+      ...n,
+      x: width / 2 + r * cos(angle),
+      y: height / 2 + r * sin(angle),
+      vx: 0, vy: 0,
+    };
+    nodes.push(node);
+    nodeByID[n.id] = node;
+  });
+  edges = graph.edges.map(e => ({
+    ...e,
+    a: nodeByID[e.source],
+    b: nodeByID[e.target],
+  }));
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function applyForces() {
+  for (const n of nodes) {
+    // Gentle pull toward the centre keeps disconnected components on screen.
+    n.vx += (width / 2 - n.x) * CENTER_PULL * 0.1;
+    n.vy += (height / 2 - n.y) * CENTER_PULL * 0.1;
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) { dx = random(-1, 1); dy = random(-1, 1); d2 = 1; }
+      const f = REPULSION / d2;
+      const d = sqrt(d2);
+      a.vx -= (dx / d) * f * 0.01; a.vy -= (dy / d) * f * 0.01;
+      b.vx += (dx / d) * f * 0.01; b.vy += (dy / d) * f * 0.01;
+    }
+  }
+  for (const e of edges) {
+    if (e.a === e.b) continue;
+    const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+    const d = max(sqrt(dx * dx + dy * dy), 1);
+    const f = (d - SPRING_LENGTH) * SPRING_K;
+    e.a.vx += (dx / d) * f; e.a.vy += (dy / d) * f;
+    e.b.vx -= (dx / d) * f; e.b.vy -= (dy / d) * f;
+  }
+  for (const n of nodes) {
+    if (n === dragged) { n.vx = 0; n.vy = 0; continue; }
+    n.vx *= DAMPING; n.vy *= DAMPING;
+    if (abs(n.vx) < SETTLE_FLOOR) n.vx = 0;
+    if (abs(n.vy) < SETTLE_FLOOR) n.vy = 0;
+    n.x = constrain(n.x + n.vx, NODE_RADIUS, width - NODE_RADIUS);
+    n.y = constrain(n.y + n.vy, NODE_RADIUS, height - NODE_RADIUS);
+  }
+}
+
+function edgeWidth(e) {
+  return constrain(1 + e.weight * 2.5, 1, 8);
+}
+
+function drawEdge(e, highlighted) {
+  const hasAsync = e.calls.some(c => c.async);
+  const self = e.a === e.b;
+  push();
+  stroke(highlighted ? '#2563eb' : '#b6bcc6');
+  strokeWeight(edgeWidth(e));
+  noFill();
+  if (hasAsync) drawingContext.setLineDash([6, 5]);
+
+  let tipX, tipY, tipAngle;
+  if (self) {
+    const r = NODE_RADIUS * 1.2;
+    const cx = e.a.x + NODE_RADIUS * 1.4, cy = e.a.y - NODE_RADIUS * 1.4;
+    circle(cx, cy, r * 2);
+    tipX = cx - r * 0.7; tipY = cy + r * 0.7; tipAngle = PI * 0.75;
+  } else {
+    const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+    const d = max(sqrt(dx * dx + dy * dy), 1);
+    // Bow the line slightly so A→B and B→A edges don't overlap.
+    const mx = (e.a.x + e.b.x) / 2 - dy / d * 18;
+    const my = (e.a.y + e.b.y) / 2 + dx / d * 18;
+    beginShape();
+    vertex(e.a.x, e.a.y);
+    quadraticVertex(mx, my, e.b.x, e.b.y);
+    endShape();
+    // Arrowhead just outside the target node, along the curve tangent.
+    const t = 1 - (NODE_RADIUS + 4) / d;
+    tipX = lerp(lerp(e.a.x, mx, t), lerp(mx, e.b.x, t), t);
+    tipY = lerp(lerp(e.a.y, my, t), lerp(my, e.b.y, t), t);
+    tipAngle = atan2(e.b.y - my, e.b.x - mx);
+  }
+  drawingContext.setLineDash([]);
+  push();
+  translate(tipX, tipY);
+  rotate(tipAngle);
+  fill(highlighted ? '#2563eb' : '#9aa1ad');
+  noStroke();
+  triangle(0, 0, -10, 4.5, -10, -4.5);
+  pop();
+  pop();
+}
+
+function drawNode(n, highlighted) {
+  push();
+  if (n.root) {
+    stroke('#2563eb');
+    strokeWeight(3);
+  } else {
+    stroke('#8a919d');
+    strokeWeight(1.5);
+  }
+  fill(highlighted ? '#dbeafe' : '#ffffff');
+  circle(n.x, n.y, NODE_RADIUS * 2);
+  noStroke();
+  fill('#1f2937');
+  textAlign(CENTER, CENTER);
+  textSize(12);
+  text(n.id, n.x, n.y + NODE_RADIUS + 14);
+  fill('#6b7280');
+  textSize(10);
+  text(n.operations.length, n.x, n.y);
+  pop();
+}
+
+function distToEdge(e, px, py) {
+  if (e.a === e.b) return Infinity;
+  const x1 = e.a.x, y1 = e.a.y, x2 = e.b.x, y2 = e.b.y;
+  const len2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+  if (len2 === 0) return Infinity;
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / len2;
+  t = constrain(t, 0, 1);
+  return dist(px, py, x1 + t * (x2 - x1), y1 + t * (y2 - y1));
+}
+
+function updateHover() {
+  hoverNode = null;
+  hoverEdge = null;
+  for (const n of nodes) {
+    if (dist(mouseX, mouseY, n.x, n.y) <= NODE_RADIUS) { hoverNode = n; return; }
+  }
+  let best = 8;
+  for (const e of edges) {
+    const d = distToEdge(e, mouseX, mouseY);
+    if (d < best) { best = d; hoverEdge = e; }
+  }
+}
+
+function formatProbability(p) {
+  return p >= 1 ? '100%' : (p * 100).toFixed(p * 100 % 1 === 0 ? 0 : 1) + '%';
+}
+
+function callLine(c) {
+  const asyncTag = c.async ? ' <span class="async">async</span>' : '';
+  return `${escapeHTML(c.from)} → ${escapeHTML(c.to)} (${formatProbability(c.probability)})${asyncTag}`;
+}
+
+function escapeHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function updateTooltip() {
+  const tip = document.getElementById('tooltip');
+  let html = '';
+  if (hoverNode) {
+    const ops = hoverNode.operations.map(escapeHTML).join('<br>');
+    html = `<div class="head">${escapeHTML(hoverNode.id)}</div>${ops}`;
+  } else if (hoverEdge) {
+    html = `<div class="head">${escapeHTML(hoverEdge.source)} → ${escapeHTML(hoverEdge.target)}</div>` +
+      hoverEdge.calls.map(callLine).join('<br>');
+  }
+  if (html) {
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    tip.style.left = min(mouseX + 16, windowWidth - 440) + 'px';
+    tip.style.top = (mouseY + 16) + 'px';
+  } else {
+    tip.style.display = 'none';
+  }
+}
+
+function draw() {
+  background('#fafafa');
+  applyForces();
+  if (!dragged) updateHover();
+  updateTooltip();
+
+  for (const e of edges) {
+    const hl = e === hoverEdge || (hoverNode && (e.a === hoverNode || e.b === hoverNode));
+    drawEdge(e, hl);
+  }
+  for (const n of nodes) {
+    drawNode(n, n === hoverNode);
+  }
+  cursor(hoverNode ? HAND : ARROW);
+}
+
+function mousePressed() {
+  for (const n of nodes) {
+    if (dist(mouseX, mouseY, n.x, n.y) <= NODE_RADIUS) { dragged = n; return; }
+  }
+}
+
+function mouseDragged() {
+  if (dragged) {
+    dragged.x = constrain(mouseX, NODE_RADIUS, width - NODE_RADIUS);
+    dragged.y = constrain(mouseY, NODE_RADIUS, height - NODE_RADIUS);
+  }
+}
+
+function mouseReleased() {
+  dragged = null;
+}
+</script>
+</body>
+</html>
