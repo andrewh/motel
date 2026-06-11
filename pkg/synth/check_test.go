@@ -812,3 +812,164 @@ func TestRealisticSampledWithinStatic(t *testing.T) {
 		}
 	})
 }
+
+// --- Scenario-aware checks ---
+
+func TestScenarioSets_Empty(t *testing.T) {
+	sets := ScenarioSets(nil)
+	if len(sets) != 1 {
+		t.Fatalf("expected baseline only, got %d sets", len(sets))
+	}
+	if len(sets[0].Names) != 0 || sets[0].Overrides != nil {
+		t.Fatalf("baseline set should be empty, got %+v", sets[0])
+	}
+}
+
+func TestScenarioSets_OverlappingWindows(t *testing.T) {
+	scenarios := []Scenario{
+		{Name: "a", Start: 1 * time.Minute, End: 3 * time.Minute},
+		{Name: "b", Start: 2 * time.Minute, End: 4 * time.Minute},
+	}
+
+	sets := ScenarioSets(scenarios)
+
+	var got [][]string
+	for _, s := range sets {
+		got = append(got, s.Names)
+	}
+	want := [][]string{nil, {"a"}, {"a", "b"}, {"b"}}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d sets %v, got %d: %v", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if len(got[i]) != len(want[i]) {
+			t.Fatalf("set %d: expected %v, got %v", i, want[i], got[i])
+		}
+		for j := range want[i] {
+			if got[i][j] != want[i][j] {
+				t.Fatalf("set %d: expected %v, got %v", i, want[i], got[i])
+			}
+		}
+	}
+}
+
+func TestScenarioSets_DisjointWindowsDeduplicated(t *testing.T) {
+	// Identical override behaviour but distinct names — both appear once each.
+	scenarios := []Scenario{
+		{Name: "early", Start: 0, End: 1 * time.Minute},
+		{Name: "late", Start: 5 * time.Minute, End: 6 * time.Minute},
+	}
+
+	sets := ScenarioSets(scenarios)
+	if len(sets) != 3 {
+		t.Fatalf("expected baseline + 2 singleton sets, got %d", len(sets))
+	}
+}
+
+// scenarioCheckTopo builds A→B with an isolated C, plus a scenario that adds
+// B→C during its window (deepening the worst-case trace from 1 to 2).
+func scenarioCheckTopo(t *testing.T) (*Topology, []Scenario) {
+	t.Helper()
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	opC := &Operation{Service: s, Name: "C", Ref: "s.C",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opB := &Operation{Service: s, Name: "B", Ref: "s.B",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	opA := &Operation{Service: s, Name: "A", Ref: "s.A",
+		Duration: Distribution{Mean: 10 * time.Millisecond},
+		Calls:    []Call{{Operation: opB}}}
+	s.Operations["A"] = opA
+	s.Operations["B"] = opB
+	s.Operations["C"] = opC
+
+	topo := &Topology{
+		Services: map[string]*Service{"s": s},
+		Roots:    []*Operation{opA, opC},
+	}
+	scenarios := []Scenario{{
+		Name:  "deepen",
+		Start: 1 * time.Minute,
+		End:   2 * time.Minute,
+		Overrides: map[string]Override{
+			"s.B": {AddCalls: []Call{{Operation: opC}}},
+		},
+	}}
+	return topo, scenarios
+}
+
+func TestCheck_ScenarioProducesWorstCase(t *testing.T) {
+	topo, scenarios := scenarioCheckTopo(t)
+
+	results := Check(topo, CheckOptions{
+		MaxDepth:  1,
+		MaxFanOut: 100,
+		MaxSpans:  10000,
+		Samples:   20,
+		Seed:      42,
+		Scenarios: scenarios,
+	})
+
+	var depthResult *CheckResult
+	for i := range results {
+		if results[i].Name == "max-depth" {
+			depthResult = &results[i]
+		}
+	}
+	if depthResult == nil {
+		t.Fatal("missing max-depth result")
+	}
+	if depthResult.Pass {
+		t.Fatalf("depth check should fail under scenario: actual=%d", depthResult.Actual)
+	}
+	if depthResult.Actual != 2 {
+		t.Fatalf("expected scenario worst-case depth 2, got %d", depthResult.Actual)
+	}
+	if len(depthResult.Scenarios) != 1 || depthResult.Scenarios[0] != "deepen" {
+		t.Fatalf("expected worst case attributed to scenario %q, got %v", "deepen", depthResult.Scenarios)
+	}
+	if depthResult.Sampled == nil || *depthResult.Sampled != 2 {
+		t.Fatalf("expected sampled depth 2 under scenario overrides, got %v", depthResult.Sampled)
+	}
+}
+
+func TestCheck_BaselineWinsWithoutScenarios(t *testing.T) {
+	topo, _ := scenarioCheckTopo(t)
+
+	// Without scenarios the same topology passes the tight depth limit.
+	results := Check(topo, CheckOptions{
+		MaxDepth:  1,
+		MaxFanOut: 100,
+		MaxSpans:  10000,
+		Samples:   20,
+		Seed:      42,
+	})
+	for _, r := range results {
+		if !r.Pass {
+			t.Fatalf("baseline check %s should pass, got FAIL (actual=%d)", r.Name, r.Actual)
+		}
+		if len(r.Scenarios) != 0 {
+			t.Fatalf("baseline check %s should not name scenarios, got %v", r.Name, r.Scenarios)
+		}
+	}
+
+	// A scenario that only removes calls never beats the baseline worst case.
+	shrink := []Scenario{{
+		Name:  "shrink",
+		Start: 0,
+		End:   time.Minute,
+		Overrides: map[string]Override{
+			"s.A": {RemoveCalls: map[string]bool{"s.B": true}},
+		},
+	}}
+	results = Check(topo, CheckOptions{
+		MaxDepth:  10,
+		MaxFanOut: 100,
+		MaxSpans:  10000,
+		Scenarios: shrink,
+	})
+	for _, r := range results {
+		if len(r.Scenarios) != 0 {
+			t.Fatalf("check %s: baseline should win over call-removing scenario, got %v", r.Name, r.Scenarios)
+		}
+	}
+}

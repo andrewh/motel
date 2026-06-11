@@ -176,6 +176,41 @@ func TestParseStdouttrace_ServiceFallback(t *testing.T) {
 	assert.Equal(t, "fallback-svc", spans[0].Service)
 }
 
+func TestParseStdouttrace_ServiceNamePrecedence(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			// Current binaries: per-service resource, constant module-path scope name.
+			name: "resource service.name wins over scope name",
+			line: `{"Name":"op","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[{"Key":"synth.service","Value":{"Type":"STRING","Value":"checkout"}}],"Resource":[{"Key":"service.name","Value":{"Type":"STRING","Value":"checkout"}}],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"github.com/andrewh/motel"}}`,
+			want: "checkout",
+		},
+		{
+			// Older binaries: placeholder resource, synth.service attribute set.
+			name: "unknown_service placeholder falls back to synth.service",
+			line: `{"Name":"op","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[{"Key":"synth.service","Value":{"Type":"STRING","Value":"checkout"}}],"Resource":[{"Key":"service.name","Value":{"Type":"STRING","Value":"unknown_service:motel-synth"}}],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"checkout-scope"}}`,
+			want: "checkout",
+		},
+		{
+			name: "unknown_service placeholder without synth.service falls back to scope name",
+			line: `{"Name":"op","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Resource":[{"Key":"service.name","Value":{"Type":"STRING","Value":"unknown_service:app"}}],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"checkout"}}`,
+			want: "checkout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spans, err := ParseSpans(strings.NewReader(tt.line), FormatStdouttrace)
+			require.NoError(t, err)
+			require.Len(t, spans, 1)
+			assert.Equal(t, tt.want, spans[0].Service)
+		})
+	}
+}
+
 func TestParseStdouttrace_MultipleSpans(t *testing.T) {
 	lines := strings.Join([]string{
 		`{"Name":"root","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,

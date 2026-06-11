@@ -1,0 +1,77 @@
+# Meta-style wide fan-out workflow modelled on published trace studies
+#
+# Models the structural characteristics reported by Huye, Shkuro, and
+# Sambasivan, "Lifting the Veil on Meta's Microservice Architecture"
+# (USENIX ATC 2023) and Du et al., "A Microservice Graph Generator with
+# Production Characteristics" (ICS 2025):
+#   - Children set size 50 at the aggregation tier (Du et al. report up
+#     to 50 children per service at Meta, versus 1-10 at Alibaba)
+#   - Shallow, wide workflow shape: an aggregator fanning out to many
+#     ranking leaves, typical of feed and ranking request workflows
+#
+# Expected `motel check` static results: depth 3, fan-out 50, spans 54.
+# Validated by TestEmpiricalMeta* in pkg/synth/empirical_test.go.
+
+version: 1
+
+services:
+  web:
+    resource_attributes:
+      deployment.environment: production
+    operations:
+      GET /feed:
+        duration: 120ms +/- 40ms
+        error_rate: 0.1%
+        calls:
+          - target: feed-agg.rank
+
+  feed-agg:
+    operations:
+      rank:
+        duration: 80ms +/- 25ms
+        error_rate: 0.2%
+        call_style: parallel
+        calls:
+          - target: ranking-leaf.score
+            count: 40
+          - target: cache.get
+            count: 8
+          - target: social-graph.follows
+          - target: content-store.fetch
+
+  ranking-leaf:
+    operations:
+      score:
+        duration: 10ms +/- 4ms
+
+  cache:
+    operations:
+      get:
+        duration: 1ms +/- 0.5ms
+
+  social-graph:
+    operations:
+      follows:
+        duration: 8ms +/- 3ms
+        calls:
+          - target: social-db.query
+
+  social-db:
+    operations:
+      query:
+        duration: 4ms +/- 1ms
+
+  content-store:
+    operations:
+      fetch:
+        duration: 12ms +/- 4ms
+        calls:
+          - target: blob-cache.get
+
+  blob-cache:
+    operations:
+      get:
+        duration: 2ms +/- 1ms
+
+traffic:
+  rate: 50/s

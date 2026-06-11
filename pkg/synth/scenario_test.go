@@ -790,3 +790,61 @@ func TestResolveOverridesMergesCallChanges(t *testing.T) {
 			"original scenario should not be mutated")
 	})
 }
+
+func TestResolveOverridesMergesMetrics(t *testing.T) {
+	t.Parallel()
+
+	scenarios := []Scenario{
+		{
+			Name: "low", Start: 0, End: time.Hour, Priority: 1,
+			Overrides: map[string]Override{
+				"svc": {Metrics: map[string]FloatDistribution{
+					"cpu": {Mean: 0.5},
+					"mem": {Mean: 0.3},
+				}},
+			},
+		},
+		{
+			Name: "high", Start: 0, End: time.Hour, Priority: 2,
+			Overrides: map[string]Override{
+				"svc": {Metrics: map[string]FloatDistribution{
+					"cpu": {Mean: 0.9},
+				}},
+			},
+		},
+	}
+
+	merged := ResolveOverrides(ActiveScenarios(scenarios, time.Minute))
+	require.Contains(t, merged, "svc")
+	assert.InDelta(t, 0.9, merged["svc"].Metrics["cpu"].Mean, 0.001, "higher priority wins per metric")
+	assert.InDelta(t, 0.3, merged["svc"].Metrics["mem"].Mean, 0.001, "unrelated metric preserved")
+
+	assert.InDelta(t, 0.5, scenarios[0].Overrides["svc"].Metrics["cpu"].Mean, 0.001,
+		"original scenario should not be mutated")
+}
+
+func TestBuildScenariosParsesMetricOverrides(t *testing.T) {
+	t.Parallel()
+
+	topo := &Topology{Services: map[string]*Service{
+		"svc": {Name: "svc", Operations: map[string]*Operation{}},
+	}}
+
+	scenarios, err := BuildScenarios([]ScenarioConfig{{
+		Name:     "cpu spike",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc": {Metrics: map[string]MetricOverrideConfig{
+				"cpu": {Value: "0.95 +/- 0.02"},
+			}},
+		},
+	}}, topo)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+
+	dist, ok := scenarios[0].Overrides["svc"].Metrics["cpu"]
+	require.True(t, ok)
+	assert.InDelta(t, 0.95, dist.Mean, 0.001)
+	assert.InDelta(t, 0.02, dist.StdDev, 0.001)
+}

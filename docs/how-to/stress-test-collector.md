@@ -124,7 +124,7 @@ motel run --endpoint http://localhost:4318 --protocol http/protobuf \
 
 Then query your backend for the same time window and count the spans received. The difference is your data loss under that load profile.
 
-For precise counting, send traces to both the collector and stdout simultaneously using two collector receivers, then compare line counts:
+For precise counting, run the same topology with `--stdout` and count the lines — one span per line:
 
 ```sh
 motel run --stdout --duration 2m docs/examples/stress-test.yaml | wc -l

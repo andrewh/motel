@@ -21,10 +21,10 @@ kind (2=SERVER): 2
 
 ## Custom span duration
 
-The default span duration is 100ms. Use `--duration` to set a specific value.
+The default span duration is 100ms. Use `--span-duration` to set a specific value.
 
 ```bash
-motel emit --service api --operation "GET /health" --duration 250ms --stdout 2>/dev/null | jq -r '"operation: \(.Name)", "has timestamps: \((.StartTime | length) > 0)"'
+motel emit --service api --operation "GET /health" --span-duration 250ms --stdout 2>/dev/null | jq -r '"operation: \(.Name)", "has timestamps: \((.StartTime | length) > 0)"'
 
 ```
 

@@ -1,0 +1,51 @@
+# Topology-driven metrics example
+# Demonstrates all four OTel instrument types at both service and operation level.
+# Run with:
+#   motel run --signals traces,metrics --duration 30s docs/examples/topology-driven-metrics.yaml
+
+version: 1
+
+services:
+  gateway:
+    metrics:
+      # Span-derived histogram: records each request's duration in seconds
+      - name: http.server.request.duration
+        type: histogram
+        unit: s
+      # Span-derived updowncounter: tracks in-flight requests (requires --realtime for meaningful values)
+      - name: http.server.active_requests
+        type: updowncounter
+        unit: "{request}"
+      # Topology-defined gauge: sampled on each collection cycle, independent of spans
+      - name: gateway.cpu.utilisation
+        type: gauge
+        value: 0.40 +/- 0.08
+    operations:
+      GET /api:
+        duration: 40ms +/- 10ms
+        error_rate: 0.5%
+        metrics:
+          # Operation-level metric: only fires for this operation
+          - name: gateway.cache.hit_ratio
+            type: gauge
+            value: 0.75 +/- 0.05
+        calls:
+          - backend.process
+
+  backend:
+    metrics:
+      # Span-derived counter: +1 per completed span
+      - name: backend.requests.total
+        type: counter
+      # Topology-defined counter: sampled bytes-per-request added on each span
+      - name: backend.response.bytes
+        type: counter
+        unit: "By"
+        value: 4096 +/- 512
+    operations:
+      process:
+        duration: 20ms +/- 5ms
+        error_rate: 0.2%
+
+traffic:
+  rate: 50/s
