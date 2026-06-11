@@ -43,13 +43,13 @@ Reasons for choosing rapid over alternatives (notably `testing/quick` and
 
 ### Synth engine (`pkg/synth/property_test.go`)
 
-**Topology conformance (7 tests).** Every span produced by the engine
+**Topology conformance (8 tests).** Every span produced by the engine
 references a valid operation in the topology. Refs are correctly formatted as
 `service.operation`. Roots are complete, sorted, and not called by other
 operations. Cycle detection rejects invalid configs. Call targets resolve to
 real operations.
 
-**Span structure (4 tests).** Children start after their parent, parents end
+**Span structure (5 tests).** Children start after their parent, parents end
 after their children, durations are positive. Root spans are SERVER kind,
 non-root spans are CLIENT kind. All spans in a trace share the same trace ID.
 
@@ -62,7 +62,7 @@ call edge in the topology.
 **Error cascading (1 test).** If a child span has an error, its parent also
 has an error.
 
-**Scenarios (5 tests).** `ActiveScenarios` returns only scenarios whose window
+**Scenarios (7 tests).** `ActiveScenarios` returns only scenarios whose window
 contains the current time, sorted by priority, with stable ordering.
 `ResolveOverrides` merges correctly (last-defined wins), preserves earlier
 fields when later scenarios only partially override, doesn't mutate input
@@ -74,7 +74,7 @@ from the highest-priority scenario.
 **Engine with overrides (2 tests).** Duration overrides change actual span
 durations. Error rate override of 100% produces error spans.
 
-**Attribute generators (6 tests).** StaticValue is constant, WeightedChoice
+**Attribute generators (8 tests).** StaticValue is constant, WeightedChoice
 outputs are within the choice set, BoolValue returns booleans with correct
 extreme behaviour, RangeValue stays within bounds with single-value identity,
 SequenceValue is monotonic, NormalValue mean converges.
@@ -121,11 +121,11 @@ exist.
 are bounded by total counts. Duration lists match span counts and are positive.
 Call counts match tree children.
 
-**Duration arithmetic (4 tests).** Computed mean is within min/max. Combining
+**Duration arithmetic (5 tests).** Computed mean is within min/max. Combining
 a distribution with itself is idempotent. Uniform distributions (zero stddev)
 are preserved. Standard deviation is non-negative and zero for uniform inputs.
 
-**Marshal round-trip (1 test).** Generated YAML passes `LoadConfig` and
+**Marshal round-trip (2 tests).** Generated YAML passes `LoadConfig` and
 `ValidateConfig`. All services from the input appear in the output.
 
 ## Bugs found
@@ -170,7 +170,9 @@ run the code, check an invariant.
 
 ## Fuzz targets
 
-Five fuzz targets wrap property tests via `rapid.MakeFuzz`:
+Thirteen fuzz targets exercise the parsers, validators, check bounds, and
+import pipeline. Most wrap property tests via `rapid.MakeFuzz`;
+`FuzzParseErrorRate` and `FuzzParseSpans` fuzz raw bytes directly:
 
 | Target | Package | What it exercises |
 |---|---|---|
@@ -178,6 +180,14 @@ Five fuzz targets wrap property tests via `rapid.MakeFuzz`:
 | `FuzzBuildTopology` | `pkg/synth` | Topology building and ref correctness |
 | `FuzzParseDistribution` | `pkg/synth` | Distribution parse/format round-trip |
 | `FuzzParseRate` | `pkg/synth` | Rate parsing with regex-generated strings |
+| `FuzzParseErrorRate` | `pkg/synth` | Error-rate parsing (percentage and bare float, out-of-range rejection) |
+| `FuzzValidateCallConfig` | `pkg/synth` | Call config validation (timeout, retries, count, conditions) |
+| `FuzzCheckMaxDepthBounds` | `pkg/synth` | Static `MaxDepth` always bounds sampled observations |
+| `FuzzCheckMaxSpansBounds` | `pkg/synth` | Static `MaxSpans` always bounds sampled observations |
+| `FuzzCheckMaxFanOutBounds` | `pkg/synth` | Static `MaxFanOut` always bounds sampled observations |
+| `FuzzDistributionOrdering` | `pkg/synth` | Percentile distributions are monotonic (p50 ≤ p95 ≤ p99 ≤ max) |
+| `FuzzRealisticCheck` | `pkg/synth` | Static bounds hold for production-scale generated topologies |
+| `FuzzParseSpans` | `pkg/synth/traceimport` | Span parsing never panics on arbitrary bytes, in all formats |
 | `FuzzMarshalRoundTrip` | `pkg/synth/traceimport` | Full import pipeline round-trip |
 
 ### Running fuzz targets
@@ -193,13 +203,16 @@ import pipeline):
 go test ./pkg/synth/ -fuzz=FuzzParseRate -fuzztime=5m
 
 # Run all synth targets in parallel
-go test ./pkg/synth/ -fuzz=FuzzValidateConfig -fuzztime=5m &
-go test ./pkg/synth/ -fuzz=FuzzBuildTopology -fuzztime=5m &
-go test ./pkg/synth/ -fuzz=FuzzParseDistribution -fuzztime=5m &
-go test ./pkg/synth/ -fuzz=FuzzParseRate -fuzztime=5m &
+for target in FuzzValidateConfig FuzzBuildTopology FuzzParseDistribution \
+    FuzzParseRate FuzzParseErrorRate FuzzValidateCallConfig \
+    FuzzCheckMaxDepthBounds FuzzCheckMaxSpansBounds FuzzCheckMaxFanOutBounds \
+    FuzzDistributionOrdering FuzzRealisticCheck; do
+  go test ./pkg/synth/ -fuzz="^$target\$" -fuzztime=5m &
+done
 wait
 
-# Run the import pipeline target separately (different package)
+# Run the import pipeline targets separately (different package)
+go test ./pkg/synth/traceimport/ -fuzz=FuzzParseSpans -fuzztime=5m
 go test ./pkg/synth/traceimport/ -fuzz=FuzzMarshalRoundTrip -fuzztime=5m
 ```
 
@@ -216,11 +229,16 @@ src=~/Library/Caches/go-build/fuzz/github.com/andrewh/motel
 # src=~/.cache/go-build/fuzz/github.com/andrewh/motel
 
 # Copy new entries (cp -n skips existing files)
-for target in FuzzValidateConfig FuzzBuildTopology FuzzParseDistribution FuzzParseRate; do
+for target in FuzzValidateConfig FuzzBuildTopology FuzzParseDistribution \
+    FuzzParseRate FuzzParseErrorRate FuzzValidateCallConfig \
+    FuzzCheckMaxDepthBounds FuzzCheckMaxSpansBounds FuzzCheckMaxFanOutBounds \
+    FuzzDistributionOrdering FuzzRealisticCheck; do
   cp -n "$src/pkg/synth/$target"/* "pkg/synth/testdata/fuzz/$target/"
 done
-cp -n "$src/pkg/synth/traceimport/FuzzMarshalRoundTrip"/* \
-  "pkg/synth/traceimport/testdata/fuzz/FuzzMarshalRoundTrip/"
+for target in FuzzParseSpans FuzzMarshalRoundTrip; do
+  cp -n "$src/pkg/synth/traceimport/$target"/* \
+    "pkg/synth/traceimport/testdata/fuzz/$target/"
+done
 
 # Verify tests still pass with new corpus
 make test

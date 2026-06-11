@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"time"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -15,6 +16,8 @@ import (
 )
 
 // CheckResult holds the outcome of a single structural check.
+// Scenarios names the scenario combination that produced the worst case;
+// empty means the baseline topology (no scenarios active).
 type CheckResult struct {
 	Name         string
 	Pass         bool
@@ -24,6 +27,7 @@ type CheckResult struct {
 	SamplesRun   int
 	Path         []string
 	Ref          string
+	Scenarios    []string
 	Distribution *DistributionSummary
 }
 
@@ -74,6 +78,8 @@ func percentileFromSorted(sorted []int, p float64) int {
 }
 
 // CheckOptions configures the thresholds and sampling for Check.
+// When Scenarios is non-empty, every distinct combination of co-active
+// scenarios is checked and the worst case reported per check.
 type CheckOptions struct {
 	MaxDepth         int
 	MaxFanOut        int
@@ -81,6 +87,7 @@ type CheckOptions struct {
 	MaxSpansPerTrace int
 	Samples          int
 	Seed             uint64
+	Scenarios        []Scenario
 }
 
 // SampleResults holds empirical measurements from sampled trace generation.
@@ -97,11 +104,17 @@ const maxSpansCap = math.MaxInt32
 
 // MaxDepth returns the longest path (edge count) from any root to any leaf
 // and the operation refs along that path.
+func MaxDepth(topo *Topology) (int, []string) {
+	return maxDepthWith(topo, nil)
+}
+
+// maxDepthWith computes MaxDepth with scenario call overrides applied.
 //
-// Memoisation is safe because BuildTopology guarantees the topology is acyclic.
+// Memoisation is safe because BuildTopology guarantees the topology is acyclic
+// (and BuildScenarios rejects scenario call changes that create cycles).
 // In a DAG, a node's subtree depth is the same regardless of which path reaches it,
 // so the memo produces correct results under any visited set.
-func MaxDepth(topo *Topology) (int, []string) {
+func maxDepthWith(topo *Topology, overrides map[string]Override) (int, []string) {
 	type result struct {
 		depth int
 		path  []string
@@ -117,7 +130,7 @@ func MaxDepth(topo *Topology) (int, []string) {
 
 		best := result{depth: 0, path: []string{op.Ref}}
 
-		for _, call := range op.Calls {
+		for _, call := range effectiveCalls(op, overrides) {
 			if visited[call.Operation] {
 				continue
 			}
@@ -151,13 +164,18 @@ func MaxDepth(topo *Topology) (int, []string) {
 // operation produces it. For each operation, it sums
 // max(call.Count, 1) * (1 + call.Retries) across all calls.
 func MaxFanOut(topo *Topology) (int, string) {
+	return maxFanOutWith(topo, nil)
+}
+
+// maxFanOutWith computes MaxFanOut with scenario call overrides applied.
+func maxFanOutWith(topo *Topology, overrides map[string]Override) (int, string) {
 	maxFan := 0
 	worstRef := ""
 
 	for _, svc := range topo.Services {
 		for _, op := range svc.Operations {
 			fan := 0
-			for _, call := range op.Calls {
+			for _, call := range effectiveCalls(op, overrides) {
 				count := max(call.Count, 1)
 				attempts := 1 + call.Retries
 				fan += count * attempts
@@ -176,11 +194,17 @@ func MaxFanOut(topo *Topology) (int, string) {
 // It multiplies fan-out at each level. Both on-error and on-success paths are
 // included (conservative — real traces cannot take both).
 // Returns the max and which root produces it.
+func MaxSpans(topo *Topology) (int, string) {
+	return maxSpansWith(topo, nil)
+}
+
+// maxSpansWith computes MaxSpans with scenario call overrides applied.
 //
-// Memoisation is safe because BuildTopology guarantees the topology is acyclic.
+// Memoisation is safe because BuildTopology guarantees the topology is acyclic
+// (and BuildScenarios rejects scenario call changes that create cycles).
 // In a DAG, a node's subtree span count is the same regardless of which path
 // reaches it, so the memo produces correct results under any visited set.
-func MaxSpans(topo *Topology) (int, string) {
+func maxSpansWith(topo *Topology, overrides map[string]Override) (int, string) {
 	memo := make(map[*Operation]int)
 
 	var dfs func(op *Operation, visited map[*Operation]bool) int
@@ -191,7 +215,7 @@ func MaxSpans(topo *Topology) (int, string) {
 
 		total := 1 // the operation's own span
 
-		for _, call := range op.Calls {
+		for _, call := range effectiveCalls(op, overrides) {
 			if visited[call.Operation] {
 				continue
 			}
@@ -237,6 +261,11 @@ func MaxSpans(topo *Topology) (int, string) {
 // maxSpansPerTrace (or DefaultMaxSpansPerTrace when 0), so for topologies whose
 // static worst-case exceeds that limit, the observed value will plateau.
 func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) SampleResults {
+	return sampleTracesWith(topo, n, seed, maxSpansPerTrace, nil)
+}
+
+// sampleTracesWith runs SampleTraces with scenario overrides applied to every trace.
+func sampleTracesWith(topo *Topology, n int, seed uint64, maxSpansPerTrace int, overrides map[string]Override) SampleResults {
 	if maxSpansPerTrace <= 0 {
 		maxSpansPerTrace = DefaultMaxSpansPerTrace
 	}
@@ -273,7 +302,7 @@ func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) Samp
 		root := topo.Roots[rng.IntN(len(topo.Roots))]
 		var stats Stats
 		spanCount := 0
-		engine.walkTrace(context.Background(), root, time.Now(), 0, nil, nil, &stats, &spanCount, maxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), root, time.Now(), 0, overrides, nil, &stats, &spanCount, maxSpansPerTrace, false)
 		_ = tp.ForceFlush(context.Background())
 
 		spans := exporter.GetSpans()
@@ -352,66 +381,157 @@ func measureTrace(spans []tracetest.SpanStub) (depth, fanOut int) {
 // intPtr returns a pointer to v.
 func intPtr(v int) *int { return &v }
 
+// ScenarioSet is a distinct combination of scenarios that are active together
+// at some point in the simulation timeline. The zero value is the baseline
+// (no scenarios active).
+type ScenarioSet struct {
+	Names     []string
+	Overrides map[string]Override
+}
+
+// ScenarioSets enumerates the distinct combinations of co-active scenarios by
+// evaluating the active set at every window boundary — active sets only change
+// when a scenario starts or ends, so the boundaries cover every combination
+// that occurs in time. The baseline (no scenarios) is always first.
+func ScenarioSets(scenarios []Scenario) []ScenarioSet {
+	sets := []ScenarioSet{{}}
+	if len(scenarios) == 0 {
+		return sets
+	}
+
+	boundaries := make([]time.Duration, 0, len(scenarios)*2)
+	for _, sc := range scenarios {
+		boundaries = append(boundaries, sc.Start, sc.End)
+	}
+	slices.Sort(boundaries)
+	boundaries = slices.Compact(boundaries)
+
+	seen := map[string]bool{"": true}
+	for _, t := range boundaries {
+		active := ActiveScenarios(scenarios, t)
+		if len(active) == 0 {
+			continue
+		}
+		names := make([]string, len(active))
+		for i, sc := range active {
+			names[i] = sc.Name
+		}
+		key := strings.Join(names, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		sets = append(sets, ScenarioSet{Names: names, Overrides: ResolveOverrides(active)})
+	}
+	return sets
+}
+
+// setEvaluation holds the static and sampled measurements for one scenario set.
+type setEvaluation struct {
+	names     []string
+	depth     int
+	depthPath []string
+	fanOut    int
+	fanOutRef string
+	spans     int
+	sampled   SampleResults
+}
+
 // Check runs structural analysis and sampled exploration, returning one result
-// per check.
+// per check. When opts.Scenarios is non-empty, the baseline topology and every
+// distinct combination of co-active scenarios are evaluated; each result
+// reports the worst case and the scenario combination that produced it
+// (selected by static value, with the sampled maximum as tie-breaker).
 func Check(topo *Topology, opts CheckOptions) []CheckResult {
-	staticDepth, depthPath := MaxDepth(topo)
-	staticFanOut, fanOutRef := MaxFanOut(topo)
-	staticSpans, _ := MaxSpans(topo)
+	sets := ScenarioSets(opts.Scenarios)
 
-	var sampled SampleResults
-	if opts.Samples > 0 {
-		sampled = SampleTraces(topo, opts.Samples, opts.Seed, opts.MaxSpansPerTrace)
+	// Fix the seed once so every scenario set samples the same trace sequence.
+	seed := opts.Seed
+	if opts.Samples > 0 && seed == 0 {
+		seed = rand.Uint64() //nolint:gosec // not security-sensitive
 	}
 
-	var depthDist, spansDist, fanOutDist *DistributionSummary
-	if opts.Samples > 0 {
-		dd, sd, fd := sampled.Distribution.Summary()
-		depthDist = &dd
-		spansDist = &sd
-		fanOutDist = &fd
+	evals := make([]setEvaluation, 0, len(sets))
+	for _, set := range sets {
+		ev := setEvaluation{names: set.Names}
+		ev.depth, ev.depthPath = maxDepthWith(topo, set.Overrides)
+		ev.fanOut, ev.fanOutRef = maxFanOutWith(topo, set.Overrides)
+		ev.spans, _ = maxSpansWith(topo, set.Overrides)
+		if opts.Samples > 0 {
+			ev.sampled = sampleTracesWith(topo, opts.Samples, seed, opts.MaxSpansPerTrace, set.Overrides)
+		}
+		evals = append(evals, ev)
 	}
+
+	// worst returns the evaluation with the highest static value for a check.
+	// Ties go to the sampled maximum, then to the earlier set (baseline first).
+	worst := func(static, sampledMax func(setEvaluation) int) setEvaluation {
+		best := evals[0]
+		for _, ev := range evals[1:] {
+			if static(ev) > static(best) ||
+				(static(ev) == static(best) && opts.Samples > 0 && sampledMax(ev) > sampledMax(best)) {
+				best = ev
+			}
+		}
+		return best
+	}
+
+	depthEval := worst(
+		func(e setEvaluation) int { return e.depth },
+		func(e setEvaluation) int { return e.sampled.MaxDepth })
+	fanOutEval := worst(
+		func(e setEvaluation) int { return e.fanOut },
+		func(e setEvaluation) int { return e.sampled.MaxFanOut })
+	spansEval := worst(
+		func(e setEvaluation) int { return e.spans },
+		func(e setEvaluation) int { return e.sampled.MaxSpans })
 
 	results := make([]CheckResult, 0, 3)
 
 	depthResult := CheckResult{
-		Name:         "max-depth",
-		Pass:         staticDepth <= opts.MaxDepth,
-		Limit:        opts.MaxDepth,
-		Actual:       staticDepth,
-		SamplesRun:   sampled.TracesRun,
-		Path:         depthPath,
-		Distribution: depthDist,
+		Name:       "max-depth",
+		Pass:       depthEval.depth <= opts.MaxDepth,
+		Limit:      opts.MaxDepth,
+		Actual:     depthEval.depth,
+		SamplesRun: depthEval.sampled.TracesRun,
+		Path:       depthEval.depthPath,
+		Scenarios:  depthEval.names,
 	}
 	if opts.Samples > 0 {
-		depthResult.Sampled = intPtr(sampled.MaxDepth)
+		depthResult.Sampled = intPtr(depthEval.sampled.MaxDepth)
+		dd := summarise(depthEval.sampled.Distribution.Depths)
+		depthResult.Distribution = &dd
 	}
 	results = append(results, depthResult)
 
 	fanOutResult := CheckResult{
-		Name:         "max-fan-out",
-		Pass:         staticFanOut <= opts.MaxFanOut,
-		Limit:        opts.MaxFanOut,
-		Actual:       staticFanOut,
-		SamplesRun:   sampled.TracesRun,
-		Ref:          fanOutRef,
-		Distribution: fanOutDist,
+		Name:       "max-fan-out",
+		Pass:       fanOutEval.fanOut <= opts.MaxFanOut,
+		Limit:      opts.MaxFanOut,
+		Actual:     fanOutEval.fanOut,
+		SamplesRun: fanOutEval.sampled.TracesRun,
+		Ref:        fanOutEval.fanOutRef,
+		Scenarios:  fanOutEval.names,
 	}
 	if opts.Samples > 0 {
-		fanOutResult.Sampled = intPtr(sampled.MaxFanOut)
+		fanOutResult.Sampled = intPtr(fanOutEval.sampled.MaxFanOut)
+		fd := summarise(fanOutEval.sampled.Distribution.FanOuts)
+		fanOutResult.Distribution = &fd
 	}
 	results = append(results, fanOutResult)
 
 	spansResult := CheckResult{
-		Name:         "max-spans",
-		Pass:         staticSpans <= opts.MaxSpans,
-		Limit:        opts.MaxSpans,
-		Actual:       staticSpans,
-		SamplesRun:   sampled.TracesRun,
-		Distribution: spansDist,
+		Name:       "max-spans",
+		Pass:       spansEval.spans <= opts.MaxSpans,
+		Limit:      opts.MaxSpans,
+		Actual:     spansEval.spans,
+		SamplesRun: spansEval.sampled.TracesRun,
+		Scenarios:  spansEval.names,
 	}
 	if opts.Samples > 0 {
-		spansResult.Sampled = intPtr(sampled.MaxSpans)
+		spansResult.Sampled = intPtr(spansEval.sampled.MaxSpans)
+		sd := summarise(spansEval.sampled.Distribution.Spans)
+		spansResult.Distribution = &sd
 	}
 	results = append(results, spansResult)
 

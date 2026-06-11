@@ -123,6 +123,7 @@ type stdouttraceEvent struct {
 	StartTime            time.Time `json:"StartTime"`
 	EndTime              time.Time `json:"EndTime"`
 	Attributes           []sdkAttr `json:"Attributes"`
+	Resource             []sdkAttr `json:"Resource"`
 	Status               sdkStatus `json:"Status"`
 	InstrumentationScope struct {
 		Name string `json:"Name"`
@@ -141,15 +142,24 @@ type sdkStatus struct {
 	Code string `json:"Code"`
 }
 
+// Attribute keys consulted when determining a span's service name.
+// unknownServicePrefix is the placeholder the OTel SDK assigns to
+// service.name when none was configured; it carries no service identity.
+const (
+	serviceNameKey       = "service.name"
+	synthServiceKey      = "synth.service"
+	unknownServicePrefix = "unknown_service"
+)
+
 // excludedAttributes are engine-internal or infrastructure attributes to omit.
 var excludedAttributes = map[string]bool{
-	"synth.service":          true,
+	synthServiceKey:          true,
 	"synth.operation":        true,
 	"synth.scenarios":        true,
 	"telemetry.sdk.language": true,
 	"telemetry.sdk.name":     true,
 	"telemetry.sdk.version":  true,
-	"service.name":           true,
+	serviceNameKey:           true,
 }
 
 func parseStdouttrace(data []byte) ([]Span, error) {
@@ -170,16 +180,16 @@ func parseStdouttrace(data []byte) ([]Span, error) {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 
-		// Determine service name: InstrumentationScope.Name, with synth.service fallback
-		service := evt.InstrumentationScope.Name
+		// Service name precedence: resource service.name, then the
+		// synth.service attribute, then the instrumentation scope name —
+		// matching the OTLP path. The scope name comes last because current
+		// motel binaries emit a constant module-path scope name on every span.
+		service := realServiceName(stringAttr(evt.Resource, serviceNameKey))
 		if service == "" {
-			for _, attr := range evt.Attributes {
-				if attr.Key == "synth.service" {
-					if s, ok := attr.Value.Value.(string); ok {
-						service = s
-					}
-				}
-			}
+			service = stringAttr(evt.Attributes, synthServiceKey)
+		}
+		if service == "" {
+			service = evt.InstrumentationScope.Name
 		}
 
 		// Determine parent ID, treating all-zeros as empty (root span)
@@ -231,10 +241,11 @@ func parseOTLP(data []byte) ([]Span, error) {
 		// Extract service.name from resource attributes
 		serviceName := ""
 		for _, attr := range rs.Resource.GetAttributes() {
-			if attr.Key == "service.name" {
+			if attr.Key == serviceNameKey {
 				serviceName = attr.Value.GetStringValue()
 			}
 		}
+		serviceName = realServiceName(serviceName)
 
 		for _, ss := range rs.ScopeSpans {
 			scopeName := ss.Scope.GetName()
@@ -279,6 +290,28 @@ func parseOTLP(data []byte) ([]Span, error) {
 		return nil, fmt.Errorf("no spans found in input")
 	}
 	return spans, nil
+}
+
+// stringAttr returns the string value of the attribute with the given key,
+// or empty if the key is absent or not a string.
+func stringAttr(attrs []sdkAttr, key string) string {
+	for _, attr := range attrs {
+		if attr.Key == key {
+			if s, ok := attr.Value.Value.(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// realServiceName filters out the SDK's unknown_service placeholder so
+// callers fall through to more specific sources of the service name.
+func realServiceName(name string) string {
+	if strings.HasPrefix(name, unknownServicePrefix) {
+		return ""
+	}
+	return name
 }
 
 // isZeroID checks if a hex-encoded ID is all zeros.

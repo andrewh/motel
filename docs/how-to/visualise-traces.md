@@ -82,8 +82,6 @@ motel run --endpoint localhost:4318 --protocol http/protobuf \
 
 Open <http://localhost:16686> in your browser. Select the `gateway` service from the dropdown and click **Find Traces**. Click a trace to see the waterfall view showing calls fanning out from `gateway` through the backend services to the datastores.
 
-![Jaeger trace waterfall](images/jaeger-trace-waterfall.png)
-
 Things to check:
 
 - All five services appear in the service dropdown
@@ -228,8 +226,6 @@ motel run --endpoint localhost:4318 --protocol http/protobuf \
 ### Inspect results
 
 Open <http://localhost:3000/explore> in your browser. Select **Tempo** as the data source, switch to the **Search** tab, and choose `gateway` from the service name dropdown. Run the query to see a list of traces. Click a trace to open the waterfall panel.
-
-![Grafana Tempo trace panel](images/grafana-tempo-trace-panel.png)
 
 ### Clean up
 

@@ -775,6 +775,58 @@ func TestImportCommand(t *testing.T) {
 	})
 }
 
+func TestRunStdoutImportRoundTrip(t *testing.T) {
+	// Not parallel: swaps os.Stdout, which the stdouttrace exporter writes to.
+	// Regression test for issue 146: the stdouttrace parser used the constant
+	// instrumentation scope name as the service name, collapsing every span
+	// into one service named after the Go module path.
+	topoPath := writeTestConfig(t, validConfig)
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	var traces bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = traces.ReadFrom(r)
+	}()
+
+	runCmd := rootCmd()
+	runCmd.SetArgs([]string{"run", "--stdout", "--duration", "100ms", topoPath})
+	runErr := runCmd.Execute()
+
+	w.Close()
+	os.Stdout = origStdout
+	<-done
+	require.NoError(t, runErr)
+	require.NotEmpty(t, traces.Bytes(), "run --stdout produced no trace output")
+
+	dir := t.TempDir()
+	tracesPath := filepath.Join(dir, "traces.jsonl")
+	require.NoError(t, os.WriteFile(tracesPath, traces.Bytes(), 0o600))
+
+	importCmd := rootCmd()
+	importCmd.SetArgs([]string{"import", tracesPath})
+	var inferred bytes.Buffer
+	importCmd.SetOut(&inferred)
+	require.NoError(t, importCmd.Execute())
+	assert.Contains(t, inferred.String(), "gateway:")
+	assert.Contains(t, inferred.String(), "backend:")
+	assert.NotContains(t, inferred.String(), "github.com/andrewh/motel")
+
+	inferredPath := filepath.Join(dir, "inferred.yaml")
+	require.NoError(t, os.WriteFile(inferredPath, inferred.Bytes(), 0o600))
+
+	validateCmd := rootCmd()
+	validateCmd.SetArgs([]string{"validate", inferredPath})
+	var validateOut bytes.Buffer
+	validateCmd.SetOut(&validateOut)
+	require.NoError(t, validateCmd.Execute())
+}
+
 // mockShutdownable records shutdown calls and executes a configurable function.
 type mockShutdownable struct {
 	shutdownFunc func(context.Context) error
@@ -1118,4 +1170,122 @@ func TestMetricShutdownExporterOrder(t *testing.T) {
 		assert.Less(t, p.shutdownAt.Load(), exporterTime,
 			"provider %d shut down after exporter", i)
 	}
+}
+
+func TestValidateCommandSemconvMetricWarnings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("warns on type and unit mismatch", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: counter
+        unit: ms
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.Contains(t, out.String(), "Configuration valid", "warnings must not fail validation")
+		assert.Contains(t, errOut.String(), `type "counter" does not match semantic convention instrument "histogram"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "s"`)
+	})
+
+	t.Run("warns on operation-level metric mismatch", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 50ms
+        metrics:
+          - name: http.server.active_requests
+            type: updowncounter
+            unit: ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.Contains(t, errOut.String(), `service "gateway" operation "handle"`)
+		assert.Contains(t, errOut.String(), `unit "ms" does not match semantic convention unit "{request}"`)
+	})
+
+	t.Run("no warnings for compliant or custom metrics", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+        unit: s
+      - name: my.custom.metric
+        type: counter
+        unit: ms
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"validate", path})
+		var out, errOut bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+
+		require.NoError(t, root.Execute())
+		assert.NotContains(t, errOut.String(), "warning:")
+	})
+}
+
+func TestValidateCommandSemconvUnsetUnitWarning(t *testing.T) {
+	t.Parallel()
+	cfg := `
+version: 1
+services:
+  gateway:
+    metrics:
+      - name: http.server.request.duration
+        type: histogram
+    operations:
+      handle:
+        duration: 50ms
+traffic:
+  rate: 10/s
+`
+	path := writeTestConfig(t, cfg)
+	root := rootCmd()
+	root.SetArgs([]string{"validate", path})
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+
+	require.NoError(t, root.Execute())
+	assert.Contains(t, errOut.String(), `unit is not set; semantic convention specifies "s"`)
+	assert.NotContains(t, errOut.String(), `unit ""`)
 }

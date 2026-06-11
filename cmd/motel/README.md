@@ -71,7 +71,7 @@ Each operation defines the span it produces.
 
 | Field        | Type   | Description |
 |-------------|--------|-------------|
-| `duration`   | string | Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
+| `duration`   | string | Required. Mean with optional stddev: `30ms +/- 10ms` or fixed `50ms` |
 | `error_rate` | string | Percentage `0.5%` or decimal `0.005` (0.0 to 1.0) |
 | `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
@@ -82,8 +82,8 @@ Each operation defines the span it produces.
 | `links`      | list   | Cross-trace span links to other operations (see below) |
 | `calls`      | list   | Downstream calls to other operations |
 | `queue_depth`| int    | Max concurrent requests before rejection (0 = unlimited) |
-| `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold |
-| `circuit_breaker`| object | Opens after repeated failures, rejecting requests for a cooldown period |
+| `backpressure`| object | Latency-driven degradation: increases duration and error rate when a downstream call exceeds a threshold (see below) |
+| `circuit_breaker`| object | Opens after repeated failures, rejecting requests for a cooldown period (see below) |
 
 ```yaml
 operations:
@@ -98,6 +98,57 @@ operations:
       - postgres.query
       - redis.get
 ```
+
+### backpressure
+
+Latency-driven degradation. motel tracks an exponentially weighted moving
+average of the operation's recent latency; while it exceeds
+`latency_threshold`, new requests have their duration multiplied and their
+error rate increased. The effect clears when the average latency drops back
+below the threshold.
+
+| Field                 | Type   | Description |
+|-----------------------|--------|-------------|
+| `latency_threshold`   | string | Required. Average latency above which backpressure activates, e.g. `200ms` |
+| `duration_multiplier` | float  | Span duration multiplier while active (capped at 10; values ≤ 0 are treated as 1) |
+| `error_rate_add`      | string | Added to the operation's error rate while active, e.g. `5%` |
+
+```yaml
+operations:
+  query:
+    duration: 20ms +/- 5ms
+    backpressure:
+      latency_threshold: 200ms
+      duration_multiplier: 3
+      error_rate_add: 10%
+```
+
+### circuit_breaker
+
+Opens after repeated failures, rejecting all requests until a cooldown
+expires. After the cooldown, a single probe request is allowed through:
+success closes the circuit, failure reopens it. All fields are required.
+
+| Field               | Type   | Description |
+|---------------------|--------|-------------|
+| `failure_threshold` | int    | Failures within `window` that open the circuit (must be positive) |
+| `window`            | string | Sliding window over which failures are counted, e.g. `10s` |
+| `cooldown`          | string | How long the circuit stays open before probing, e.g. `30s` |
+
+```yaml
+operations:
+  charge:
+    duration: 80ms +/- 20ms
+    error_rate: 2%
+    circuit_breaker:
+      failure_threshold: 5
+      window: 10s
+      cooldown: 30s
+```
+
+Queue, backpressure, and circuit-breaker state persists across scenario
+boundaries: when a scenario ends, an open circuit stays open until its
+cooldown expires and backpressure stays active until latency recovers.
 
 ### calls
 
@@ -267,12 +318,12 @@ Time-windowed overrides to operation behaviour and traffic.
 | `at`       | string | Start offset from simulation start, e.g. `+5s`, `30s` |
 | `duration` | string | How long the scenario is active |
 | `priority` | int    | Higher priority wins when scenarios overlap (default: 0) |
-| `override` | map    | Per-operation overrides keyed by `service.operation` |
+| `override` | map    | Per-operation overrides keyed by `service.operation`, or per-service overrides keyed by service name |
 | `traffic`  | object | Traffic pattern override for this window |
 
-Each override can set `duration`, `error_rate`, and `attributes`. Overlapping
-scenarios merge overrides by priority — higher-priority values win per field,
-attributes merge per key.
+Each operation override can set `duration`, `error_rate`, `attributes`, and
+`metrics`. Overlapping scenarios merge overrides by priority — higher-priority
+values win per field, attributes and metrics merge per key.
 
 ```yaml
 scenarios:
@@ -283,8 +334,33 @@ scenarios:
       postgres.query:
         duration: 500ms +/- 100ms
         error_rate: 15%
+      api.checkout:
+        add_calls:
+          - audit.log
+        remove_calls:
+          - cache.get
     traffic:
       rate: 200/s
+```
+
+A `metrics` override replaces the `value` distribution of a topology-defined
+metric for the scenario window. The metric must be defined with a `value` at
+the same scope — a service name key overrides service-level metrics, a
+`service.operation` key overrides operation-level metrics. Span-derived
+metrics (no `value`) cannot be overridden, and `name`, `type`, and `unit` are
+fixed at instrument creation time. An override keyed by a bare service name
+may only contain `metrics`.
+
+```yaml
+scenarios:
+  - name: cpu spike
+    at: +2m
+    duration: 5m
+    override:
+      gateway:
+        metrics:
+          gateway.cpu.utilisation:
+            value: 0.95 +/- 0.02
 ```
 
 ### metrics
@@ -292,7 +368,8 @@ scenarios:
 Topology-driven metric instruments. Define them at the service level (fire for
 every span in the service) or at the operation level (fire only for that
 operation). Requires `--signals metrics` or `--signals traces,metrics` when
-running; if no metrics are defined the signal is silently empty.
+running; if no metrics are defined, motel prints a warning and emits no
+metric data.
 
 | Field        | Type   | Description |
 |-------------|--------|-------------|
@@ -300,7 +377,14 @@ running; if no metrics are defined the signal is silently empty.
 | `type`       | string | `counter`, `updowncounter`, `histogram`, or `gauge` (required) |
 | `unit`       | string | OTel unit string, e.g. `ms`, `s`, `{request}` (optional) |
 | `value`      | string | Distribution to sample, e.g. `0.65` or `0.65 +/- 0.1`. Omit for span-derived behaviour (see below) |
+| `interval`   | string | Emit on a timer instead of per span, e.g. `10s`. Requires `value`; not valid for gauges (see below) |
+| `walk`       | string | Gauge only: mean-reversion timescale for a random walk, e.g. `30s` (see below) |
+| `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
+
+Metric names that match a known OTel semantic convention metric are checked
+by `motel validate`: a `type` or `unit` that disagrees with the convention
+produces a warning (not an error). Custom metric names are never warned about.
 
 **Span-derived behaviour (no `value`):** the instrument records a value derived
 from the span being observed.
@@ -322,17 +406,56 @@ normal distribution on each observation.
 | `histogram` | sampled float recorded per completed span |
 | `gauge` | sampled float reported on each collection cycle |
 
+**Random-walk gauges (`walk`):** by default each gauge collection samples
+independently, producing white noise. Setting `walk` turns the gauge into a
+mean-reverting random walk (an Ornstein-Uhlenbeck process): consecutive
+samples are correlated and drift smoothly, while the long-run mean and
+standard deviation still match `value`. The timescale controls how quickly
+the value reverts to the mean — short timescales (a few seconds) look jittery,
+long ones (minutes) drift slowly. Combine with `min`/`max` to keep bounded
+metrics like utilisation in range:
+
+```yaml
+- name: gateway.cpu.utilisation
+  type: gauge
+  value: 0.65 +/- 0.1
+  walk: 30s
+  min: 0
+  max: 1
+```
+
+Walk timescales relate to wall-clock time between collection cycles,
+regardless of simulated time compression.
+
+**Interval-driven metrics (`interval`):** by default, topology-defined
+counters, updowncounters, and histograms record when a span fires, coupling
+their emission rate to the trace rate. Setting `interval` decouples them: the
+instrument records a sampled value on its own timer, so a service with no
+traffic still emits metric data. Intervals are wall-clock durations,
+regardless of simulated time compression. Gauges already behave this way (the
+observable callback fires on the collection cycle) and do not accept
+`interval`; span-derived metrics (no `value`) remain span-coupled.
+
+```yaml
+- name: gateway.gc.pause.duration
+  type: histogram
+  unit: ms
+  value: 2.5 +/- 0.8
+  interval: 10s   # emit every 10 seconds, regardless of trace rate
+```
+
 ```yaml
 services:
   gateway:
     metrics:
-      # Span-derived histogram: records span duration in milliseconds
+      # Span-derived histogram: records span duration in seconds
       - name: http.server.request.duration
         type: histogram
-        unit: ms
+        unit: s
       # Span-derived updowncounter: tracks currently active requests
       - name: http.server.active_requests
         type: updowncounter
+        unit: "{request}"
       # Topology-defined gauge: independent of spans, sampled on collection
       - name: gateway.cpu.utilisation
         type: gauge
@@ -475,6 +598,6 @@ quickly.
 
 ## Further Reading
 
-- [`docs/examples/`](../../docs/examples/) — example topology configs
-- [`docs/tutorials/`](../../docs/tutorials/) — getting started tutorial
-- [`pkg/synth/`](../../pkg/synth/) — implementation source
+- [`docs/examples/`](../../docs/examples/README.md) — example topology configs
+- [`docs/tutorials/`](../../docs/tutorials/getting-started.md) — getting started tutorial
+- [`pkg/synth/`](https://github.com/andrewh/motel/tree/main/pkg/synth) — implementation source

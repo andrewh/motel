@@ -4,7 +4,7 @@ _2026-02-25T08:34:44Z by Showboat 0.6.1_
 
 <!-- showboat-id: 74c2e19b-e96e-4f18-84df-aa7b7ecfd5fb -->
 
-The `--time-offset` flag shifts all trace span and log record timestamps by a fixed duration. Negative values move timestamps into the past; positive values move them into the future. This is useful for testing late-arrival handling in collectors, retention policy enforcement in backends, backfill pipelines, and out-of-order ingestion.
+The `--time-offset` flag shifts all trace span, metric data point, and log record timestamps by a fixed duration. Negative values move timestamps into the past; positive values move them into the future. This is useful for testing late-arrival handling in collectors, retention policy enforcement in backends, backfill pipelines, and out-of-order ingestion.
 
 ## The topology
 
@@ -78,9 +78,9 @@ YESTERDAY=$(date -u -v-1d +%Y-%m-%dT%H); build/motel run --stdout --duration 1s 
 log timestamp starts with yesterday: true
 ```
 
-## Metric timestamps are not shifted
+## Metric timestamps follow the offset
 
-The OpenTelemetry Metrics API does not support caller-supplied timestamps. Metric data points are timestamped at collection time by the SDK's PeriodicReader. This is a limitation of the [Metrics API spec](https://opentelemetry.io/docs/specs/otel/metrics/api/), and will be addressed for motel in [issue 99](https://github.com/andrewh/motel/issues/99).
+The OpenTelemetry [Metrics API spec](https://opentelemetry.io/docs/specs/otel/metrics/api/) does not support caller-supplied timestamps — data points are timestamped at collection time by the SDK's PeriodicReader. motel works around this with an exporter wrapper that rewrites `StartTime` and `Time` on every exported data point, so metric timestamps are shifted by the same offset as spans and logs.
 
 ## Scenario timing is unaffected
 

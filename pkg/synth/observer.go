@@ -42,6 +42,24 @@ func notifySpanStart(observers []SpanObserver, service, operation string) {
 	}
 }
 
+// OverrideObserver receives the currently active scenario overrides.
+// Observers whose output depends on scenario state (e.g. metric value
+// overrides) implement this. The engine calls SetOverrides with the merged
+// overrides for the current simulation time; a nil map means no scenario
+// is active.
+type OverrideObserver interface {
+	SetOverrides(overrides map[string]Override)
+}
+
+// notifyOverrides dispatches SetOverrides to all observers that implement OverrideObserver.
+func notifyOverrides(observers []SpanObserver, overrides map[string]Override) {
+	for _, obs := range observers {
+		if oo, ok := obs.(OverrideObserver); ok {
+			oo.SetOverrides(overrides)
+		}
+	}
+}
+
 // newSpanInfo constructs a SpanInfo from its component fields.
 func newSpanInfo(service, operation string, timestamp time.Time, duration time.Duration, isError bool, kind trace.SpanKind, attrs []attribute.KeyValue, scenarios []string, spanCtx trace.SpanContext) SpanInfo {
 	return SpanInfo{
