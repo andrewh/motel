@@ -31,6 +31,8 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 | `ottl-transforms.yaml` | Messy, realistic attributes for practising OTTL transformations. |
 | `stress-test.yaml` | High-volume bursty topology for stress-testing collector queues. |
 | `tail-sampling-test.yaml` | Mix of normal, slow, error, and VIP traces for testing tail sampling policies. |
+| `alibaba-call-graph.yaml` | Alibaba-style call graph modelling published trace study characteristics (depth 6, fan-out 10, 16% repeated calls). |
+| `meta-wide-fanout.yaml` | Meta-style wide fan-out workflow (50 children at the aggregation tier) from published trace studies. |
 
 ## Subdirectories
 
