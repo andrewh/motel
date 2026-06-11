@@ -12,8 +12,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/andrewh/motel/pkg/semconv"
+	"github.com/andrewh/motel/pkg/synth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1288,4 +1291,108 @@ traffic:
 	require.NoError(t, root.Execute())
 	assert.Contains(t, errOut.String(), `unit is not set; semantic convention specifies "s"`)
 	assert.NotContains(t, errOut.String(), `unit ""`)
+}
+
+func newLogWarningsRegistry(t *testing.T) *semconv.Registry {
+	t.Helper()
+	fsys := fstest.MapFS{
+		"log/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.log
+    type: attribute_group
+    brief: 'Log attributes.'
+    attributes:
+      - id: log.iostream
+        type:
+          members:
+            - id: stdout
+              value: 'stdout'
+              brief: 'Standard output.'
+            - id: stderr
+              value: 'stderr'
+              brief: 'Standard error.'
+        brief: 'The stream the log was emitted to.'
+      - id: log.record.uid
+        type: string
+        brief: 'Unique identifier of the log record.'
+      - id: log.legacy.field
+        type: string
+        brief: 'Old field.'
+        deprecated: 'Use log.record.uid instead.'
+`),
+		},
+	}
+	reg, err := semconv.Load(fsys)
+	require.NoError(t, err)
+	return reg
+}
+
+func TestSemconvLogWarnings(t *testing.T) {
+	t.Parallel()
+	reg := newLogWarningsRegistry(t)
+
+	cfg := &synth.Config{
+		Services: []synth.ServiceConfig{
+			{
+				Name: "gateway",
+				Logs: []synth.LogConfig{
+					{
+						Severity: "INFO",
+						Body:     "started",
+						Attributes: map[string]synth.AttributeValueConfig{
+							"log.legacy.field": {Value: "x"},
+						},
+					},
+				},
+				Operations: []synth.OperationConfig{
+					{
+						Name: "handle",
+						Logs: []synth.LogConfig{
+							{
+								Severity: "ERROR",
+								Body:     "boom",
+								Attributes: map[string]synth.AttributeValueConfig{
+									"log.iostream":   {Value: "syslog"},
+									"log.record.uid": {Value: "abc"},
+									"my.custom.attr": {Value: 42},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	warnings := semconvLogWarnings(cfg, reg)
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[0], `service "gateway" log[0]`)
+	assert.Contains(t, warnings[0], `"log.legacy.field" is deprecated`)
+	assert.Contains(t, warnings[1], `service "gateway" operation "handle" log[0]`)
+	assert.Contains(t, warnings[1], `"log.iostream": value syslog is not a member`)
+}
+
+func TestSemconvLogWarnings_ValidEnumValue(t *testing.T) {
+	t.Parallel()
+	reg := newLogWarningsRegistry(t)
+
+	cfg := &synth.Config{
+		Services: []synth.ServiceConfig{
+			{
+				Name: "gateway",
+				Logs: []synth.LogConfig{
+					{
+						Severity: "INFO",
+						Body:     "ok",
+						Attributes: map[string]synth.AttributeValueConfig{
+							"log.iostream": {Value: "stdout"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	assert.Empty(t, semconvLogWarnings(cfg, reg))
 }
