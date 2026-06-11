@@ -481,6 +481,217 @@ func TestLogObserverDerivedTraceCorrelation(t *testing.T) {
 	assert.Equal(t, spanID, records[0].SpanID(), "derived log should carry the span's span ID")
 }
 
+func TestLogObserverScenarioAddOperationScope(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {AddLogs: []LogDefinition{
+			{Severity: "ERROR", Body: "connection pool exhausted", Probability: 1.0},
+		}},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "other"})
+
+	records := exporter.get()
+	require.Len(t, records, 1, "operation-scoped added log should fire only for its operation")
+	assert.Equal(t, otellog.SeverityError, records[0].Severity())
+	assert.Equal(t, "connection pool exhausted", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioAddServiceScope(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", []LogDefinition{
+		alwaysLog("INFO", "base log"),
+	}, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc": {AddLogs: []LogDefinition{
+			{Severity: "WARN", Body: "degraded mode", Probability: 1.0},
+		}},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+
+	records := exporter.get()
+	require.Len(t, records, 2, "base and added logs should both emit")
+	assert.Equal(t, "base log", records[0].Body().AsString())
+	assert.Equal(t, "degraded mode", records[1].Body().AsString())
+}
+
+func TestLogObserverScenarioAddRespectsCondition(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {AddLogs: []LogDefinition{
+			{Severity: "ERROR", Body: "incident error", Condition: logConditionError, Probability: 1.0},
+		}},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: false})
+	assert.Empty(t, exporter.get(), "error-conditioned added log should not fire for success spans")
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+	records := exporter.get()
+	require.Len(t, records, 1)
+	assert.Equal(t, "incident error", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioDisableMutesBase(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", []LogDefinition{
+		alwaysLog("INFO", "base log"),
+	}, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc": {DisableLogs: true},
+	})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+	assert.Empty(t, exporter.get(), "disable should mute base topology logs")
+
+	obs.SetOverrides(nil)
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+	records := exporter.get()
+	require.Len(t, records, 1, "clearing overrides should restore base logs")
+	assert.Equal(t, "base log", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioDisableOperationScope(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", []LogDefinition{
+		alwaysLog("INFO", "base log"),
+	}, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {DisableLogs: true},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+	obs.Observe(SpanInfo{Service: "svc", Operation: "other"})
+
+	records := exporter.get()
+	require.Len(t, records, 1, "operation-scoped disable should mute only that operation's spans")
+	assert.Equal(t, "base log", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioDisableMutesDerived(t *testing.T) {
+	t.Parallel()
+
+	// Service with no topology logs: derived error logs normally fire.
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc": {DisableLogs: true},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+	assert.Empty(t, exporter.get(), "disable should mute derived error logs too")
+}
+
+func TestLogObserverScenarioDisableOperationScopeMutesDerived(t *testing.T) {
+	t.Parallel()
+
+	// Service with no topology logs: derived error logs normally fire.
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {DisableLogs: true},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+	assert.Empty(t, exporter.get(), "operation-scoped disable should mute derived logs for that operation")
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "other", IsError: true})
+	records := exporter.get()
+	require.Len(t, records, 1, "derived logs should still fire for other operations")
+	assert.Equal(t, otellog.SeverityError, records[0].Severity())
+}
+
+func TestLogObserverScenarioAddAndDisableReplaces(t *testing.T) {
+	t.Parallel()
+
+	topo := testLogTopology("svc", []LogDefinition{
+		alwaysLog("INFO", "base log"),
+	}, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc": {
+			DisableLogs: true,
+			AddLogs: []LogDefinition{
+				{Severity: "FATAL", Body: "total outage", Probability: 1.0},
+			},
+		},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+
+	records := exporter.get()
+	require.Len(t, records, 1, "disable plus add should replace base logs")
+	assert.Equal(t, "total outage", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioAddSuppressesDerived(t *testing.T) {
+	t.Parallel()
+
+	// Service with no topology logs: an added log counts as a topology log
+	// and suppresses the derived fallback while active.
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {AddLogs: []LogDefinition{
+			{Severity: "ERROR", Body: "incident error", Condition: logConditionError, Probability: 1.0},
+		}},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query", IsError: true})
+
+	records := exporter.get()
+	require.Len(t, records, 1, "added log should replace the derived error log")
+	assert.Equal(t, "incident error", records[0].Body().AsString())
+}
+
+func TestLogObserverScenarioAddInterpolation(t *testing.T) {
+	t.Parallel()
+
+	gen, err := NewAttributeGenerator(AttributeValueConfig{Value: "PoolExhaustedError"})
+	require.NoError(t, err)
+
+	topo := testLogTopology("svc", nil, "query", nil)
+	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
+
+	obs.SetOverrides(map[string]Override{
+		"svc.query": {AddLogs: []LogDefinition{{
+			Severity:    "ERROR",
+			Body:        "{error.type} in {operation.name}",
+			Probability: 1.0,
+			Attributes:  map[string]AttributeGenerator{"error.type": gen},
+		}}},
+	})
+
+	obs.Observe(SpanInfo{Service: "svc", Operation: "query"})
+
+	records := exporter.get()
+	require.Len(t, records, 1)
+	assert.Equal(t, "PoolExhaustedError in query", records[0].Body().AsString())
+	assert.Equal(t, "PoolExhaustedError", logAttrMap(records[0])["error.type"].AsString())
+}
+
 func TestLogObserverTopologyOtherServiceKeepsDerived(t *testing.T) {
 	t.Parallel()
 

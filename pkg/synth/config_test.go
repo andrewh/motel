@@ -2528,6 +2528,104 @@ func TestValidateConfigMetricOverrides(t *testing.T) {
 	})
 }
 
+func TestValidateConfigLogOverrides(t *testing.T) {
+	t.Parallel()
+
+	configWithScenario := func(override map[string]OverrideConfig) *Config {
+		return &Config{
+			Version: 1,
+			Services: []ServiceConfig{{
+				Name: "gateway",
+				Logs: []LogConfig{{Severity: "INFO", Body: "request handled"}},
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "50ms",
+				}},
+			}},
+			Traffic: TrafficConfig{Rate: "10/s"},
+			Scenarios: []ScenarioConfig{{
+				Name:     "incident",
+				At:       "+1m",
+				Duration: "5m",
+				Override: override,
+			}},
+		}
+	}
+
+	t.Run("operation-scope log add is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway.handle": {Logs: &LogOverrideConfig{
+				Add: []LogConfig{{Severity: "ERROR", Body: "connection pool exhausted", Condition: "error"}},
+			}},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("service-scope log add is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Logs: &LogOverrideConfig{
+				Add: []LogConfig{{Severity: "WARN", Body: "degraded mode"}},
+			}},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("disable-only override is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Logs: &LogOverrideConfig{Disable: true}},
+		})
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
+	t.Run("empty logs override rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway": {Logs: &LogOverrideConfig{}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "logs override must set add or disable")
+	})
+
+	t.Run("invalid added log rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway.handle": {Logs: &LogOverrideConfig{
+				Add: []LogConfig{{Severity: "LOUD", Body: "b"}},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "severity must be one of")
+		assert.Contains(t, err.Error(), `scenario "incident"`)
+	})
+
+	t.Run("added log missing body rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"gateway.handle": {Logs: &LogOverrideConfig{
+				Add: []LogConfig{{Severity: "INFO"}},
+			}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "body is required")
+	})
+
+	t.Run("unknown override key rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := configWithScenario(map[string]OverrideConfig{
+			"nosuch": {Logs: &LogOverrideConfig{Disable: true}},
+		})
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown operation or service")
+	})
+}
+
 func TestValidateConfigMetricWalkAndBounds(t *testing.T) {
 	t.Parallel()
 

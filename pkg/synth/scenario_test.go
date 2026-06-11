@@ -848,3 +848,98 @@ func TestBuildScenariosParsesMetricOverrides(t *testing.T) {
 	assert.InDelta(t, 0.95, dist.Mean, 0.001)
 	assert.InDelta(t, 0.02, dist.StdDev, 0.001)
 }
+
+func TestBuildScenariosParsesLogOverrides(t *testing.T) {
+	t.Parallel()
+
+	topo := &Topology{Services: map[string]*Service{
+		"svc": {Name: "svc", Operations: map[string]*Operation{}},
+	}}
+
+	scenarios, err := BuildScenarios([]ScenarioConfig{{
+		Name:     "incident",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc": {Logs: &LogOverrideConfig{
+				Disable: true,
+				Add: []LogConfig{{
+					Severity:  "error",
+					Body:      "connection pool exhausted",
+					Condition: "error",
+					Delay:     "5ms",
+				}},
+			}},
+		},
+	}}, topo)
+	require.NoError(t, err)
+	require.Len(t, scenarios, 1)
+
+	ov := scenarios[0].Overrides["svc"]
+	assert.True(t, ov.DisableLogs)
+	require.Len(t, ov.AddLogs, 1)
+	assert.Equal(t, "ERROR", ov.AddLogs[0].Severity, "severity should be normalised to uppercase")
+	assert.Equal(t, "connection pool exhausted", ov.AddLogs[0].Body)
+	assert.Equal(t, "error", ov.AddLogs[0].Condition)
+	assert.InDelta(t, 1.0, ov.AddLogs[0].Probability, 0.001, "probability defaults to 1.0")
+	assert.Equal(t, 5*time.Millisecond, ov.AddLogs[0].Delay)
+}
+
+func TestBuildScenariosRejectsInvalidLogOverride(t *testing.T) {
+	t.Parallel()
+
+	topo := &Topology{Services: map[string]*Service{
+		"svc": {Name: "svc", Operations: map[string]*Operation{}},
+	}}
+
+	_, err := BuildScenarios([]ScenarioConfig{{
+		Name:     "incident",
+		At:       "+1m",
+		Duration: "5m",
+		Override: map[string]OverrideConfig{
+			"svc": {Logs: &LogOverrideConfig{
+				Add: []LogConfig{{Severity: "LOUD", Body: "b"}},
+			}},
+		},
+	}}, topo)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `scenario "incident"`)
+	assert.Contains(t, err.Error(), "invalid severity")
+}
+
+func TestResolveOverridesMergesLogs(t *testing.T) {
+	t.Parallel()
+
+	scenarios := []Scenario{
+		{
+			Name: "low", Start: 0, End: time.Hour, Priority: 1,
+			Overrides: map[string]Override{
+				"svc": {AddLogs: []LogDefinition{
+					{Severity: "WARN", Body: "degraded", Probability: 1.0},
+				}},
+			},
+		},
+		{
+			Name: "high", Start: 0, End: time.Hour, Priority: 2,
+			Overrides: map[string]Override{
+				"svc": {
+					DisableLogs: true,
+					AddLogs: []LogDefinition{
+						{Severity: "ERROR", Body: "outage", Probability: 1.0},
+					},
+				},
+			},
+		},
+	}
+
+	merged := ResolveOverrides(ActiveScenarios(scenarios, time.Minute))
+	require.Contains(t, merged, "svc")
+	require.Len(t, merged["svc"].AddLogs, 2, "added logs accumulate across scenarios")
+	assert.Equal(t, "degraded", merged["svc"].AddLogs[0].Body)
+	assert.Equal(t, "outage", merged["svc"].AddLogs[1].Body)
+	assert.True(t, merged["svc"].DisableLogs, "disable from any active scenario wins")
+
+	assert.Len(t, scenarios[0].Overrides["svc"].AddLogs, 1,
+		"original scenario should not be mutated")
+	assert.False(t, scenarios[0].Overrides["svc"].DisableLogs)
+}
