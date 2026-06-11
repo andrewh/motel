@@ -63,6 +63,31 @@ nav:
       - docs/explanation/semantic-conventions.md
       - docs/explanation/performance-profile.md
       - docs/explanation/property-testing.md
+  - Demos:
+      - demo-async-calls.md
+      - demo-backpressure.md
+      - demo-call-topology.md
+      - demo-cascading-failure.md
+      - demo-check.md
+      - demo-custom-semconv.md
+      - demo-dgg.md
+      - demo-emit.md
+      - demo-import.md
+      - demo-otel-failure-modes.md
+      - demo-preview.md
+      - demo-quickstart.md
+      - demo-scenarios.md
+      - demo-span-events.md
+      - demo-time-offset.md
+      - demo-traffic.md
+      - demo-url-loading.md
+      - preview-bursty.svg
+      - preview-diurnal.svg
+      - preview-stress-test.svg
+      - preview-uniform.svg
+  - Research:
+      - empirical-validation.md
+      - related-work.md
   - Reference:
       - CLI reference: docs/reference/synth.md
       - DSL reference: cmd/motel/README.md
