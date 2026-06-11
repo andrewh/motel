@@ -72,7 +72,7 @@ func TestGraphCommand(t *testing.T) {
 	t.Run("escapes title", func(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
-		err := renderGraphHTML(&buf, graphData{}, `topo<>&.yaml`)
+		err := renderGraphHTML(&buf, graphData{}, `topo<>&.yaml`, false)
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "topo&lt;&gt;&amp;.yaml")
 		assert.NotContains(t, buf.String(), "topo<>&.yaml")

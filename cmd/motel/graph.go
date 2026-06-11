@@ -23,6 +23,7 @@ var graphHTMLTemplate string
 
 const (
 	graphDataPlaceholder  = "/*GRAPH_DATA*/null"
+	graphLivePlaceholder  = "/*LIVE*/false"
 	graphTitlePlaceholder = "GRAPH_TITLE"
 )
 
@@ -81,7 +82,7 @@ func runGraph(cmd *cobra.Command, configPath, output string) error {
 	}
 
 	title := filepath.Base(configPath)
-	return renderGraphHTML(w, data, title)
+	return renderGraphHTML(w, data, title, false)
 }
 
 // graphNode is a service node in the visualised graph. X and Y are
@@ -293,13 +294,18 @@ func layoutGraph(data *graphData, layers map[string]int) {
 	}
 }
 
-func renderGraphHTML(w io.Writer, data graphData, title string) error {
+func renderGraphHTML(w io.Writer, data graphData, title string, live bool) error {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("encoding graph data: %w", err)
 	}
 
+	liveValue := "false"
+	if live {
+		liveValue = "true"
+	}
 	page := strings.Replace(graphHTMLTemplate, graphDataPlaceholder, string(payload), 1)
+	page = strings.Replace(page, graphLivePlaceholder, liveValue, 1)
 	page = strings.ReplaceAll(page, graphTitlePlaceholder, htmlEscape(title))
 
 	_, err = io.WriteString(w, page)

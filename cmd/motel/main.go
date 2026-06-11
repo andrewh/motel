@@ -89,6 +89,7 @@ func runCmd() *cobra.Command {
 		pprofAddr        string
 		timeOffset       time.Duration
 		realtime         bool
+		graphAddr        string
 	)
 
 	cmd := &cobra.Command{
@@ -123,6 +124,7 @@ func runCmd() *cobra.Command {
 				pprofAddr:        pprofAddr,
 				timeOffset:       timeOffset,
 				realtime:         realtime,
+				graphAddr:        graphAddr,
 			})
 		},
 	}
@@ -139,6 +141,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
 	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span, metric, and log timestamps by this duration (e.g. -1h for past, 1h for future)")
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
+	cmd.Flags().StringVar(&graphAddr, "graph", "", "serve a live topology graph on this address during the run (e.g. :8077)")
 
 	return cmd
 }
@@ -446,6 +449,7 @@ type runOptions struct {
 	pprofAddr        string
 	timeOffset       time.Duration
 	realtime         bool
+	graphAddr        string
 }
 
 var validSignals = map[string]bool{
@@ -638,6 +642,15 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		if lErr != nil {
 			return fmt.Errorf("creating log observer: %w", lErr)
 		}
+		observers = append(observers, obs)
+	}
+
+	if opts.graphAddr != "" {
+		obs, stopGraph, gErr := startLiveGraph(opts.graphAddr, topo, configPath)
+		if gErr != nil {
+			return gErr
+		}
+		defer stopGraph()
 		observers = append(observers, obs)
 	}
 

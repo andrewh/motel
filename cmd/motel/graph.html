@@ -25,11 +25,13 @@
   <div class="title">GRAPH_TITLE</div>
   <div>&#9632; entry point &nbsp; &#9633; service &nbsp; &#8943; async call</div>
   <div class="hint">hover a service for operations</div>
+  <div class="hint" id="status"></div>
 </div>
 <script>
 "use strict";
 
 const graph = /*GRAPH_DATA*/null;
+const live = /*LIVE*/false;
 
 const NODE_W = 130;
 const NODE_H = 36;
@@ -46,6 +48,40 @@ const COLOR_EDGE_HOVER = "#f59e0b";
 let nodes = [];
 let edges = [];
 let hovered = null;
+
+// Live mode state: per-service rates computed from deltas between
+// successive SSE snapshots of cumulative counters.
+let liveRates = {};    // service -> spans/s over the last interval
+let liveErrPct = {};   // service -> error fraction over the last interval
+let liveTotals = {};   // service -> cumulative {spans, errors}
+let prevSnapshot = null;
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+function connectLive() {
+  const es = new EventSource("/events");
+  setStatus("live: connecting…");
+  es.onopen = () => setStatus("live: connected");
+  es.onerror = () => setStatus("live: disconnected (run ended?)");
+  es.onmessage = ev => {
+    const snap = JSON.parse(ev.data);
+    liveTotals = snap.services;
+    if (prevSnapshot) {
+      const dt = (snap.timestampMs - prevSnapshot.timestampMs) / 1000;
+      if (dt > 0) {
+        for (const [name, s] of Object.entries(snap.services)) {
+          const p = prevSnapshot.services[name] || { spans: 0, errors: 0 };
+          const d = s.spans - p.spans;
+          liveRates[name] = d / dt;
+          liveErrPct[name] = d > 0 ? (s.errors - p.errors) / d : 0;
+        }
+      }
+    }
+    prevSnapshot = snap;
+  };
+}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -64,6 +100,7 @@ function setup() {
   }));
 
   placeNodes();
+  if (live) connectLive();
 }
 
 function windowResized() {
@@ -108,6 +145,43 @@ function drawArrow(x, y, fromX, fromY, w, isHover) {
   pop();
 }
 
+// edgeGeometry computes the drawable path of an edge: clipped endpoints
+// and, for edges spanning more than one column, a bezier control point so
+// the edge does not run straight through intermediate nodes.
+function edgeGeometry(e) {
+  const start = clipToNode(e.to.px, e.to.py, e.from);
+  const end = clipToNode(e.from.px, e.from.py, e.to);
+
+  const span = Math.abs(e.to.x - e.from.x);
+  const bow = span > 0.0001 && Math.abs(e.to.px - e.from.px) > NODE_W * 2.2
+    ? Math.min(120, Math.abs(e.to.px - e.from.px) * 0.18)
+    : 0;
+
+  if (bow === 0) return { start, end, bow };
+
+  const mx = (start.x + end.x) / 2;
+  const my = (start.y + end.y) / 2;
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const d = Math.max(Math.hypot(dx, dy), 1);
+  return {
+    start, end, bow,
+    cx: mx - (dy / d) * bow,
+    cy: my + (dx / d) * bow,
+  };
+}
+
+// pointOnEdge returns the position at parameter t in [0,1] along the
+// edge path computed by edgeGeometry.
+function pointOnEdge(g, t) {
+  if (g.bow === 0) {
+    return { x: lerp(g.start.x, g.end.x, t), y: lerp(g.start.y, g.end.y, t) };
+  }
+  return {
+    x: bezierPoint(g.start.x, g.cx, g.cx, g.end.x, t),
+    y: bezierPoint(g.start.y, g.cy, g.cy, g.end.y, t),
+  };
+}
+
 function drawEdge(e) {
   const touchesHover = hovered && (e.from === hovered || e.to === hovered);
   const w = edgeWidth(e.weight);
@@ -124,37 +198,49 @@ function drawEdge(e) {
     return;
   }
 
-  const start = clipToNode(e.to.px, e.to.py, e.from);
-  const end = clipToNode(e.from.px, e.from.py, e.to);
-
-  // Bow edges that span more than one column so they do not run
-  // straight through intermediate nodes.
-  const span = Math.abs(e.to.x - e.from.x);
-  const bow = span > 0.0001 && Math.abs(e.to.px - e.from.px) > NODE_W * 2.2
-    ? Math.min(120, Math.abs(e.to.px - e.from.px) * 0.18)
-    : 0;
-
+  const g = edgeGeometry(e);
   noFill();
-  if (bow > 0) {
-    const mx = (start.x + end.x) / 2;
-    const my = (start.y + end.y) / 2;
-    const dx = end.x - start.x, dy = end.y - start.y;
-    const d = Math.max(Math.hypot(dx, dy), 1);
-    const cx = mx - (dy / d) * bow;
-    const cy = my + (dx / d) * bow;
-    bezier(start.x, start.y, cx, cy, cx, cy, end.x, end.y);
+  if (g.bow > 0) {
+    bezier(g.start.x, g.start.y, g.cx, g.cy, g.cx, g.cy, g.end.x, g.end.y);
     drawingContext.setLineDash([]);
-    drawArrow(end.x, end.y, cx, cy, w, touchesHover);
+    drawArrow(g.end.x, g.end.y, g.cx, g.cy, w, touchesHover);
   } else {
-    line(start.x, start.y, end.x, end.y);
+    line(g.start.x, g.start.y, g.end.x, g.end.y);
     drawingContext.setLineDash([]);
-    drawArrow(end.x, end.y, start.x, start.y, w, touchesHover);
+    drawArrow(g.end.x, g.end.y, g.start.x, g.start.y, w, touchesHover);
+  }
+}
+
+const PULSE_SPEED = 0.5;  // edge traversals per second
+const PULSE_MAX = 6;      // maximum concurrent pulses per edge
+
+// drawEdgePulses animates dots travelling along an edge at a density
+// reflecting the callee service's current span rate.
+function drawEdgePulses(e) {
+  if (e.from === e.to) return;
+  const rate = liveRates[e.target] || 0;
+  if (rate <= 0) return;
+
+  const n = constrain(Math.round(Math.sqrt(rate)), 1, PULSE_MAX);
+  const g = edgeGeometry(e);
+  const errLevel = constrain((liveErrPct[e.target] || 0) * 3, 0, 1);
+  const dotColor = lerpColor(color("#2563eb"), color("#dc2626"), errLevel);
+  const size = 5 + edgeWidth(e.weight) / 2;
+
+  noStroke();
+  fill(dotColor);
+  for (let i = 0; i < n; i++) {
+    const t = ((millis() / 1000) * PULSE_SPEED + i / n) % 1;
+    const p = pointOnEdge(g, t);
+    circle(p.x, p.y, size);
   }
 }
 
 function drawNode(n) {
   const isHover = n === hovered;
-  stroke(n.isRoot ? COLOR_ROOT : COLOR_NODE);
+  const errLevel = live ? constrain((liveErrPct[n.id] || 0) * 3, 0, 1) : 0;
+  const border = lerpColor(color(n.isRoot ? COLOR_ROOT : COLOR_NODE), color("#dc2626"), errLevel);
+  stroke(border);
   strokeWeight(isHover ? 2.5 : 1.5);
   fill(n.isRoot ? COLOR_ROOT_FILL : COLOR_NODE_FILL);
   rectMode(CENTER);
@@ -165,12 +251,27 @@ function drawNode(n) {
   textAlign(CENTER, CENTER);
   textSize(12);
   textStyle(n.isRoot ? BOLD : NORMAL);
-  text(n.id, n.px, n.py, NODE_W - 12, NODE_H);
+  if (live) {
+    text(n.id, n.px, n.py - 7, NODE_W - 12, NODE_H / 2);
+    textStyle(NORMAL);
+    textSize(9);
+    fill(errLevel > 0 ? border : "#6b7280");
+    const rate = liveRates[n.id] || 0;
+    const err = (liveErrPct[n.id] || 0) * 100;
+    text(rate.toFixed(1) + "/s · err " + err.toFixed(1) + "%", n.px, n.py + 8);
+  } else {
+    text(n.id, n.px, n.py, NODE_W - 12, NODE_H);
+  }
   textStyle(NORMAL);
 }
 
 function drawTooltip(n) {
   const lines = [n.id + (n.isRoot ? "  (entry point)" : "")];
+  if (live && liveTotals[n.id]) {
+    const t = liveTotals[n.id];
+    const avg = t.spans > 0 ? (t.durationMs / t.spans).toFixed(1) : "0";
+    lines.push("  " + t.spans + " spans, " + t.errors + " errors, avg " + avg + " ms");
+  }
   for (const op of n.operations) lines.push("  " + op);
   for (const e of edges) {
     if (e.from !== n) continue;
@@ -226,6 +327,7 @@ function draw() {
   cursor(hovered ? HAND : ARROW);
 
   for (const e of edges) drawEdge(e);
+  if (live) for (const e of edges) drawEdgePulses(e);
   for (const n of nodes) drawNode(n);
   if (hovered) drawTooltip(hovered);
 }
