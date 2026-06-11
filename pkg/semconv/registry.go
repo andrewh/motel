@@ -102,6 +102,36 @@ func (r *Registry) MetricByName(name string) *Group {
 	return r.byMetricName[name]
 }
 
+// Metrics returns all metric groups.
+func (r *Registry) Metrics() []*Group {
+	return r.groupsByType("metric")
+}
+
+// Spans returns all span groups.
+func (r *Registry) Spans() []*Group {
+	return r.groupsByType("span")
+}
+
+// Events returns all event groups.
+func (r *Registry) Events() []*Group {
+	return r.groupsByType("event")
+}
+
+// Entities returns all entity groups.
+func (r *Registry) Entities() []*Group {
+	return r.groupsByType("entity")
+}
+
+func (r *Registry) groupsByType(typ string) []*Group {
+	var result []*Group
+	for i := range r.groups {
+		if r.groups[i].Type == typ {
+			result = append(result, &r.groups[i])
+		}
+	}
+	return result
+}
+
 // Domain returns all groups belonging to the given domain.
 func (r *Registry) Domain(name string) []*Group {
 	return r.byDomain[name]
