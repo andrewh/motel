@@ -200,8 +200,8 @@ func buildMetricAttrs(attrGens map[string]AttributeGenerator, operation string, 
 
 // Observe records metrics derived from the completed span.
 // Note: metric data points are timestamped at collection time by the OTel SDK's
-// PeriodicReader. The Metrics API does not support caller-supplied timestamps,
-// so Engine.TimeOffset has no effect on metric timestamps. See issue 99.
+// PeriodicReader. The Metrics API does not support caller-supplied timestamps;
+// time offsets are applied at export time by NewTimeOffsetMetricExporter.
 func (m *MetricObserver) Observe(info SpanInfo) {
 	instruments := m.services[info.Service]
 	if len(instruments) == 0 {
