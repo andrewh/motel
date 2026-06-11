@@ -40,6 +40,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	otelsc "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -135,7 +136,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 	cmd.Flags().BoolVar(&labelScenarios, "label-scenarios", false, "add synth.scenarios attribute to spans with active scenario names")
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "start pprof HTTP server on this address (e.g. :6060)")
-	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span timestamps by this duration (e.g. -1h for past, 1h for future)")
+	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span, metric, and log timestamps by this duration (e.g. -1h for past, 1h for future)")
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 
 	return cmd
@@ -143,16 +144,17 @@ func runCmd() *cobra.Command {
 
 func emitCmd() *cobra.Command {
 	var (
-		service   string
-		operation string
-		duration  time.Duration
-		errorRate string
-		attrs     []string
-		count     int
-		rate      string
-		endpoint  string
-		stdout    bool
-		protocol  string
+		service      string
+		operation    string
+		spanDuration time.Duration
+		duration     time.Duration
+		errorRate    string
+		attrs        []string
+		count        int
+		rate         string
+		endpoint     string
+		stdout       bool
+		protocol     string
 	)
 
 	cmd := &cobra.Command{
@@ -166,6 +168,9 @@ func emitCmd() *cobra.Command {
 			}
 			if operation == "" {
 				return fmt.Errorf("--operation is required")
+			}
+			if count == 0 && duration == 0 {
+				return nil
 			}
 
 			// Parse --attr key=value pairs
@@ -187,7 +192,7 @@ func emitCmd() *cobra.Command {
 						Operations: []synth.OperationConfig{
 							{
 								Name:       operation,
-								Duration:   duration.String(),
+								Duration:   spanDuration.String(),
 								ErrorRate:  errorRate,
 								Attributes: opAttrs,
 							},
@@ -247,6 +252,15 @@ func emitCmd() *cobra.Command {
 			}
 			defer shutdownTraces()
 
+			engineDuration := unlimitedDuration
+			maxTraces := count
+			if duration > 0 {
+				engineDuration = duration
+				if !cmd.Flags().Changed("count") {
+					maxTraces = 0
+				}
+			}
+
 			engine := &synth.Engine{
 				Topology: topo,
 				Traffic:  traffic,
@@ -255,11 +269,17 @@ func emitCmd() *cobra.Command {
 					if tp == nil {
 						panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
 					}
-					return tp.Tracer(name)
+					return tp.Tracer("github.com/andrewh/motel",
+						trace.WithInstrumentationVersion(version),
+						trace.WithSchemaURL(otelsc.SchemaURL),
+						trace.WithInstrumentationAttributes(
+							attribute.Bool("motel.synthetic", true),
+						),
+					)
 				},
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
-				Duration:  unlimitedDuration,
-				MaxTraces: count,
+				Duration:  engineDuration,
+				MaxTraces: maxTraces,
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -270,13 +290,14 @@ func emitCmd() *cobra.Command {
 				return err
 			}
 
-			return json.NewEncoder(os.Stderr).Encode(stats)
+			return json.NewEncoder(cmd.ErrOrStderr()).Encode(stats)
 		},
 	}
 
 	cmd.Flags().StringVar(&service, "service", "", "service name (required)")
 	cmd.Flags().StringVar(&operation, "operation", "", "operation name (required)")
-	cmd.Flags().DurationVar(&duration, "duration", 100*time.Millisecond, "span duration")
+	cmd.Flags().DurationVar(&spanDuration, "span-duration", 100*time.Millisecond, "span duration")
+	cmd.Flags().DurationVar(&duration, "duration", 0, "simulation duration, e.g. 10s, 5m, 1h")
 	cmd.Flags().StringVar(&errorRate, "error-rate", "", "error rate (e.g. 5%, 0.05)")
 	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "span attribute in key=value format (repeatable)")
 	cmd.Flags().IntVar(&count, "count", 1, "number of traces to emit")
@@ -323,9 +344,16 @@ func validateCmd() *cobra.Command {
 			if err := synth.ValidateConfig(cfg); err != nil {
 				return err
 			}
-			topo, err := buildTopology(cfg, semconvDir)
+			reg, err := loadRegistry(semconvDir)
 			if err != nil {
 				return err
+			}
+			topo, err := synth.BuildTopology(cfg, domainResolver(reg))
+			if err != nil {
+				return err
+			}
+			for _, w := range semconvMetricWarnings(cfg, reg) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 			}
 			svcLabel := "services"
 			if len(topo.Services) == 1 {
@@ -580,15 +608,21 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
+		if !topoHasMetrics(topo) {
+			fmt.Fprintln(os.Stderr, "warning: --signals includes metrics but the topology defines no metric instruments; no metric data will be emitted. Add a metrics: section to at least one service or operation.")
+		}
 		meters, shutdownMetrics, mErr := createMetricProviders(ctx, opts, serviceResources)
 		if mErr != nil {
 			return fmt.Errorf("creating metric providers: %w", mErr)
 		}
 		defer shutdownMetrics()
-		obs, mErr := synth.NewMetricObserver(meters)
+		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
+		obs, mErr := synth.NewMetricObserver(meters, topo, rng)
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
+		stopIntervals := obs.Start()
+		defer stopIntervals()
 		observers = append(observers, obs)
 	}
 
@@ -615,7 +649,13 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			if tp == nil {
 				panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
 			}
-			return tp.Tracer(name)
+			return tp.Tracer("github.com/andrewh/motel",
+				trace.WithInstrumentationVersion(version),
+				trace.WithSchemaURL(otelsc.SchemaURL),
+				trace.WithInstrumentationAttributes(
+					attribute.Bool("motel.synthetic", true),
+				),
+			)
 		},
 		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 		Duration:         duration,
@@ -722,7 +762,7 @@ func createMetricProviders(ctx context.Context, opts runOptions, resources map[s
 		return nil, func() {}, err
 	}
 
-	wrapper := &noopShutdownMetricExporter{exporter}
+	wrapper := &noopShutdownMetricExporter{synth.NewTimeOffsetMetricExporter(exporter, opts.timeOffset)}
 	providers := make([]*sdkmetric.MeterProvider, 0, len(resources))
 	meters := make(map[string]metric.Meter, len(resources))
 
@@ -845,6 +885,16 @@ func shutdownAll[S shutdownable](ctx context.Context, items []S, label string) {
 }
 
 func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error) {
+	reg, err := loadRegistry(semconvDir)
+	if err != nil {
+		return nil, err
+	}
+	return synth.BuildTopology(cfg, domainResolver(reg))
+}
+
+// loadRegistry loads the embedded semantic convention registry, merged with
+// any additional YAML files from semconvDir.
+func loadRegistry(semconvDir string) (*semconv.Registry, error) {
 	reg, err := semconv.LoadEmbedded()
 	if err != nil {
 		return nil, fmt.Errorf("loading semantic conventions: %w", err)
@@ -863,7 +913,60 @@ func buildTopology(cfg *synth.Config, semconvDir string) (*synth.Topology, error
 		}
 		reg = reg.Merge(userReg)
 	}
-	return synth.BuildTopology(cfg, domainResolver(reg))
+	return reg, nil
+}
+
+// semconvMetricWarnings checks topology metric definitions whose names match
+// known semantic convention metrics, returning warnings for instrument type
+// and unit mismatches. Unknown metric names are not warned about — users may
+// define custom metrics freely.
+func semconvMetricWarnings(cfg *synth.Config, reg *semconv.Registry) []string {
+	var warnings []string
+	check := func(scope string, mc synth.MetricConfig) {
+		g := reg.MetricByName(mc.Name)
+		if g == nil {
+			return
+		}
+		if g.Instrument != "" && mc.Type != g.Instrument {
+			warnings = append(warnings, fmt.Sprintf("%s: metric %q: type %q does not match semantic convention instrument %q",
+				scope, mc.Name, mc.Type, g.Instrument))
+		}
+		if g.Unit != "" && mc.Unit != g.Unit {
+			if mc.Unit == "" {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit is not set; semantic convention specifies %q",
+					scope, mc.Name, g.Unit))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("%s: metric %q: unit %q does not match semantic convention unit %q",
+					scope, mc.Name, mc.Unit, g.Unit))
+			}
+		}
+	}
+	for _, svc := range cfg.Services {
+		for _, mc := range svc.Metrics {
+			check(fmt.Sprintf("service %q", svc.Name), mc)
+		}
+		for _, op := range svc.Operations {
+			for _, mc := range op.Metrics {
+				check(fmt.Sprintf("service %q operation %q", svc.Name, op.Name), mc)
+			}
+		}
+	}
+	return warnings
+}
+
+// topoHasMetrics reports whether any service or operation in the topology defines at least one metric.
+func topoHasMetrics(topo *synth.Topology) bool {
+	for _, svc := range topo.Services {
+		if len(svc.Metrics) > 0 {
+			return true
+		}
+		for _, op := range svc.Operations {
+			if len(op.Metrics) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func domainResolver(reg *semconv.Registry) synth.DomainResolver {

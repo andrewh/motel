@@ -5,6 +5,7 @@ package synth
 import (
 	"fmt"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -75,6 +76,72 @@ func (d Distribution) Sample(rng *rand.Rand) time.Duration {
 		sample = 0
 	}
 	return time.Duration(sample)
+}
+
+// FloatDistribution represents a numeric value with optional variance, sampled as a normal distribution.
+type FloatDistribution struct {
+	Mean   float64
+	StdDev float64
+}
+
+// ParseFloatDistribution parses a float distribution string.
+// Supported formats:
+//   - "0.65 +/- 0.1" (mean with standard deviation)
+//   - "0.65 ± 0.1"   (unicode variant)
+//   - "0.65"          (fixed value, zero variance)
+func ParseFloatDistribution(s string) (FloatDistribution, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return FloatDistribution{}, fmt.Errorf("value is required (e.g. '0.65', '0.65 +/- 0.1')")
+	}
+
+	var meanStr, stddevStr string
+	if parts := strings.SplitN(s, "+/-", 2); len(parts) == 2 {
+		meanStr = strings.TrimSpace(parts[0])
+		stddevStr = strings.TrimSpace(parts[1])
+	} else if parts := strings.SplitN(s, "±", 2); len(parts) == 2 {
+		meanStr = strings.TrimSpace(parts[0])
+		stddevStr = strings.TrimSpace(parts[1])
+	} else {
+		mean, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			return FloatDistribution{}, fmt.Errorf("invalid mean value: %w", err)
+		}
+		return FloatDistribution{Mean: mean}, nil
+	}
+
+	mean, err := strconv.ParseFloat(meanStr, 64)
+	if err != nil {
+		return FloatDistribution{}, fmt.Errorf("invalid mean value: %w", err)
+	}
+
+	stddev, err := strconv.ParseFloat(stddevStr, 64)
+	if err != nil {
+		return FloatDistribution{}, fmt.Errorf("invalid stddev value: %w", err)
+	}
+	if stddev < 0 {
+		return FloatDistribution{}, fmt.Errorf("stddev must not be negative")
+	}
+
+	return FloatDistribution{Mean: mean, StdDev: stddev}, nil
+}
+
+// Sample returns a value drawn from a normal distribution.
+func (d FloatDistribution) Sample(rng *rand.Rand) float64 {
+	if d.StdDev == 0 {
+		return d.Mean
+	}
+	return d.Mean + rng.NormFloat64()*d.StdDev
+}
+
+// String returns the distribution in DSL format.
+func (d FloatDistribution) String() string {
+	if d.StdDev == 0 {
+		return strconv.FormatFloat(d.Mean, 'f', -1, 64)
+	}
+	return fmt.Sprintf("%s +/- %s",
+		strconv.FormatFloat(d.Mean, 'f', -1, 64),
+		strconv.FormatFloat(d.StdDev, 'f', -1, 64))
 }
 
 // String returns the distribution in DSL format.

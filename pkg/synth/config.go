@@ -29,6 +29,22 @@ var reservedResourceAttribute = map[string]bool{
 	"motel.version": true,
 }
 
+// Metric type constants for OTel instrument types.
+const (
+	metricTypeCounter       = "counter"
+	metricTypeUpDownCounter = "updowncounter"
+	metricTypeHistogram     = "histogram"
+	metricTypeGauge         = "gauge"
+)
+
+// validMetricType lists supported OTel instrument types.
+var validMetricType = map[string]bool{
+	metricTypeCounter:       true,
+	metricTypeUpDownCounter: true,
+	metricTypeHistogram:     true,
+	metricTypeGauge:         true,
+}
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
@@ -49,6 +65,7 @@ type rawConfig struct {
 type rawServiceConfig struct {
 	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
 	Attributes         map[string]string             `yaml:"attributes,omitempty"`
+	Metrics            []MetricConfig                `yaml:"metrics,omitempty"`
 	Operations         map[string]rawOperationConfig `yaml:"operations"`
 }
 
@@ -103,6 +120,20 @@ type EventConfig struct {
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
+// MetricConfig describes a metric instrument defined in the topology YAML.
+type MetricConfig struct {
+	Name       string                          `yaml:"name"`
+	Type       string                          `yaml:"type"`
+	Unit       string                          `yaml:"unit,omitempty"`
+	Value      string                          `yaml:"value,omitempty"`
+	Interval   string                          `yaml:"interval,omitempty"`
+	Walk       string                          `yaml:"walk,omitempty"`
+	Min        *float64                        `yaml:"min,omitempty"`
+	Max        *float64                        `yaml:"max,omitempty"`
+	ErrorsOnly bool                            `yaml:"errors_only,omitempty"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain         string                          `yaml:"domain,omitempty"`
@@ -113,6 +144,7 @@ type rawOperationConfig struct {
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 	Events         []EventConfig                   `yaml:"events,omitempty"`
 	Links          []string                        `yaml:"links,omitempty"`
+	Metrics        []MetricConfig                  `yaml:"metrics,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
 	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
 	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
@@ -123,6 +155,7 @@ type ServiceConfig struct {
 	Name               string
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
+	Metrics            []MetricConfig
 	Operations         []OperationConfig
 }
 
@@ -137,6 +170,7 @@ type OperationConfig struct {
 	Attributes     map[string]AttributeValueConfig
 	Events         []EventConfig
 	Links          []string
+	Metrics        []MetricConfig
 	QueueDepth     int
 	Backpressure   *BackpressureConfig
 	CircuitBreaker *CircuitBreakerConfig
@@ -172,13 +206,23 @@ type ScenarioConfig struct {
 	Traffic  *TrafficConfig            `yaml:"traffic,omitempty"`
 }
 
-// OverrideConfig holds per-operation overrides within a scenario.
+// OverrideConfig holds per-operation or per-service overrides within a scenario.
+// Override keys are usually "service.operation" references; a bare service name
+// is also accepted, in which case only Metrics may be set.
 type OverrideConfig struct {
 	Duration    string                          `yaml:"duration,omitempty"`
 	ErrorRate   string                          `yaml:"error_rate,omitempty"`
 	Attributes  map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 	AddCalls    []CallConfig                    `yaml:"add_calls,omitempty"`
 	RemoveCalls []RemoveCallConfig              `yaml:"remove_calls,omitempty"`
+	Metrics     map[string]MetricOverrideConfig `yaml:"metrics,omitempty"`
+}
+
+// MetricOverrideConfig overrides the value distribution of a named metric
+// during a scenario window. Name, type, and unit are fixed at instrument
+// creation time and cannot be overridden.
+type MetricOverrideConfig struct {
+	Value string `yaml:"value"`
 }
 
 // RemoveCallConfig identifies a downstream call to remove by target reference.
@@ -293,6 +337,7 @@ func LoadConfig(source string) (*Config, error) {
 			Name:               name,
 			ResourceAttributes: rawSvc.ResourceAttributes,
 			Attributes:         rawSvc.Attributes,
+			Metrics:            rawSvc.Metrics,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -313,6 +358,7 @@ func LoadConfig(source string) (*Config, error) {
 				Attributes:     rawOp.Attributes,
 				Events:         rawOp.Events,
 				Links:          rawOp.Links,
+				Metrics:        rawOp.Metrics,
 				QueueDepth:     rawOp.QueueDepth,
 				Backpressure:   rawOp.Backpressure,
 				CircuitBreaker: rawOp.CircuitBreaker,
@@ -335,9 +381,13 @@ func ValidateConfig(cfg *Config) error {
 
 	// Build lookups for reference validation:
 	// knownOps: all defined operations
+	// knownServices: all defined services (for service-scope metric overrides)
 	// opCalls: which targets each operation calls (for remove_calls validation)
+	// metricsByScope: metric definitions keyed by scope ref (service name or "service.operation")
 	knownOps := make(map[string]bool)
+	knownServices := make(map[string]bool)
 	opCalls := make(map[string]map[string]bool)
+	metricsByScope := make(map[string]map[string]MetricConfig)
 	for _, svc := range cfg.Services {
 		if len(svc.Operations) == 0 {
 			return fmt.Errorf("service %q must have at least one operation, e.g.\n  operations:\n    GET /users:\n      duration: 50ms", svc.Name)
@@ -350,8 +400,37 @@ func ValidateConfig(cfg *Config) error {
 				return fmt.Errorf("service %q: resource_attributes must not contain reserved key %q (set automatically)", svc.Name, k)
 			}
 		}
+		knownServices[svc.Name] = true
+		metricNames := make(map[string]bool)
+		for i, mc := range svc.Metrics {
+			if err := validateMetricConfig(mc, fmt.Sprintf("service %q: metric[%d]", svc.Name, i)); err != nil {
+				return err
+			}
+			if metricNames[mc.Name] {
+				return fmt.Errorf("service %q: duplicate metric name %q", svc.Name, mc.Name)
+			}
+			metricNames[mc.Name] = true
+			if metricsByScope[svc.Name] == nil {
+				metricsByScope[svc.Name] = make(map[string]MetricConfig)
+			}
+			metricsByScope[svc.Name][mc.Name] = mc
+		}
 		for _, op := range svc.Operations {
-			ref := svc.Name + "." + op.Name
+			opRef := svc.Name + "." + op.Name
+			for i, mc := range op.Metrics {
+				if err := validateMetricConfig(mc, fmt.Sprintf("service %q operation %q: metric[%d]", svc.Name, op.Name, i)); err != nil {
+					return err
+				}
+				if metricNames[mc.Name] {
+					return fmt.Errorf("service %q operation %q: duplicate metric name %q (already defined at service or operation level)", svc.Name, op.Name, mc.Name)
+				}
+				metricNames[mc.Name] = true
+				if metricsByScope[opRef] == nil {
+					metricsByScope[opRef] = make(map[string]MetricConfig)
+				}
+				metricsByScope[opRef][mc.Name] = mc
+			}
+			ref := opRef
 			knownOps[ref] = true
 			targets := make(map[string]bool, len(op.Calls))
 			for _, call := range op.Calls {
@@ -525,7 +604,16 @@ func ValidateConfig(cfg *Config) error {
 		}
 		for ref, override := range sc.Override {
 			if !knownOps[ref] {
-				return fmt.Errorf("scenario %q: override %q references unknown operation", sc.Name, ref)
+				if !knownServices[ref] {
+					return fmt.Errorf("scenario %q: override %q references unknown operation or service", sc.Name, ref)
+				}
+				if override.Duration != "" || override.ErrorRate != "" || len(override.Attributes) > 0 ||
+					len(override.AddCalls) > 0 || len(override.RemoveCalls) > 0 {
+					return fmt.Errorf("scenario %q: override %q: service-level overrides support only metrics (use %s.<operation> for operation overrides)", sc.Name, ref, ref)
+				}
+			}
+			if err := validateMetricOverrides(sc.Name, ref, override.Metrics, metricsByScope[ref]); err != nil {
+				return err
 			}
 			if override.Duration != "" {
 				if _, err := ParseDistribution(override.Duration); err != nil {
@@ -660,6 +748,100 @@ func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
 	}
 	if call.Async && call.Timeout != "" {
 		return fmt.Errorf("target %q: async calls cannot have a timeout", call.Target)
+	}
+	return nil
+}
+
+// validateMetricOverrides checks scenario metric overrides against the metrics
+// defined at the override's scope (a service or operation).
+func validateMetricOverrides(scenarioName, ref string, overrides map[string]MetricOverrideConfig, defined map[string]MetricConfig) error {
+	for name, mo := range overrides {
+		base, ok := defined[name]
+		if !ok {
+			return fmt.Errorf("scenario %q: override %q: metric %q is not defined at this scope", scenarioName, ref, name)
+		}
+		if base.Value == "" {
+			return fmt.Errorf("scenario %q: override %q: metric %q is span-derived and has no value distribution to override", scenarioName, ref, name)
+		}
+		if mo.Value == "" {
+			return fmt.Errorf("scenario %q: override %q: metric %q: value is required", scenarioName, ref, name)
+		}
+		if _, err := ParseFloatDistribution(mo.Value); err != nil {
+			return fmt.Errorf("scenario %q: override %q: metric %q: invalid value: %w", scenarioName, ref, name, err)
+		}
+	}
+	return nil
+}
+
+// validateMetricConfig checks a single MetricConfig for structural correctness.
+func validateMetricConfig(mc MetricConfig, prefix string) error {
+	if mc.Name == "" {
+		return fmt.Errorf("%s: name is required", prefix)
+	}
+	if !validMetricType[mc.Type] {
+		return fmt.Errorf("%s %q: type must be one of counter, updowncounter, histogram, gauge; got %q", prefix, mc.Name, mc.Type)
+	}
+	if mc.Value != "" {
+		if _, err := ParseFloatDistribution(mc.Value); err != nil {
+			return fmt.Errorf("%s %q: invalid value: %w", prefix, mc.Name, err)
+		}
+	}
+	if mc.Type == metricTypeGauge && mc.Value == "" {
+		return fmt.Errorf("%s %q: gauge metrics require a value (gauges are point-in-time, not span-derived)", prefix, mc.Name)
+	}
+	if mc.Interval != "" {
+		if mc.Type == metricTypeGauge {
+			return fmt.Errorf("%s %q: interval is not valid for gauge metrics (gauges already emit on the collection cycle)", prefix, mc.Name)
+		}
+		if mc.Value == "" {
+			return fmt.Errorf("%s %q: interval requires a value (span-derived metrics are emitted per span)", prefix, mc.Name)
+		}
+		if mc.ErrorsOnly {
+			return fmt.Errorf("%s %q: interval cannot be combined with errors_only", prefix, mc.Name)
+		}
+		d, err := time.ParseDuration(mc.Interval)
+		if err != nil {
+			return fmt.Errorf("%s %q: invalid interval: %w", prefix, mc.Name, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s %q: interval must be positive", prefix, mc.Name)
+		}
+	}
+	if mc.Walk != "" {
+		if mc.Type != metricTypeGauge {
+			return fmt.Errorf("%s %q: walk is only valid for gauge metrics", prefix, mc.Name)
+		}
+		d, err := time.ParseDuration(mc.Walk)
+		if err != nil {
+			return fmt.Errorf("%s %q: invalid walk: %w", prefix, mc.Name, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s %q: walk must be positive", prefix, mc.Name)
+		}
+	}
+	if (mc.Min != nil || mc.Max != nil) && mc.Type != metricTypeGauge {
+		return fmt.Errorf("%s %q: min and max bounds are only valid for gauge metrics", prefix, mc.Name)
+	}
+	if mc.Min != nil && mc.Max != nil && *mc.Min >= *mc.Max {
+		return fmt.Errorf("%s %q: min must be less than max", prefix, mc.Name)
+	}
+	if mc.ErrorsOnly && mc.Type != metricTypeCounter {
+		return fmt.Errorf("%s %q: errors_only is only valid for counter metrics", prefix, mc.Name)
+	}
+	if mc.Type == metricTypeUpDownCounter && mc.Value == "" {
+		// Span-derived updowncounters record +1 at span start and -1 at span end.
+		// The two observations use independently generated attribute values, so
+		// non-static generators produce mismatched time series that never balance.
+		for attrName, attrCfg := range mc.Attributes {
+			if !IsStaticAttributeConfig(attrCfg) {
+				return fmt.Errorf("%s %q: span-derived updowncounter attribute %q must be a static value (random attributes cause +1/-1 to land on different time series)", prefix, mc.Name, attrName)
+			}
+		}
+	}
+	for attrName, attrCfg := range mc.Attributes {
+		if _, err := NewAttributeGenerator(attrCfg); err != nil {
+			return fmt.Errorf("%s %q: attribute %q: %w", prefix, mc.Name, attrName, err)
+		}
 	}
 	return nil
 }

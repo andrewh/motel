@@ -46,7 +46,9 @@ but from production traces rather than a model.
 
 These papers do the inverse of what `check` does -- they observe production
 traffic to measure trace shape. `check` predicts it from a model. The metrics
-are the same.
+are the same. [empirical-validation.md](empirical-validation.md) validates
+`check` against the numbers these studies report, using topologies under
+`docs/examples/` that model the published characteristics.
 
 ## Static worst-case analysis
 

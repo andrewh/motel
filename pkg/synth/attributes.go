@@ -105,6 +105,19 @@ func (n *NormalValue) Generate(rng *rand.Rand) any {
 	return n.Mean + rng.NormFloat64()*n.StdDev
 }
 
+// IsStaticAttributeConfig reports whether cfg produces a deterministic value
+// that is the same on every Generate call (i.e. only the value: field is set).
+// Used to validate that span-derived updowncounter attributes are consistent
+// across start and end observations.
+func IsStaticAttributeConfig(cfg AttributeValueConfig) bool {
+	return cfg.Value != nil &&
+		len(cfg.Values) == 0 &&
+		cfg.Sequence == "" &&
+		cfg.Probability == nil &&
+		len(cfg.Range) == 0 &&
+		cfg.Distribution == nil
+}
+
 // NewAttributeGenerator creates an AttributeGenerator from a config entry.
 // Exactly one of the config fields must be set.
 func NewAttributeGenerator(cfg AttributeValueConfig) (AttributeGenerator, error) {

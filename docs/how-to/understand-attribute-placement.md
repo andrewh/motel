@@ -215,25 +215,24 @@ To isolate the effect of a single attribute, run the topology twice — once wit
 
 ## Semantic conventions and correct placement
 
-The `--semconv` flag helps ensure attributes are placed correctly according to OpenTelemetry semantic conventions. It validates that attribute names and placements match convention definitions.
+Instead of hand-writing well-known attributes — and risking typos or wrong placement — you can set a `domain` on an operation and let motel generate convention-correct attributes for you:
 
-```sh
-motel validate --semconv /path/to/semconv topology.yaml
+```yaml
+operations:
+  GET /users:
+    duration: 30ms +/- 10ms
+    domain: http
 ```
 
-The `--semconv` flag points to a directory containing semantic convention YAML files. motel loads the embedded OpenTelemetry conventions by default and merges any additional conventions you provide.
+The `domain` shorthand draws attribute names, types, and example values from the embedded OpenTelemetry semantic convention registry, so the generated attributes always match the conventions. See [How motel uses OTel semantic conventions](../explanation/semantic-conventions.md) for details.
 
-This catches common mistakes:
-
-- Using a deprecated attribute name when a replacement exists
-- Placing an attribute at the wrong level (resource vs span)
-- Misspelling a well-known attribute name
-
-You can also use `--semconv` with `motel run` to validate at generation time:
+The `--semconv` flag points to a directory of additional semantic convention YAML files, which motel merges with the embedded conventions. Use it to make custom domains available to the `domain` shorthand:
 
 ```sh
 motel run --stdout --semconv /path/to/semconv --duration 5s topology.yaml
 ```
+
+Note that motel does not validate hand-written attribute names against the conventions — `motel validate` checks topology structure, not attribute spelling or placement. If you want convention-correct attributes, use `domain`; if you write attributes by hand, the names are emitted exactly as you wrote them.
 
 ## Further reading
 

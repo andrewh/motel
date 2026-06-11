@@ -21,7 +21,7 @@ type Scenario struct {
 	Traffic   TrafficPattern
 }
 
-// Override holds resolved per-operation overrides within a scenario.
+// Override holds resolved per-operation or per-service overrides within a scenario.
 type Override struct {
 	Duration     Distribution
 	ErrorRate    float64
@@ -29,6 +29,7 @@ type Override struct {
 	Attributes   map[string]AttributeGenerator
 	AddCalls     []Call
 	RemoveCalls  map[string]bool
+	Metrics      map[string]FloatDistribution
 }
 
 // ParseOffset parses a time offset string like "+5m" or "30s" into a duration.
@@ -116,6 +117,16 @@ func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 				o.RemoveCalls = make(map[string]bool, len(ov.RemoveCalls))
 				for _, rc := range ov.RemoveCalls {
 					o.RemoveCalls[rc.Target] = true
+				}
+			}
+			if len(ov.Metrics) > 0 {
+				o.Metrics = make(map[string]FloatDistribution, len(ov.Metrics))
+				for name, mo := range ov.Metrics {
+					dist, distErr := ParseFloatDistribution(mo.Value)
+					if distErr != nil {
+						return nil, fmt.Errorf("scenario %q override %q: metric %q: %w", cfg.Name, ref, name, distErr)
+					}
+					o.Metrics[name] = dist
 				}
 			}
 			overrides[ref] = o
@@ -280,6 +291,12 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 					existing.RemoveCalls = make(map[string]bool, len(ov.RemoveCalls))
 				}
 				maps.Copy(existing.RemoveCalls, ov.RemoveCalls)
+			}
+			if len(ov.Metrics) > 0 {
+				newMetrics := make(map[string]FloatDistribution, len(existing.Metrics)+len(ov.Metrics))
+				maps.Copy(newMetrics, existing.Metrics)
+				maps.Copy(newMetrics, ov.Metrics)
+				existing.Metrics = newMetrics
 			}
 			merged[ref] = existing
 		}

@@ -669,3 +669,18 @@ groups:
 	require.NoError(t, err)
 	assert.Len(t, reg.Groups(), 1)
 }
+
+func TestMetricByName(t *testing.T) {
+	t.Parallel()
+	reg, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	g := reg.MetricByName("http.server.request.duration")
+	require.NotNil(t, g, "known semconv metric should be indexed")
+	assert.Equal(t, "metric", g.Type)
+	assert.Equal(t, "histogram", g.Instrument)
+	assert.Equal(t, "s", g.Unit)
+
+	assert.Nil(t, reg.MetricByName("my.custom.metric"), "unknown metric names return nil")
+	assert.Nil(t, reg.MetricByName(""), "empty name returns nil")
+}

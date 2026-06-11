@@ -56,7 +56,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 
 		select {
 		case <-ctx.Done():
-			endAllOpen(live, rstats)
+			endAllOpen(live, plans, observers, rstats)
 			return
 		case <-timer.C:
 		}
@@ -96,6 +96,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)
 			}
+			notifySpanStart(observers, plan.Service, plan.Operation)
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
 		} else {
 			ls := live[ev.Index]
@@ -154,16 +155,12 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 	span.End(trace.WithTimestamp(plan.EndTime))
 
 	if len(observers) > 0 {
-		info := SpanInfo{
-			Service:   plan.Service,
-			Operation: plan.Operation,
-			Timestamp: plan.StartTime,
-			Duration:  plan.EndTime.Sub(plan.StartTime),
-			IsError:   plan.IsError,
-			Kind:      plan.Kind,
-			Attrs:     plan.Attrs,
-			Scenarios: plan.Scenarios,
-		}
+		info := newSpanInfo(
+			plan.Service, plan.Operation,
+			plan.StartTime, plan.EndTime.Sub(plan.StartTime),
+			plan.IsError, plan.Kind,
+			plan.Attrs, plan.Scenarios,
+		)
 		for _, obs := range observers {
 			obs.Observe(info)
 		}
@@ -172,7 +169,8 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 
 // endAllOpen ends all open spans on context cancellation.
 // Iterates in reverse order so children end before parents.
-func endAllOpen(live []liveSpan, rstats *realtimeStats) {
+// Fires Observe for each cancelled span to balance updowncounter increments from ObserveStart.
+func endAllOpen(live []liveSpan, plans []SpanPlan, observers []SpanObserver, rstats *realtimeStats) {
 	now := time.Now()
 	for i := len(live) - 1; i >= 0; i-- {
 		if live[i].Span == nil {
@@ -182,5 +180,17 @@ func endAllOpen(live []liveSpan, rstats *realtimeStats) {
 		live[i].Span.End(trace.WithTimestamp(now))
 		rstats.Spans.Add(1)
 		rstats.Errors.Add(1)
+		if len(observers) > 0 {
+			plan := &plans[i]
+			info := newSpanInfo(
+				plan.Service, plan.Operation,
+				plan.StartTime, now.Sub(plan.StartTime),
+				true, plan.Kind,
+				plan.Attrs, plan.Scenarios,
+			)
+			for _, obs := range observers {
+				obs.Observe(info)
+			}
+		}
 	}
 }
