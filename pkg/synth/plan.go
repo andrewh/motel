@@ -3,7 +3,6 @@
 package synth
 
 import (
-	"maps"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -53,10 +52,7 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 			errorRate = ov.ErrorRate
 		}
 		if len(ov.Attributes) > 0 {
-			merged := make(map[string]AttributeGenerator, len(op.Attributes)+len(ov.Attributes))
-			maps.Copy(merged, op.Attributes)
-			maps.Copy(merged, ov.Attributes)
-			opAttrs = merged
+			opAttrs = op.Attributes.Merge(ov.Attributes)
 		}
 	}
 
@@ -101,8 +97,8 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 	for k, v := range op.Service.Attributes {
 		spanAttrs = append(spanAttrs, attribute.String(k, v))
 	}
-	for k, gen := range opAttrs {
-		spanAttrs = append(spanAttrs, typedAttribute(k, gen.Generate(e.Rng)))
+	for _, a := range opAttrs {
+		spanAttrs = append(spanAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
 	}
 
 	ownError := e.Rng.Float64() < errorRate

@@ -4,6 +4,7 @@ package synth
 
 import (
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"strconv"
@@ -25,6 +26,70 @@ type AttributeValueConfig struct {
 	Probability  *float64            `yaml:"probability,omitempty"`
 	Range        []int64             `yaml:"range,omitempty"`
 	Distribution *DistributionConfig `yaml:"distribution,omitempty"`
+}
+
+// Attribute pairs a key with its value generator.
+type Attribute struct {
+	Key string
+	Gen AttributeGenerator
+}
+
+// Attributes is an ordered attribute collection, sorted by key.
+// Iteration order is deterministic by construction, which keeps RNG
+// consumption order — and therefore seeded runs — reproducible without
+// per-call-site sorting. Construct with NewAttributes.
+type Attributes []Attribute
+
+// NewAttributes converts a generator map into a key-sorted Attributes.
+func NewAttributes(m map[string]AttributeGenerator) Attributes {
+	if len(m) == 0 {
+		return nil
+	}
+	attrs := make(Attributes, 0, len(m))
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		attrs = append(attrs, Attribute{Key: k, Gen: m[k]})
+	}
+	return attrs
+}
+
+// Merge returns the union of a and over, with over taking precedence on
+// key collisions. Both inputs must be key-sorted; the result is too.
+func (a Attributes) Merge(over Attributes) Attributes {
+	if len(over) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return over
+	}
+	merged := make(Attributes, 0, len(a)+len(over))
+	i, j := 0, 0
+	for i < len(a) && j < len(over) {
+		switch {
+		case a[i].Key < over[j].Key:
+			merged = append(merged, a[i])
+			i++
+		case a[i].Key > over[j].Key:
+			merged = append(merged, over[j])
+			j++
+		default:
+			merged = append(merged, over[j])
+			i++
+			j++
+		}
+	}
+	merged = append(merged, a[i:]...)
+	merged = append(merged, over[j:]...)
+	return merged
+}
+
+// Get returns the generator for key, or nil if the key is absent.
+func (a Attributes) Get(key string) AttributeGenerator {
+	for _, attr := range a {
+		if attr.Key == key {
+			return attr.Gen
+		}
+	}
+	return nil
 }
 
 // AttributeGenerator produces typed values for a span attribute.

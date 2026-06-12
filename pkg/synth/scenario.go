@@ -26,7 +26,7 @@ type Override struct {
 	Duration     Distribution
 	ErrorRate    float64
 	HasErrorRate bool
-	Attributes   map[string]AttributeGenerator
+	Attributes   Attributes
 	AddCalls     []Call
 	RemoveCalls  map[string]bool
 	Metrics      map[string]FloatDistribution
@@ -79,14 +79,15 @@ func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 				o.HasErrorRate = true
 			}
 			if len(ov.Attributes) > 0 {
-				o.Attributes = make(map[string]AttributeGenerator, len(ov.Attributes))
+				gens := make(map[string]AttributeGenerator, len(ov.Attributes))
 				for attrName, attrCfg := range ov.Attributes {
 					gen, genErr := NewAttributeGenerator(attrCfg)
 					if genErr != nil {
 						return nil, fmt.Errorf("scenario %q override %q: attribute %q: %w", cfg.Name, ref, attrName, genErr)
 					}
-					o.Attributes[attrName] = gen
+					gens[attrName] = gen
 				}
+				o.Attributes = NewAttributes(gens)
 			}
 			for _, callCfg := range ov.AddCalls {
 				_, targetOp, resolveErr := resolveRef(topo, callCfg.Target)
@@ -289,10 +290,7 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 				existing.HasErrorRate = true
 			}
 			if len(ov.Attributes) > 0 {
-				newAttrs := make(map[string]AttributeGenerator, len(existing.Attributes)+len(ov.Attributes))
-				maps.Copy(newAttrs, existing.Attributes)
-				maps.Copy(newAttrs, ov.Attributes)
-				existing.Attributes = newAttrs
+				existing.Attributes = existing.Attributes.Merge(ov.Attributes)
 			}
 			if len(ov.AddCalls) > 0 {
 				existing.AddCalls = append(slices.Clone(existing.AddCalls), ov.AddCalls...)

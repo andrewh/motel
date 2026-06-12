@@ -288,10 +288,10 @@ func TestEngineScenarioAttributeOverrides(t *testing.T) {
 		End:   time.Hour,
 		Overrides: map[string]Override{
 			"svc.op": {
-				Attributes: map[string]AttributeGenerator{
+				Attributes: NewAttributes(map[string]AttributeGenerator{
 					"status": &StaticValue{Value: "503"},
 					"extra":  &StaticValue{Value: "added"},
-				},
+				}),
 			},
 		},
 	}}
@@ -2791,4 +2791,77 @@ func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
 	spans := exporter.GetSpans()
 	require.Len(t, spans, 1)
 	assert.Empty(t, spans[0].Links, "first trace should have no links (registry empty)")
+}
+
+// TestSeededRunsFullyDeterministic pins the determinism guarantee for seeded
+// engines: identical structure AND identical attribute values. The topology
+// deliberately gives one operation several RNG-consuming generators
+// including a normal distribution, whose ziggurat sampling draws a variable
+// number of values — if attribute iteration order were nondeterministic,
+// RNG streams would diverge between runs.
+func TestSeededRunsFullyDeterministic(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:      "request",
+					Duration:  "30ms +/- 10ms",
+					ErrorRate: "20%",
+					Attributes: map[string]AttributeValueConfig{
+						"payload.bytes": {Distribution: &DistributionConfig{Mean: 4096, StdDev: 1024}},
+						"queue.lag":     {Distribution: &DistributionConfig{Mean: 5, StdDev: 2}},
+						"http.status":   {Values: map[any]int{"200": 9, "500": 1}},
+						"attempt":       {Range: []int64{1, 5}},
+					},
+					Calls: []CallConfig{{Target: "backend.handle", Probability: 0.7}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "20ms +/- 5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	type spanSnapshot struct {
+		Op    string
+		Err   bool
+		Dur   time.Duration
+		Attrs map[string]any
+	}
+
+	runOnce := func() []spanSnapshot {
+		engine, _, tp := newTestEngine(t, cfg)
+		engine.Rng = rand.New(rand.NewPCG(99, 1))
+		obs := &recordingObserver{}
+		engine.Observers = []SpanObserver{obs}
+
+		base := time.UnixMilli(0)
+		for range 50 {
+			engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, base, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		}
+		require.NoError(t, tp.ForceFlush(context.Background()))
+
+		records := obs.get()
+		snaps := make([]spanSnapshot, len(records))
+		for i, r := range records {
+			attrs := make(map[string]any, len(r.Attrs))
+			for _, kv := range r.Attrs {
+				attrs[string(kv.Key)] = kv.Value.AsInterface()
+			}
+			snaps[i] = spanSnapshot{Op: r.Operation, Err: r.IsError, Dur: r.Duration, Attrs: attrs}
+		}
+		return snaps
+	}
+
+	first := runOnce()
+	second := runOnce()
+	require.Equal(t, first, second, "seeded runs must produce identical spans, including attribute values")
 }

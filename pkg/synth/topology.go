@@ -27,7 +27,7 @@ type MetricDefinition struct {
 	Min        *float64      // optional lower bound for gauge values
 	Max        *float64      // optional upper bound for gauge values
 	ErrorsOnly bool
-	Attributes map[string]AttributeGenerator
+	Attributes Attributes
 }
 
 // LogDefinition is a resolved log record template.
@@ -38,7 +38,7 @@ type LogDefinition struct {
 	Probability float64
 	AtEnd       bool
 	Delay       time.Duration
-	Attributes  map[string]AttributeGenerator
+	Attributes  Attributes
 }
 
 // Service represents a resolved service node in the topology graph.
@@ -69,7 +69,7 @@ type ResolvedCircuitBreaker struct {
 type Event struct {
 	Name       string
 	Delay      time.Duration
-	Attributes map[string]AttributeGenerator
+	Attributes Attributes
 }
 
 // Operation represents a resolved operation with pointers to downstream calls.
@@ -81,7 +81,7 @@ type Operation struct {
 	ErrorRate      float64
 	Calls          []Call
 	CallStyle      string
-	Attributes     map[string]AttributeGenerator
+	Attributes     Attributes
 	Events         []Event
 	Links          []*Operation
 	Metrics        []MetricDefinition
@@ -185,7 +185,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				Duration:   dist,
 				ErrorRate:  errorRate,
 				CallStyle:  opCfg.CallStyle,
-				Attributes: attrs,
+				Attributes: NewAttributes(attrs),
 				QueueDepth: opCfg.QueueDepth,
 			}
 			if len(opCfg.Metrics) > 0 {
@@ -235,14 +235,15 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 						}
 					}
 					if len(evtCfg.Attributes) > 0 {
-						evt.Attributes = make(map[string]AttributeGenerator, len(evtCfg.Attributes))
+						gens := make(map[string]AttributeGenerator, len(evtCfg.Attributes))
 						for name, acfg := range evtCfg.Attributes {
 							gen, err := NewAttributeGenerator(acfg)
 							if err != nil {
 								return nil, fmt.Errorf("service %q operation %q event %q attribute %q: %w", svcCfg.Name, opCfg.Name, evtCfg.Name, name, err)
 							}
-							evt.Attributes[name] = gen
+							gens[name] = gen
 						}
+						evt.Attributes = NewAttributes(gens)
 					}
 					op.Events[i] = evt
 				}
@@ -358,7 +359,7 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 			return nil, fmt.Errorf("%s: metric %q: gauge requires a value", ctx, mc.Name)
 		}
 		if len(mc.Attributes) > 0 {
-			def.Attributes = make(map[string]AttributeGenerator, len(mc.Attributes))
+			gens := make(map[string]AttributeGenerator, len(mc.Attributes))
 			for name, acfg := range mc.Attributes {
 				gen, err := NewAttributeGenerator(acfg)
 				if err != nil {
@@ -368,8 +369,9 @@ func resolveMetrics(configs []MetricConfig, svcName, opName string) ([]MetricDef
 					}
 					return nil, fmt.Errorf("%s: metric %q attribute %q: %w", ctx, mc.Name, name, err)
 				}
-				def.Attributes[name] = gen
+				gens[name] = gen
 			}
+			def.Attributes = NewAttributes(gens)
 		}
 		defs[i] = def
 	}
@@ -403,14 +405,15 @@ func resolveLogs(configs []LogConfig, errCtx string) ([]LogDefinition, error) {
 			def.Delay = d
 		}
 		if len(lc.Attributes) > 0 {
-			def.Attributes = make(map[string]AttributeGenerator, len(lc.Attributes))
+			gens := make(map[string]AttributeGenerator, len(lc.Attributes))
 			for name, acfg := range lc.Attributes {
 				gen, err := NewAttributeGenerator(acfg)
 				if err != nil {
 					return nil, fmt.Errorf("%s: log[%d] attribute %q: %w", errCtx, i, name, err)
 				}
-				def.Attributes[name] = gen
+				gens[name] = gen
 			}
+			def.Attributes = NewAttributes(gens)
 		}
 		defs[i] = def
 	}

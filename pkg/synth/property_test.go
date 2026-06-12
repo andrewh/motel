@@ -591,7 +591,7 @@ func TestProperty_ResolveOverrides_DoesNotMutateInput(t *testing.T) {
 			scenarios[i] = Scenario{
 				Overrides: map[string]Override{
 					ref: {
-						Attributes: attrs,
+						Attributes: NewAttributes(attrs),
 						AddCalls:   []Call{{Operation: &Operation{Ref: fmt.Sprintf("target%d.op", i)}}},
 					},
 				},
