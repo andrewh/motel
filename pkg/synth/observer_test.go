@@ -414,7 +414,7 @@ func TestFinishSpanParentAttribution(t *testing.T) {
 
 	var plans []SpanPlan
 	now := time.Now()
-	engine.planTrace(engine.Topology.Roots[0], -1, now, 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace)
+	engine.planTrace(engine.Topology.Roots[0], -1, now, 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false)
 	require.Len(t, plans, 2)
 
 	var rstats realtimeStats
@@ -481,7 +481,7 @@ func TestPlanTracePlanEvents(t *testing.T) {
 	engine.Observers = []SpanObserver{obs}
 
 	var plans []SpanPlan
-	engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace)
+	engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false)
 
 	events := obs.getEvents()
 	require.Len(t, events, 2)
