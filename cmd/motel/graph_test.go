@@ -222,6 +222,43 @@ traffic:
 		assert.Equal(t, 2, byID["cache"].Col, "cache sits at its longest call depth")
 	})
 
+	t.Run("multi-operation service placed at its deepest operation", func(t *testing.T) {
+		t.Parallel()
+		topo := buildTopo(t, `
+version: 1
+services:
+  gateway:
+    operations:
+      handle:
+        duration: 10ms
+        calls:
+          - mixed.shallow
+          - api.process
+  api:
+    operations:
+      process:
+        duration: 10ms
+        calls:
+          - mixed.deep
+  mixed:
+    operations:
+      shallow:
+        duration: 1ms
+      deep:
+        duration: 1ms
+traffic:
+  rate: 10/s
+`)
+		data := buildGraphData(topo)
+
+		byID := make(map[string]graphNode, len(data.Nodes))
+		for _, n := range data.Nodes {
+			byID[n.ID] = n
+		}
+		assert.Equal(t, 2, byID["mixed"].Col, "service column follows its deepest operation")
+		assert.Equal(t, 1, byID["api"].Col)
+	})
+
 	t.Run("async and probability modifiers", func(t *testing.T) {
 		t.Parallel()
 		topo := buildTopo(t, `

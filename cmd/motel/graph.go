@@ -207,10 +207,12 @@ func buildGraphData(topo *synth.Topology) graphData {
 	return data
 }
 
-// serviceLayers assigns each service a column index: the call depth of its
-// shallowest operation, measured as the longest path from any root. The
-// operation graph is acyclic (BuildTopology rejects cycles), so the longest
-// path is well defined even when the service-level graph contains cycles.
+// serviceLayers assigns each service a column index: the longest call depth
+// across its operations, measured as the longest path from any root. Using
+// the deepest operation keeps a service to the right of the callers of all
+// its operations in the common case. The operation graph is acyclic
+// (BuildTopology rejects cycles), so the longest path is well defined even
+// when the service-level graph contains cycles.
 func serviceLayers(topo *synth.Topology) map[string]int {
 	opDepth := make(map[*synth.Operation]int)
 	var visit func(op *synth.Operation, depth int)
@@ -230,7 +232,7 @@ func serviceLayers(topo *synth.Topology) map[string]int {
 	layers := make(map[string]int, len(topo.Services))
 	for op, depth := range opDepth {
 		name := op.Service.Name
-		if cur, seen := layers[name]; !seen || depth < cur {
+		if cur, seen := layers[name]; !seen || depth > cur {
 			layers[name] = depth
 		}
 	}

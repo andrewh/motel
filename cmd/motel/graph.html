@@ -55,7 +55,7 @@ const graph = /*GRAPH_DATA*/null;
 const live = /*LIVE*/false;
 const timeline = /*TIMELINE_DATA*/null;
 
-const NODE_W = 130;
+const NODE_W = 130;   // maximum node box size; shrinks with the cell pitch
 const NODE_H = 36;
 const MARGIN_X = 110;
 const MARGIN_Y = 80;
@@ -213,6 +213,7 @@ function windowResized() {
 // Grid state computed by placeNodes: pixel pitch (scaled to fit the
 // window) and the origin of grid cell (0,0).
 let cellW = CELL_W, cellH = CELL_H, gridX0 = 0, gridY0 = 0;
+let nodeW = NODE_W, nodeH = NODE_H;
 
 // Map integer grid coordinates onto the canvas: scale the cell pitch
 // down if the grid would overflow the window, then centre the drawing.
@@ -224,6 +225,8 @@ function placeNodes() {
   const scale = Math.min(1, availW / (cols * CELL_W), availH / (rows * CELL_H));
   cellW = CELL_W * scale;
   cellH = CELL_H * scale;
+  nodeW = Math.min(NODE_W, cellW - 36);
+  nodeH = Math.min(NODE_H, cellH - 30);
   const gridW = (graph.gridCols - 1) * cellW;
   const gridH = (graph.gridRows - 1) * cellH;
   gridX0 = (width - gridW) / 2;
@@ -299,9 +302,14 @@ function buildEdgePaths() {
 
   const counts = {}, claimed = {};
   for (const s of specs) for (const k of s.keys) counts[k] = (counts[k] || 0) + 1;
+  // Available width per channel: vertical channels share the gap between
+  // columns, lanes share the gap between rows. The spread step shrinks
+  // when a channel is crowded so bundles never overrun node boxes.
+  const channelSpan = key => key[0] === "v" || key[0] === "r" ? cellW - nodeW - 8 : cellH - nodeH - 8;
   const off = key => {
     claimed[key] = (claimed[key] || 0) + 1;
-    return (claimed[key] - 1 - (counts[key] - 1) / 2) * CHANNEL_GAP;
+    const step = Math.min(CHANNEL_GAP, channelSpan(key) / Math.max(counts[key], 1));
+    return (claimed[key] - 1 - (counts[key] - 1) / 2) * step;
   };
   const gapX = col => gridX0 + (col - 0.5) * cellW;
 
@@ -309,7 +317,7 @@ function buildEdgePaths() {
     const spec = specs[i];
     if (spec.self) { e.path = null; return; }
     const s = e.from, t = e.to;
-    const exitR = s.px + NODE_W / 2, entryL = t.px - NODE_W / 2, entryR = t.px + NODE_W / 2;
+    const exitR = s.px + nodeW / 2, entryL = t.px - nodeW / 2, entryR = t.px + nodeW / 2;
     let pts;
     if (spec.kind === "fwd") {
       if (s.row === t.row) {
@@ -325,12 +333,12 @@ function buildEdgePaths() {
       const x2 = gapX(t.col) + off("v" + t.col);
       pts = [[exitR, s.py], [x1, s.py], [x1, laneY], [x2, laneY], [x2, t.py], [entryL, t.py]];
     } else if (spec.kind === "same") {
-      const x = Math.max(s.px, t.px) + NODE_W / 2 + 24 + off("r" + s.col);
+      const x = Math.max(s.px, t.px) + nodeW / 2 + 24 + off("r" + s.col);
       pts = [[exitR, s.py], [x, s.py], [x, t.py], [entryR, t.py]];
     } else {
       const x = gapX(t.col) + off("v" + t.col);
       const laneY = gridY0 + (graph.gridRows - 0.5) * cellH + off("bottom");
-      pts = [[s.px, s.py + NODE_H / 2], [s.px, laneY], [x, laneY], [x, t.py], [entryL, t.py]];
+      pts = [[s.px, s.py + nodeH / 2], [s.px, laneY], [x, laneY], [x, t.py], [entryL, t.py]];
     }
     e.path = makePath(pts);
   });
@@ -347,7 +355,7 @@ function drawEdge(e) {
 
   if (e.from === e.to) {
     // Self-call: loop above the node
-    arc(e.from.px, e.from.py - NODE_H / 2, 50, 50, PI * 0.9, PI * 2.1);
+    arc(e.from.px, e.from.py - nodeH / 2, 50, 50, PI * 0.9, PI * 2.1);
     drawingContext.setLineDash([]);
     return;
   }
@@ -399,23 +407,29 @@ function drawNode(n) {
   strokeWeight(isHover ? 2.5 : 1.5);
   fill(n.isRoot ? COLOR_ROOT_FILL : COLOR_NODE_FILL);
   rectMode(CENTER);
-  rect(n.px, n.py, NODE_W, NODE_H, 8);
+  rect(n.px, n.py, nodeW, nodeH, 8);
 
   noStroke();
   fill("#1f2937");
   textAlign(CENTER, CENTER);
-  textSize(12);
+  // Scale the label with the node; below ~90px draw unboxed so the name
+  // stays visible (p5 hides boxed text that overflows) even if it spills.
+  const fs = Math.max(8, Math.min(12, nodeW / 9));
+  const showStats = view && nodeH >= 28 && nodeW >= 90;
+  textSize(fs);
   textStyle(n.isRoot ? BOLD : NORMAL);
-  if (view) {
-    text(n.id, n.px, n.py - 7, NODE_W - 12, NODE_H / 2);
+  if (showStats) {
+    text(n.id, n.px, n.py - 7, nodeW - 12, nodeH / 2);
     textStyle(NORMAL);
     textSize(9);
     fill(errLevel > 0 ? border : "#6b7280");
     const rate = view.rates[n.id] || 0;
     const err = (view.errPct[n.id] || 0) * 100;
     text(rate.toFixed(1) + "/s · err " + err.toFixed(1) + "%", n.px, n.py + 8);
+  } else if (nodeW >= 90) {
+    text(n.id, n.px, n.py, nodeW - 12, nodeH);
   } else {
-    text(n.id, n.px, n.py, NODE_W - 12, NODE_H);
+    text(n.id, n.px, n.py);
   }
   textStyle(NORMAL);
 }
@@ -447,7 +461,7 @@ function drawTooltip(n) {
   for (const l of lines) boxW = Math.max(boxW, textWidth(l));
   boxW += 20;
   const boxH = lines.length * 16 + 12;
-  let tx = n.px + NODE_W / 2 + 10;
+  let tx = n.px + nodeW / 2 + 10;
   let ty = n.py - boxH / 2;
   tx = constrain(tx, 4, width - boxW - 4);
   ty = constrain(ty, 4, height - boxH - 4);
@@ -470,7 +484,7 @@ function drawTooltip(n) {
 function nodeAt(x, y) {
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
-    if (Math.abs(x - n.px) <= NODE_W / 2 && Math.abs(y - n.py) <= NODE_H / 2) return n;
+    if (Math.abs(x - n.px) <= nodeW / 2 && Math.abs(y - n.py) <= nodeH / 2) return n;
   }
   return null;
 }
