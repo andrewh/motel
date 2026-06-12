@@ -154,15 +154,19 @@ func TestBucketSnapshots(t *testing.T) {
 	}
 
 	snaps := bucketSnapshots(log, 500*time.Millisecond)
-	require.Len(t, snaps, 2)
+	require.Len(t, snaps, 3)
 
-	first := snaps[0]
+	baseline := snaps[0]
+	assert.Equal(t, int64(1000), baseline.TimestampMs, "baseline at run start")
+	assert.Empty(t, baseline.Services)
+
+	first := snaps[1]
 	assert.Equal(t, int64(1500), first.TimestampMs)
 	assert.Equal(t, int64(1), first.Services["gateway"].Spans)
 	assert.Equal(t, int64(1), first.Services["backend"].Spans)
 	assert.Equal(t, int64(1), first.Services["backend"].Errors)
 
-	second := snaps[1]
+	second := snaps[2]
 	assert.Equal(t, int64(2000), second.TimestampMs)
 	assert.Equal(t, int64(2), second.Services["gateway"].Spans, "counters are cumulative")
 	assert.Equal(t, int64(1), second.Services["backend"].Spans)
@@ -178,9 +182,9 @@ func TestBucketSnapshotsCountsSpansAtEnd(t *testing.T) {
 		},
 	}
 	snaps := bucketSnapshots(log, 500*time.Millisecond)
-	require.Len(t, snaps, 2)
-	assert.Empty(t, snaps[0].Services)
-	assert.Equal(t, int64(1), snaps[1].Services["svc"].Spans)
+	require.Len(t, snaps, 3)
+	assert.Empty(t, snaps[1].Services, "span has not ended by the first boundary")
+	assert.Equal(t, int64(1), snaps[2].Services["svc"].Spans)
 }
 
 func TestRunLogDuration(t *testing.T) {

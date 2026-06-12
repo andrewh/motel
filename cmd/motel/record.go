@@ -361,6 +361,12 @@ func bucketSnapshots(log *runLog, interval time.Duration) []liveSnapshot {
 
 	totals := map[string]*liveServiceStats{}
 	snapshots := make([]liveSnapshot, 0, buckets+1)
+	// Baseline snapshot at t=0 with empty counters, so the first bucket's
+	// rates derive from a delta against the run start, matching live mode.
+	snapshots = append(snapshots, liveSnapshot{
+		TimestampMs: log.Header.StartMs,
+		Services:    map[string]liveServiceStats{},
+	})
 	next := 0
 
 	for b := 1; b <= buckets; b++ {

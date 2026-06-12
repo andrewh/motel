@@ -150,6 +150,6 @@ func TestGraphReplayCommand(t *testing.T) {
 
 	require.NoError(t, root.Execute())
 	html := out.String()
-	assert.Contains(t, html, `const timeline = [{"timestampMs":1500`)
+	assert.Contains(t, html, `const timeline = [{"timestampMs":1000,"services":{}}`)
 	assert.Contains(t, html, "const live = false;")
 }
