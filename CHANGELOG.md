@@ -5,6 +5,81 @@ All notable changes to motel are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-12
+
+### Added
+
+- Engine observability and seeded-run determinism: internal tracing for the simulation engine, and a `--seed` flag for reproducible runs (#168)
+- `dgggen` tool to generate production-shaped call graphs from empirical degree distributions (#166)
+
+### Dependencies
+
+- OTel bumped to 1.44.0 (#160–164)
+
+## [0.8.0] - 2026-06-12
+
+### Added
+
+- Topology-driven log generation: logs emitted alongside spans using the topology DSL (#145)
+- Scenario overrides for topology-driven logs (#156)
+- Semconv signal-type queries and log attribute validation (#158)
+
+## [0.7.4] - 2026-06-11
+
+### Added
+
+- Complete metrics signal support: scenario overrides, random-walk gauges, interval metrics, and semconv validation (#140)
+- Time offset support for metric timestamps (#141)
+- Scenario-aware exploration in `motel check` (#143)
+- Validate `motel check` output against published empirical trace metrics (#144)
+- GitHub Pages documentation site (#142)
+
+### Fixed
+
+- Prefer resource `service.name` over span attribute in stdouttrace import (#147)
+
+### Dependencies
+
+- OTel bumped to 1.41.0 (#126–130)
+
+## [0.7.3] - 2026-06-10
+
+### Added
+
+- Topology-driven metrics generation (#135)
+
+### Changed
+
+- `motel emit --duration` renamed to `--span-duration`; new `--duration` flag controls total simulation duration (#133)
+
+## [0.7.2] - 2026-03-06
+
+### Added
+
+- `InstrumentationScope` name and version fields populated in trace output (#131)
+
+## [0.7.1] - 2026-03-05
+
+### Added
+
+- `motel emit` command for inline single-trace generation without a running topology (#125)
+
+## [0.7.0] - 2026-03-04
+
+### Added
+
+- Span link support (#123)
+- Span events on operations (#118)
+- `CONSUMER` span kind for async fire-and-forget call targets (#116)
+- Async call support: fire-and-forget trace propagation (#109)
+- Configurable per-service resource attributes (#117)
+- DGG call-graph to motel topology converter tool
+- Property-test topology generator using production graph distributions
+
+### Changed
+
+- Service-level attributes migrated to `resource_attributes` in the topology DSL (#122)
+
 ## [0.6.4] - 2026-02-25
 
 ### Added
@@ -137,6 +212,13 @@ Initial public release. Extracted from motel-kitchen (#1).
 - Homebrew tap via GoReleaser
 - Community files (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY)
 
+[0.9.0]: https://github.com/andrewh/motel/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/andrewh/motel/compare/v0.7.4...v0.8.0
+[0.7.4]: https://github.com/andrewh/motel/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/andrewh/motel/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/andrewh/motel/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/andrewh/motel/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/andrewh/motel/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/andrewh/motel/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/andrewh/motel/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/andrewh/motel/compare/v0.6.1...v0.6.2
