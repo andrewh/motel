@@ -321,14 +321,17 @@ func staticSpans(n *genNode, factor int) int {
 	return total
 }
 
-// clampSpans halves the largest leaf multiplicity until the static span
-// count fits under maxStaticSpans.
+// clampSpans halves the largest multiplicity on any node (leaf or interior)
+// until the static span count fits under maxStaticSpans. Interior nodes with
+// mult > 1 multiply their entire subtree, so they must be considered
+// alongside leaves — targeting only leaves can leave the bound unmet when
+// interior multiplicities drive the inflation.
 func clampSpans(root *genNode) {
 	for staticSpans(root, 1) > maxStaticSpans {
 		var largest *genNode
 		var walk func(*genNode)
 		walk = func(n *genNode) {
-			if len(n.children) == 0 && (largest == nil || n.mult > largest.mult) {
+			if n.mult > 1 && (largest == nil || n.mult > largest.mult) {
 				largest = n
 			}
 			for _, c := range n.children {
@@ -336,7 +339,7 @@ func clampSpans(root *genNode) {
 			}
 		}
 		walk(root)
-		if largest == nil || largest.mult <= 1 {
+		if largest == nil {
 			return
 		}
 		largest.mult /= 2
