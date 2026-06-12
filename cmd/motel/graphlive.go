@@ -186,17 +186,20 @@ func startGraphSession(addr, recordPath string, topo *synth.Topology, configPath
 	s := &graphSession{}
 
 	if recordPath != "" {
-		header := runHeader{
-			Type:      recordTypeRun,
-			Version:   runLogVersion,
-			Motel:     version,
-			Topology:  filepath.Base(configPath),
-			Seed:      opts.seed,
-			StartMs:   time.Now().UnixMilli(),
-			Realtime:  opts.realtime,
-			Scenarios: scenarioWindows(scenarios),
-		}
+		// One clock read for the whole header: StartMs is the epoch all
+		// record offsets are relative to (simulated run start).
 		epoch := time.Now().Add(opts.timeOffset)
+		header := runHeader{
+			Type:         recordTypeRun,
+			Version:      runLogVersion,
+			Motel:        version,
+			Topology:     filepath.Base(configPath),
+			Seed:         opts.seed,
+			StartMs:      epoch.UnixMilli(),
+			TimeOffsetMs: opts.timeOffset.Milliseconds(),
+			Realtime:     opts.realtime,
+			Scenarios:    scenarioWindows(scenarios),
+		}
 		recorder, err := newRunRecorder(recordPath, header, epoch)
 		if err != nil {
 			return nil, err

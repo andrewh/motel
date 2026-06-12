@@ -31,16 +31,20 @@ const (
 	recordTypeStats = "stats"
 )
 
-// runHeader is the first record of a run log.
+// runHeader is the first record of a run log. StartMs is the simulated
+// run start (wall-clock start plus the configured time offset), the epoch
+// for all span and plan record offsets; TimeOffsetMs preserves the offset
+// so wall-clock times remain recoverable.
 type runHeader struct {
-	Type      string           `json:"type"`
-	Version   int              `json:"v"`
-	Motel     string           `json:"motel"`
-	Topology  string           `json:"topology"`
-	Seed      uint64           `json:"seed,omitempty"`
-	StartMs   int64            `json:"startMs"`
-	Realtime  bool             `json:"realtime,omitempty"`
-	Scenarios []scenarioWindow `json:"scenarios,omitempty"`
+	Type         string           `json:"type"`
+	Version      int              `json:"v"`
+	Motel        string           `json:"motel"`
+	Topology     string           `json:"topology"`
+	Seed         uint64           `json:"seed,omitempty"`
+	StartMs      int64            `json:"startMs"`
+	TimeOffsetMs int64            `json:"timeOffsetMs,omitempty"`
+	Realtime     bool             `json:"realtime,omitempty"`
+	Scenarios    []scenarioWindow `json:"scenarios,omitempty"`
 }
 
 // scenarioWindow records when a scenario is active, as offsets from run start.
@@ -124,6 +128,9 @@ func newRunRecorder(path string, header runHeader, epoch time.Time) (*runRecorde
 	r.enc = json.NewEncoder(w)
 
 	if err := r.enc.Encode(header); err != nil {
+		if r.gz != nil {
+			_ = r.gz.Close()
+		}
 		_ = f.Close()
 		return nil, fmt.Errorf("writing run log header: %w", err)
 	}

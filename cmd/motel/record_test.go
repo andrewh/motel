@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -216,4 +217,42 @@ func TestReplayInterval(t *testing.T) {
 			assert.Equal(t, tt.expected, replayInterval(tt.total))
 		})
 	}
+}
+
+func TestGraphSessionHeaderConsistentWithTimeOffset(t *testing.T) {
+	t.Parallel()
+
+	topoPath := writeTestConfig(t, validConfig)
+	cfg, err := synth.LoadConfig(topoPath)
+	require.NoError(t, err)
+	require.NoError(t, synth.ValidateConfig(cfg))
+	topo, err := synth.BuildTopology(cfg, nil)
+	require.NoError(t, err)
+
+	recPath := filepath.Join(t.TempDir(), "rec.jsonl")
+	offset := -time.Hour
+	before := time.Now().Add(offset)
+	sess, err := startGraphSession("", recPath, topo, topoPath, nil, runOptions{timeOffset: offset, seed: 7})
+	require.NoError(t, err)
+	after := time.Now().Add(offset)
+	require.NoError(t, sess.close(nil))
+
+	data, err := os.ReadFile(recPath)
+	require.NoError(t, err)
+	var header runHeader
+	require.NoError(t, json.Unmarshal(bytesBeforeNewline(data), &header))
+
+	assert.Equal(t, offset.Milliseconds(), header.TimeOffsetMs)
+	assert.GreaterOrEqual(t, header.StartMs, before.UnixMilli(), "StartMs is the simulated epoch, not wall start")
+	assert.LessOrEqual(t, header.StartMs, after.UnixMilli())
+	assert.Equal(t, uint64(7), header.Seed)
+}
+
+func bytesBeforeNewline(b []byte) []byte {
+	for i, c := range b {
+		if c == '\n' {
+			return b[:i]
+		}
+	}
+	return b
 }
