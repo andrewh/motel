@@ -199,5 +199,59 @@ spans:    20x1  14x2  19x3  11x4  11x5  9x6  14x7  7x8  3x9  1x10  2x11
 
 The format is `countxvalue` — for example, `45x2` means 45 topologies have max depth 2. The corpus covers depths 0-4, fan-outs 0-8, and span counts 1-11. The 20 topologies at depth 0 and fan-out 0 are single-service graphs (type5 in DGG's clustering). The heaviest topologies have 11 spans per trace.
 
-These are small by production standards — Alibaba's traces in the Du et al. paper reach depths of 15+ and hundreds of spans. The sample corpus represents clustered archetypes rather than the full distribution. Running the DGG generator itself with different parameters would produce deeper and wider graphs for more aggressive stress testing.
+These are small by production standards — Alibaba's traces in the Du et al. paper reach depths of 15+ and hundreds of spans. The sample corpus represents clustered archetypes rather than the full distribution. The `dgggen` tool below fills that gap.
+
+## Generating a production-shaped corpus
+
+The `dgggen` tool generates DGG-format JSON graphs with shape distributions drawn from the production measurements in the Du et al. paper: heavy-tailed graph sizes reaching hundreds of nodes, depths reaching 15+, hub services with high fan-out, and repeated calls with multiplicities into the hundreds. The corpus is stratified rather than frequency-matched — deep and wide graphs are oversampled so a corpus of 100 graphs still covers the tail. Output is deterministic for a given seed.
+
+```bash
+go run ./tools/dgggen -n 100 -seed 1 -out /tmp/dgg-prod
+go run ./tools/dgg2motel -dir /tmp/dgg-prod -out /tmp/dgg-prod-topologies
+```
+
+```output
+generated 100 graphs in /tmp/dgg-prod
+converted 100 graphs, skipped 0
+```
+
+The generated graphs exceed `motel check`'s default limits by design — that is the point of a production-shaped corpus. The `CHECK_ARGS` environment variable passes raised limits through `test_corpus.sh`.
+
+```bash
+CHECK_ARGS="--max-depth 25 --max-fan-out 500" ./tools/dgg2motel/test_corpus.sh /tmp/dgg-prod-topologies
+```
+
+```output
+testing 100 topologies from /tmp/dgg-prod-topologies
+motel: build/motel
+duration: 1s
+
+
+=== results ===
+check: 100 pass, 0 fail
+run:   100 pass, 0 fail, 0 timeout
+```
+
+## Production-shaped corpus distribution
+
+```bash
+for f in /tmp/dgg-prod-topologies/*.yaml; do
+    build/motel check --samples 0 --max-depth 25 --max-fan-out 500 "$f" 2>/dev/null
+done | awk '
+/max-depth:/   { d=$3+0; depths[d]++; if(d>maxd) maxd=d }
+/max-fan-out:/ { f=$3+0; if(f>maxf) maxf=f }
+/max-spans:/   { s=$3+0; if(s>maxs) maxs=s; sum+=s; n++ }
+END {
+    printf "depth:    "; for(i=0;i<=25;i++) if(depths[i]) printf "%dx%d  ", depths[i], i; print ""
+    printf "max depth: %d   max fan-out: %d   max spans: %d   mean spans: %.0f\n", maxd, maxf, maxs, sum/n
+}'
+
+```
+
+```output
+depth:    6x0  8x1  8x2  9x3  12x4  13x5  8x6  6x7  7x8  5x9  2x10  3x11  2x13  1x14  4x15  3x16  2x17  1x18  
+max depth: 18   max fan-out: 460   max spans: 4196   mean spans: 509
+```
+
+Where the DGG sample corpus tops out at depth 4 and 11 spans, this corpus reaches depth 18, fan-out of 460 (a hub calling a memcached instance hundreds of times), and traces of over 4000 spans — the scale the Du et al. paper reports for Alibaba production traces. Every topology still passes `motel check` and runs cleanly, which is the property the corpus exists to verify.
 

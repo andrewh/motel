@@ -11,7 +11,8 @@ set -euo pipefail
 TOPO_DIR="${1:?usage: test_corpus.sh <topology-dir>}"
 MOTEL="${MOTEL:-build/motel}"
 DURATION="${DURATION:-1s}"
-RATE="${RATE:-}"  # override traffic rate if set
+RATE="${RATE:-}"              # override traffic rate if set
+CHECK_ARGS="${CHECK_ARGS:-}"  # extra flags for motel check, e.g. "--max-depth 25"
 
 if [ ! -x "$MOTEL" ]; then
     echo "error: $MOTEL not found or not executable" >&2
@@ -42,9 +43,11 @@ for f in "${files[@]}"; do
     rel="${f#"$TOPO_DIR"/}"
 
     # motel check
-    if ! "$MOTEL" check "$f" > /dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    if ! "$MOTEL" check $CHECK_ARGS "$f" > /dev/null 2>&1; then
         echo "CHECK FAIL: $rel"
-        "$MOTEL" check "$f" 2>&1 | sed 's/^/  /'
+        # shellcheck disable=SC2086
+        "$MOTEL" check $CHECK_ARGS "$f" 2>&1 | sed 's/^/  /'
         check_fail=$((check_fail + 1))
     else
         check_pass=$((check_pass + 1))
