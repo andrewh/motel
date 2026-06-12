@@ -108,14 +108,15 @@ func runGraph(cmd *cobra.Command, configPath, output, replay string, interval ti
 	return renderGraphHTML(w, data, title, false, timeline)
 }
 
-// graphNode is a service node in the visualised graph. X and Y are
-// normalised layout coordinates in [0,1], computed by the layered layout.
+// graphNode is a service node in the visualised graph. Col and Row are
+// integer grid coordinates computed by the layered grid layout: columns
+// by call depth, rows aligned across columns.
 type graphNode struct {
 	ID         string   `json:"id"`
 	Operations []string `json:"operations"`
 	IsRoot     bool     `json:"isRoot"`
-	X          float64  `json:"x"`
-	Y          float64  `json:"y"`
+	Col        int      `json:"col"`
+	Row        int      `json:"row"`
 }
 
 // graphCall is a single operation-level call along an edge.
@@ -138,8 +139,10 @@ type graphEdge struct {
 
 // graphData is the JSON payload embedded in the HTML page.
 type graphData struct {
-	Nodes []graphNode `json:"nodes"`
-	Edges []graphEdge `json:"edges"`
+	Nodes    []graphNode `json:"nodes"`
+	Edges    []graphEdge `json:"edges"`
+	GridCols int         `json:"gridCols"`
+	GridRows int         `json:"gridRows"`
 }
 
 // buildGraphData flattens a resolved topology into nodes and service-level
@@ -239,11 +242,17 @@ func serviceLayers(topo *synth.Topology) map[string]int {
 	return layers
 }
 
-const barycenterSweeps = 4
+const (
+	barycenterSweeps = 4
+	alignmentSweeps  = 3
+)
 
-// layoutGraph computes normalised coordinates for a layered left-to-right
+// layoutGraph computes integer grid coordinates for a layered left-to-right
 // layout: services in columns by call depth, ordered within each column by
-// repeated barycenter sweeps to reduce edge crossings.
+// repeated barycenter sweeps to reduce edge crossings, then assigned grid
+// rows aligned to the median of their neighbours so connected nodes line up
+// across columns. The grid aesthetic follows HOLA-style orthogonal layouts,
+// restricted to the layered DAG shape of service topologies.
 func layoutGraph(data *graphData, layers map[string]int) {
 	maxLayer := 0
 	for _, l := range layers {
@@ -305,16 +314,56 @@ func layoutGraph(data *graphData, layers map[string]int) {
 		}
 	}
 
-	for l, col := range columns {
-		x := 0.5
-		if maxLayer > 0 {
-			x = float64(l) / float64(maxLayer)
-		}
+	// Initial integer rows: stack each column, centred against the tallest.
+	maxRows := 0
+	for _, col := range columns {
+		maxRows = max(maxRows, len(col))
+	}
+	row := make([]int, len(data.Nodes))
+	for _, col := range columns {
+		offset := (maxRows - len(col)) / 2
 		for pos, i := range col {
-			data.Nodes[i].X = x
-			data.Nodes[i].Y = (float64(pos) + 0.5) / float64(len(col))
+			row[i] = offset + pos
 		}
 	}
+
+	// Alignment sweeps: pull each node towards the median row of its
+	// neighbours while keeping column order and one node per row.
+	medianRow := func(i int) int {
+		ns := neighbours[i]
+		if len(ns) == 0 {
+			return row[i]
+		}
+		rows := make([]int, len(ns))
+		for j, n := range ns {
+			rows[j] = row[n]
+		}
+		slices.Sort(rows)
+		return rows[len(rows)/2]
+	}
+	for range alignmentSweeps {
+		for _, col := range columns {
+			for pos, i := range col {
+				lo := 0
+				if pos > 0 {
+					lo = row[col[pos-1]] + 1
+				}
+				hi := maxRows - (len(col) - pos)
+				row[i] = min(max(medianRow(i), lo), hi)
+			}
+		}
+	}
+
+	gridRows := 0
+	for l, col := range columns {
+		for _, i := range col {
+			data.Nodes[i].Col = l
+			data.Nodes[i].Row = row[i]
+			gridRows = max(gridRows, row[i]+1)
+		}
+	}
+	data.GridCols = maxLayer + 1
+	data.GridRows = gridRows
 }
 
 func renderGraphHTML(w io.Writer, data graphData, title string, live bool, timeline []liveSnapshot) error {

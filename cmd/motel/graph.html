@@ -58,7 +58,11 @@ const timeline = /*TIMELINE_DATA*/null;
 const NODE_W = 130;
 const NODE_H = 36;
 const MARGIN_X = 110;
-const MARGIN_Y = 60;
+const MARGIN_Y = 80;
+const CELL_W = 210;     // grid column pitch
+const CELL_H = 90;      // grid row pitch
+const CHANNEL_GAP = 10; // spacing between parallel edges sharing a channel
+const CORNER_R = 10;    // rounded corner radius for orthogonal bends
 
 const COLOR_ROOT = "#2563eb";
 const COLOR_ROOT_FILL = "#dbeafe";
@@ -206,29 +210,33 @@ function windowResized() {
   placeNodes();
 }
 
-// Map the normalised layout coordinates onto the canvas, leaving margins
-// for node boxes and tooltips.
+// Grid state computed by placeNodes: pixel pitch (scaled to fit the
+// window) and the origin of grid cell (0,0).
+let cellW = CELL_W, cellH = CELL_H, gridX0 = 0, gridY0 = 0;
+
+// Map integer grid coordinates onto the canvas: scale the cell pitch
+// down if the grid would overflow the window, then centre the drawing.
 function placeNodes() {
-  const w = Math.max(width - 2 * MARGIN_X, 1);
-  const h = Math.max(height - 2 * MARGIN_Y, 1);
+  const cols = Math.max(graph.gridCols - 1, 1);
+  const rows = Math.max(graph.gridRows - 1, 1);
+  const availW = Math.max(width - 2 * MARGIN_X, 1);
+  const availH = Math.max(height - 2 * MARGIN_Y, 1);
+  const scale = Math.min(1, availW / (cols * CELL_W), availH / (rows * CELL_H));
+  cellW = CELL_W * scale;
+  cellH = CELL_H * scale;
+  const gridW = (graph.gridCols - 1) * cellW;
+  const gridH = (graph.gridRows - 1) * cellH;
+  gridX0 = (width - gridW) / 2;
+  gridY0 = (height - gridH) / 2;
   for (const n of nodes) {
-    n.px = MARGIN_X + n.x * w;
-    n.py = MARGIN_Y + n.y * h;
+    n.px = gridX0 + n.col * cellW;
+    n.py = gridY0 + n.row * cellH;
   }
+  buildEdgePaths();
 }
 
 function edgeWidth(weight) {
   return 1 + 2.5 * Math.log(1 + weight);
-}
-
-// Clip the edge endpoint to the boundary of the node's rectangle so
-// arrowheads sit on the node border rather than its centre.
-function clipToNode(x1, y1, node) {
-  const dx = x1 - node.px, dy = y1 - node.py;
-  const sx = Math.abs(dx) > 0.01 ? (NODE_W / 2 + 6) / Math.abs(dx) : Infinity;
-  const sy = Math.abs(dy) > 0.01 ? (NODE_H / 2 + 6) / Math.abs(dy) : Infinity;
-  const s = Math.min(sx, sy, 1);
-  return { x: node.px + dx * s, y: node.py + dy * s };
 }
 
 function drawArrow(x, y, fromX, fromY, w, isHover) {
@@ -243,41 +251,89 @@ function drawArrow(x, y, fromX, fromY, w, isHover) {
   pop();
 }
 
-// edgeGeometry computes the drawable path of an edge: clipped endpoints
-// and, for edges spanning more than one column, a bezier control point so
-// the edge does not run straight through intermediate nodes.
-function edgeGeometry(e) {
-  const start = clipToNode(e.to.px, e.to.py, e.from);
-  const end = clipToNode(e.from.px, e.from.py, e.to);
-
-  const span = Math.abs(e.to.x - e.from.x);
-  const bow = span > 0.0001 && Math.abs(e.to.px - e.from.px) > NODE_W * 2.2
-    ? Math.min(120, Math.abs(e.to.px - e.from.px) * 0.18)
-    : 0;
-
-  if (bow === 0) return { start, end, bow };
-
-  const mx = (start.x + end.x) / 2;
-  const my = (start.y + end.y) / 2;
-  const dx = end.x - start.x, dy = end.y - start.y;
-  const d = Math.max(Math.hypot(dx, dy), 1);
-  return {
-    start, end, bow,
-    cx: mx - (dy / d) * bow,
-    cy: my + (dx / d) * bow,
-  };
+// makePath wraps a polyline with cumulative segment lengths so pulses can
+// be positioned by a single parameter. Consecutive duplicate points are
+// dropped so rounded corners stay well-formed.
+function makePath(rawPts) {
+  const pts = [rawPts[0]];
+  for (const p of rawPts.slice(1)) {
+    const last = pts[pts.length - 1];
+    if (Math.abs(p[0] - last[0]) > 0.01 || Math.abs(p[1] - last[1]) > 0.01) pts.push(p);
+  }
+  const lens = [0];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    lens.push(total);
+  }
+  return { pts, lens, total };
 }
 
-// pointOnEdge returns the position at parameter t in [0,1] along the
-// edge path computed by edgeGeometry.
-function pointOnEdge(g, t) {
-  if (g.bow === 0) {
-    return { x: lerp(g.start.x, g.end.x, t), y: lerp(g.start.y, g.end.y, t) };
-  }
-  return {
-    x: bezierPoint(g.start.x, g.cx, g.cx, g.end.x, t),
-    y: bezierPoint(g.start.y, g.cy, g.cy, g.end.y, t),
+// pointOnPath returns the position at parameter t in [0,1] along a path.
+function pointOnPath(path, t) {
+  const d = t * path.total;
+  let i = 1;
+  while (i < path.lens.length - 1 && path.lens[i] < d) i++;
+  const segLen = path.lens[i] - path.lens[i - 1] || 1;
+  const f = (d - path.lens[i - 1]) / segLen;
+  const a = path.pts[i - 1], b = path.pts[i];
+  return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f };
+}
+
+// buildEdgePaths computes an orthogonal polyline for every edge. Vertical
+// segments run in the gaps between columns; edges spanning several columns
+// travel along a horizontal lane between rows; same-column edges route
+// through a channel right of the column; back edges route below the grid.
+// Edges sharing a channel or lane are spread apart by CHANNEL_GAP.
+function buildEdgePaths() {
+  const specs = edges.map(e => {
+    if (e.from === e.to) return { self: true, keys: [] };
+    const sc = e.from.col, tc = e.to.col;
+    if (tc > sc) {
+      if (tc - sc === 1) return { kind: "fwd", keys: e.from.row === e.to.row ? [] : ["v" + tc] };
+      return { kind: "long", keys: ["v" + (sc + 1), "lane" + Math.min(e.from.row, e.to.row), "v" + tc] };
+    }
+    if (tc === sc) return { kind: "same", keys: ["r" + sc] };
+    return { kind: "back", keys: ["v" + tc, "bottom"] };
+  });
+
+  const counts = {}, claimed = {};
+  for (const s of specs) for (const k of s.keys) counts[k] = (counts[k] || 0) + 1;
+  const off = key => {
+    claimed[key] = (claimed[key] || 0) + 1;
+    return (claimed[key] - 1 - (counts[key] - 1) / 2) * CHANNEL_GAP;
   };
+  const gapX = col => gridX0 + (col - 0.5) * cellW;
+
+  edges.forEach((e, i) => {
+    const spec = specs[i];
+    if (spec.self) { e.path = null; return; }
+    const s = e.from, t = e.to;
+    const exitR = s.px + NODE_W / 2, entryL = t.px - NODE_W / 2, entryR = t.px + NODE_W / 2;
+    let pts;
+    if (spec.kind === "fwd") {
+      if (s.row === t.row) {
+        pts = [[exitR, s.py], [entryL, t.py]];
+      } else {
+        const x = gapX(t.col) + off("v" + t.col);
+        pts = [[exitR, s.py], [x, s.py], [x, t.py], [entryL, t.py]];
+      }
+    } else if (spec.kind === "long") {
+      const x1 = gapX(s.col + 1) + off("v" + (s.col + 1));
+      const laneRow = Math.min(s.row, t.row);
+      const laneY = gridY0 + (laneRow - 0.5) * cellH + off("lane" + laneRow);
+      const x2 = gapX(t.col) + off("v" + t.col);
+      pts = [[exitR, s.py], [x1, s.py], [x1, laneY], [x2, laneY], [x2, t.py], [entryL, t.py]];
+    } else if (spec.kind === "same") {
+      const x = Math.max(s.px, t.px) + NODE_W / 2 + 24 + off("r" + s.col);
+      pts = [[exitR, s.py], [x, s.py], [x, t.py], [entryR, t.py]];
+    } else {
+      const x = gapX(t.col) + off("v" + t.col);
+      const laneY = gridY0 + (graph.gridRows - 0.5) * cellH + off("bottom");
+      pts = [[s.px, s.py + NODE_H / 2], [s.px, laneY], [x, laneY], [x, t.py], [entryL, t.py]];
+    }
+    e.path = makePath(pts);
+  });
 }
 
 function drawEdge(e) {
@@ -286,27 +342,29 @@ function drawEdge(e) {
 
   stroke(touchesHover ? COLOR_EDGE_HOVER : COLOR_EDGE);
   strokeWeight(w);
+  noFill();
   if (e.async) drawingContext.setLineDash([6, 6]);
 
   if (e.from === e.to) {
     // Self-call: loop above the node
-    noFill();
     arc(e.from.px, e.from.py - NODE_H / 2, 50, 50, PI * 0.9, PI * 2.1);
     drawingContext.setLineDash([]);
     return;
   }
 
-  const g = edgeGeometry(e);
-  noFill();
-  if (g.bow > 0) {
-    bezier(g.start.x, g.start.y, g.cx, g.cy, g.cx, g.cy, g.end.x, g.end.y);
-    drawingContext.setLineDash([]);
-    drawArrow(g.end.x, g.end.y, g.cx, g.cy, w, touchesHover);
-  } else {
-    line(g.start.x, g.start.y, g.end.x, g.end.y);
-    drawingContext.setLineDash([]);
-    drawArrow(g.end.x, g.end.y, g.start.x, g.start.y, w, touchesHover);
+  const pts = e.path.pts;
+  const ctx = drawingContext;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    ctx.arcTo(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], CORNER_R);
   }
+  ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  drawArrow(b[0], b[1], a[0], a[1], w, touchesHover);
 }
 
 const PULSE_SPEED = 0.5;  // edge traversals per second
@@ -315,12 +373,11 @@ const PULSE_MAX = 6;      // maximum concurrent pulses per edge
 // drawEdgePulses animates dots travelling along an edge at a density
 // reflecting the callee service's current span rate.
 function drawEdgePulses(e) {
-  if (e.from === e.to) return;
+  if (e.from === e.to || !e.path) return;
   const rate = view.rates[e.target] || 0;
   if (rate <= 0) return;
 
   const n = constrain(Math.round(Math.sqrt(rate)), 1, PULSE_MAX);
-  const g = edgeGeometry(e);
   const errLevel = constrain((view.errPct[e.target] || 0) * 3, 0, 1);
   const dotColor = lerpColor(color("#2563eb"), color("#dc2626"), errLevel);
   const size = 5 + edgeWidth(e.weight) / 2;
@@ -329,7 +386,7 @@ function drawEdgePulses(e) {
   fill(dotColor);
   for (let i = 0; i < n; i++) {
     const t = ((millis() / 1000) * PULSE_SPEED + i / n) % 1;
-    const p = pointOnEdge(g, t);
+    const p = pointOnPath(e.path, t);
     circle(p.x, p.y, size);
   }
 }

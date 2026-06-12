@@ -177,10 +177,13 @@ traffic:
 		for _, n := range data.Nodes {
 			byID[n.ID] = n
 		}
-		assert.Equal(t, 0.0, byID["gateway"].X)
-		assert.Equal(t, 0.5, byID["api"].X)
-		assert.Equal(t, 1.0, byID["db"].X)
-		assert.Equal(t, 0.5, byID["gateway"].Y)
+		assert.Equal(t, 0, byID["gateway"].Col)
+		assert.Equal(t, 1, byID["api"].Col)
+		assert.Equal(t, 2, byID["db"].Col)
+		assert.Equal(t, byID["gateway"].Row, byID["api"].Row, "chain nodes share a row")
+		assert.Equal(t, byID["api"].Row, byID["db"].Row)
+		assert.Equal(t, 3, data.GridCols)
+		assert.Equal(t, 1, data.GridRows)
 	})
 
 	t.Run("shared dependency placed at longest call depth", func(t *testing.T) {
@@ -214,9 +217,9 @@ traffic:
 		for _, n := range data.Nodes {
 			byID[n.ID] = n
 		}
-		assert.Equal(t, 0.0, byID["gateway"].X)
-		assert.Equal(t, 0.5, byID["api"].X)
-		assert.Equal(t, 1.0, byID["cache"].X, "cache sits at its longest call depth")
+		assert.Equal(t, 0, byID["gateway"].Col)
+		assert.Equal(t, 1, byID["api"].Col)
+		assert.Equal(t, 2, byID["cache"].Col, "cache sits at its longest call depth")
 	})
 
 	t.Run("async and probability modifiers", func(t *testing.T) {
