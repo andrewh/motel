@@ -38,6 +38,7 @@ const (
 	FormatAuto        Format = "auto"        // Detects the format from the input.
 	FormatStdouttrace Format = "stdouttrace" // Line-delimited JSON from the OTel stdout exporter.
 	FormatOTLP        Format = "otlp"        // OTLP protobuf JSON.
+	FormatTempo       Format = "tempo"       // Grafana Tempo / Jaeger JSON export format.
 )
 
 // maxInputSize is the maximum input size to prevent OOM on large trace exports.
@@ -71,8 +72,10 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 		return parseStdouttrace(data)
 	case FormatOTLP:
 		return parseOTLP(data)
+	case FormatTempo:
+		return parseTempo(data)
 	default:
-		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp", format)
+		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp, tempo", format)
 	}
 }
 
@@ -91,9 +94,12 @@ func detectFormat(data []byte) (Format, error) {
 		if _, ok := probe["resourceSpans"]; ok {
 			return FormatOTLP, nil
 		}
+		if isTempoData(probe["data"]) {
+			return FormatTempo, nil
+		}
 	}
 
-	// First line wasn't a complete JSON object (e.g. pretty-printed OTLP).
+	// First line wasn't a complete JSON object (e.g. pretty-printed OTLP or Tempo).
 	// Try the full input as a single JSON document.
 	if hasMore {
 		if err := json.Unmarshal(data, &probe); err == nil {
@@ -103,10 +109,13 @@ func detectFormat(data []byte) (Format, error) {
 			if _, ok := probe["SpanContext"]; ok {
 				return FormatStdouttrace, nil
 			}
+			if isTempoData(probe["data"]) {
+				return FormatTempo, nil
+			}
 		}
 	}
 
-	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace) nor resourceSpans (OTLP)")
+	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace), resourceSpans (OTLP), nor data[].spans[].operationName (Tempo)")
 }
 
 // stdouttraceEvent mirrors the Go SDK's stdouttrace JSON output.
@@ -322,6 +331,143 @@ func isZeroID(id string) bool {
 		}
 	}
 	return len(id) > 0
+}
+
+// isTempoData returns true when raw is a JSON array whose first element contains
+// both "spans" and within it "operationName" — the distinguishing marks of a
+// Grafana Tempo / Jaeger JSON export.
+func isTempoData(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var traces []struct {
+		Spans []struct {
+			OperationName *json.RawMessage `json:"operationName"`
+		} `json:"spans"`
+	}
+	if err := json.Unmarshal(raw, &traces); err != nil || len(traces) == 0 {
+		return false
+	}
+	if len(traces[0].Spans) == 0 {
+		return false
+	}
+	return traces[0].Spans[0].OperationName != nil
+}
+
+// jaegerExport is the top-level structure of a Grafana Tempo / Jaeger JSON export.
+type jaegerExport struct {
+	Data []jaegerTrace `json:"data"`
+}
+
+type jaegerTrace struct {
+	Spans     []jaegerSpan               `json:"spans"`
+	Processes map[string]*jaegerProcess  `json:"processes"`
+}
+
+type jaegerSpan struct {
+	TraceID       string         `json:"traceID"`
+	SpanID        string         `json:"spanID"`
+	OperationName string         `json:"operationName"`
+	References    []jaegerRef    `json:"references"`
+	StartTime     int64          `json:"startTime"` // microseconds since epoch
+	Duration      int64          `json:"duration"`  // microseconds
+	Tags          []jaegerTag    `json:"tags"`
+	ProcessID     string         `json:"processID"`
+	Process       *jaegerProcess `json:"process"`
+}
+
+type jaegerRef struct {
+	RefType string `json:"refType"`
+	SpanID  string `json:"spanID"`
+}
+
+type jaegerProcess struct {
+	ServiceName string `json:"serviceName"`
+}
+
+type jaegerTag struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+func parseTempo(data []byte) ([]Span, error) {
+	var export jaegerExport
+	if err := json.Unmarshal(data, &export); err != nil {
+		return nil, fmt.Errorf("parsing Tempo/Jaeger JSON: %w", err)
+	}
+
+	var spans []Span
+	for _, trace := range export.Data {
+		for _, js := range trace.Spans {
+			service := tempoService(js, trace.Processes)
+
+			parentID := ""
+			for _, ref := range js.References {
+				if ref.RefType == "CHILD_OF" {
+					parentID = ref.SpanID
+					break
+				}
+			}
+
+			startTime := time.UnixMicro(js.StartTime)
+			endTime := time.UnixMicro(js.StartTime + js.Duration)
+
+			attrs := make(map[string]string)
+			isError := false
+			for _, tag := range js.Tags {
+				val := tempoTagString(tag.Value)
+				if tag.Key == "error" && val == "true" {
+					isError = true
+				}
+				attrs[tag.Key] = val
+			}
+
+			spans = append(spans, Span{
+				TraceID:    js.TraceID,
+				SpanID:     js.SpanID,
+				ParentID:   parentID,
+				Service:    service,
+				Operation:  js.OperationName,
+				StartTime:  startTime,
+				EndTime:    endTime,
+				IsError:    isError,
+				Attributes: attrs,
+			})
+		}
+	}
+
+	if len(spans) == 0 {
+		return nil, fmt.Errorf("no spans found in input")
+	}
+	return spans, nil
+}
+
+// tempoService resolves the service name for a span: prefers the embedded
+// process field, falls back to the trace-level processes map.
+func tempoService(js jaegerSpan, processes map[string]*jaegerProcess) string {
+	if js.Process != nil && js.Process.ServiceName != "" {
+		return js.Process.ServiceName
+	}
+	if js.ProcessID != "" && processes != nil {
+		if p := processes[js.ProcessID]; p != nil {
+			return p.ServiceName
+		}
+	}
+	return ""
+}
+
+// tempoTagString converts a raw Jaeger tag value to a string.
+// Strings are unquoted; other JSON scalars (numbers, booleans) use their
+// literal representation so callers can match against "true"/"false"/etc.
+func tempoTagString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // attrValueString extracts a string representation from an OTLP AnyValue.

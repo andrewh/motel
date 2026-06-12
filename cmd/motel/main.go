@@ -392,7 +392,7 @@ func importCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import [file]",
 		Short: "Import a topology config from trace data",
-		Long:  "Reads trace spans (stdouttrace or OTLP JSON) and generates a synth YAML topology config.",
+		Long:  "Reads trace spans (stdouttrace, OTLP JSON, or Grafana Tempo/Jaeger JSON) and generates a synth YAML topology config.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var r io.Reader = os.Stdin
@@ -422,7 +422,7 @@ func importCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, or otlp")
+	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, otlp, or tempo")
 	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
 
 	return cmd

@@ -235,6 +235,174 @@ func TestParseStdouttrace_BlankLinesOnly(t *testing.T) {
 	assert.Contains(t, err.Error(), "no spans found")
 }
 
+func TestDetectFormat_Tempo(t *testing.T) {
+	input := `{"data":[{"traceID":"abc","spans":[{"traceID":"abc","spanID":"def","operationName":"op","references":[],"startTime":1700000000000000,"duration":30000,"tags":[],"processID":"p1","process":{"serviceName":"api"}}],"processes":{"p1":{"serviceName":"api"}}}]}`
+	format, err := detectFormat([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, FormatTempo, format)
+}
+
+func TestDetectFormat_PrettyPrintedTempo(t *testing.T) {
+	input := "{\n  \"data\": [{\"spans\":[{\"operationName\":\"op\"}]}]\n}"
+	format, err := detectFormat([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, FormatTempo, format)
+}
+
+func TestParseTempo_Basic(t *testing.T) {
+	input := `{
+		"data": [{
+			"traceID": "abc123",
+			"spans": [{
+				"traceID": "abc123",
+				"spanID": "def456",
+				"operationName": "HTTP GET /users",
+				"references": [],
+				"startTime": 1700000000000000,
+				"duration": 30000,
+				"tags": [{"key": "http.method", "value": "GET"}],
+				"processID": "p1",
+				"process": {"serviceName": "api-gateway"}
+			}],
+			"processes": {"p1": {"serviceName": "api-gateway"}}
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+
+	s := spans[0]
+	assert.Equal(t, "abc123", s.TraceID)
+	assert.Equal(t, "def456", s.SpanID)
+	assert.Empty(t, s.ParentID)
+	assert.Equal(t, "api-gateway", s.Service)
+	assert.Equal(t, "HTTP GET /users", s.Operation)
+	assert.False(t, s.IsError)
+	assert.Equal(t, "GET", s.Attributes["http.method"])
+	// startTime 1700000000000000 µs = 1700000000 s
+	assert.Equal(t, int64(1700000000), s.StartTime.Unix())
+	assert.Equal(t, int64(1700000000000000+30000), s.EndTime.UnixMicro())
+}
+
+func TestParseTempo_ParentRef(t *testing.T) {
+	input := `{
+		"data": [{
+			"spans": [
+				{
+					"traceID": "t1", "spanID": "root",
+					"operationName": "root-op",
+					"references": [],
+					"startTime": 1700000000000000, "duration": 50000,
+					"tags": [],
+					"process": {"serviceName": "frontend"}
+				},
+				{
+					"traceID": "t1", "spanID": "child",
+					"operationName": "child-op",
+					"references": [{"refType": "CHILD_OF", "traceID": "t1", "spanID": "root"}],
+					"startTime": 1700000000010000, "duration": 20000,
+					"tags": [],
+					"process": {"serviceName": "backend"}
+				}
+			],
+			"processes": {}
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	require.NoError(t, err)
+	require.Len(t, spans, 2)
+
+	root := spans[0]
+	child := spans[1]
+	assert.Empty(t, root.ParentID)
+	assert.Equal(t, "root", child.ParentID)
+	assert.Equal(t, "frontend", root.Service)
+	assert.Equal(t, "backend", child.Service)
+}
+
+func TestParseTempo_ErrorTag(t *testing.T) {
+	input := `{
+		"data": [{
+			"spans": [{
+				"traceID": "t1", "spanID": "s1",
+				"operationName": "fail",
+				"references": [],
+				"startTime": 1700000000000000, "duration": 5000,
+				"tags": [{"key": "error", "value": true}],
+				"process": {"serviceName": "svc"}
+			}],
+			"processes": {}
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.True(t, spans[0].IsError)
+}
+
+func TestParseTempo_ServiceFromProcessesMap(t *testing.T) {
+	// No inline process field; service resolved from processes map via processID.
+	input := `{
+		"data": [{
+			"spans": [{
+				"traceID": "t1", "spanID": "s1",
+				"operationName": "op",
+				"references": [],
+				"startTime": 1700000000000000, "duration": 1000,
+				"tags": [],
+				"processID": "p2"
+			}],
+			"processes": {
+				"p1": {"serviceName": "other"},
+				"p2": {"serviceName": "target-service"}
+			}
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.Equal(t, "target-service", spans[0].Service)
+}
+
+func TestParseTempo_MultipleTraces(t *testing.T) {
+	input := `{
+		"data": [
+			{
+				"spans": [{"traceID":"t1","spanID":"s1","operationName":"op1","references":[],"startTime":1700000000000000,"duration":1000,"tags":[],"process":{"serviceName":"svc"}}],
+				"processes": {}
+			},
+			{
+				"spans": [{"traceID":"t2","spanID":"s2","operationName":"op2","references":[],"startTime":1700000001000000,"duration":1000,"tags":[],"process":{"serviceName":"svc"}}],
+				"processes": {}
+			}
+		]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	require.NoError(t, err)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "t1", spans[0].TraceID)
+	assert.Equal(t, "t2", spans[1].TraceID)
+}
+
+func TestParseTempo_EmptyData(t *testing.T) {
+	_, err := ParseSpans(strings.NewReader(`{"data":[]}`), FormatTempo)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no spans found")
+}
+
+func TestParseTempo_AutoDetect(t *testing.T) {
+	input := `{"data":[{"spans":[{"traceID":"t1","spanID":"s1","operationName":"op","references":[],"startTime":1700000000000000,"duration":1000,"tags":[],"process":{"serviceName":"svc"}}],"processes":{}}]}`
+	spans, err := ParseSpans(strings.NewReader(input), FormatAuto)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.Equal(t, "op", spans[0].Operation)
+}
+
 func TestIsZeroID(t *testing.T) {
 	assert.True(t, isZeroID("0000000000000000"))
 	assert.True(t, isZeroID("00"))
