@@ -365,6 +365,9 @@ func validateCmd() *cobra.Command {
 			for _, w := range semconvMetricWarnings(cfg, reg) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 			}
+			for _, w := range semconvLogWarnings(cfg, reg) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
+			}
 			svcLabel := "services"
 			if len(topo.Services) == 1 {
 				svcLabel = "service"
@@ -1004,6 +1007,52 @@ func semconvMetricWarnings(cfg *synth.Config, reg *semconv.Registry) []string {
 		}
 	}
 	return warnings
+}
+
+// semconvLogWarnings checks log attribute names in the topology against the
+// semantic convention registry, returning warnings for deprecated attributes
+// and static values outside a known enum's members. Unknown attribute names
+// are not warned about — users may define custom attributes freely.
+func semconvLogWarnings(cfg *synth.Config, reg *semconv.Registry) []string {
+	var warnings []string
+	check := func(scope string, attrs map[string]synth.AttributeValueConfig) {
+		for _, name := range slices.Sorted(maps.Keys(attrs)) {
+			def := reg.Attribute(name)
+			if def == nil {
+				continue
+			}
+			if def.Deprecated != nil {
+				warnings = append(warnings, fmt.Sprintf("%s: attribute %q is deprecated in the semantic conventions",
+					scope, name))
+			}
+			if v := attrs[name].Value; v != nil && def.Type.Value == "enum" && !enumAllows(def, v) {
+				warnings = append(warnings, fmt.Sprintf("%s: attribute %q: value %v is not a member of the semantic convention enum",
+					scope, name, v))
+			}
+		}
+	}
+	for _, svc := range cfg.Services {
+		for i, lc := range svc.Logs {
+			check(fmt.Sprintf("service %q log[%d]", svc.Name, i), lc.Attributes)
+		}
+		for _, op := range svc.Operations {
+			for i, lc := range op.Logs {
+				check(fmt.Sprintf("service %q operation %q log[%d]", svc.Name, op.Name, i), lc.Attributes)
+			}
+		}
+	}
+	return warnings
+}
+
+// enumAllows reports whether v matches one of the enum members of def,
+// comparing string representations to tolerate YAML scalar typing.
+func enumAllows(def *semconv.Attribute, v any) bool {
+	for _, m := range def.Type.Members {
+		if fmt.Sprint(m.Value) == fmt.Sprint(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // topoHasMetrics reports whether any service or operation in the topology defines at least one metric.

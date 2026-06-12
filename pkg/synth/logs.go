@@ -7,6 +7,7 @@ package synth
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"regexp"
 	"slices"
@@ -50,8 +51,13 @@ type LogObserver struct {
 	loggers       map[string]log.Logger
 	slowThreshold time.Duration
 	templates     map[string][]logTemplate
+	serviceNames  map[string]bool // for disambiguating override refs containing dots
 	rng           *rand.Rand
 	mu            sync.Mutex
+
+	overrideMu   sync.RWMutex
+	addTemplates map[string][]logTemplate // scenario-added templates keyed by service
+	disabled     map[string]bool          // scopes whose base logs are muted, keyed by override ref
 }
 
 // NewLogObserver creates a LogObserver from topology log definitions.
@@ -65,17 +71,17 @@ func NewLogObserver(loggers map[string]log.Logger, topo *Topology, slowThreshold
 	}
 
 	templates := make(map[string][]logTemplate)
+	serviceNames := make(map[string]bool)
 	if topo != nil {
+		for svcName := range topo.Services {
+			serviceNames[svcName] = true
+		}
 		for svcName, svc := range topo.Services {
 			var tpls []logTemplate
 
 			// Service-level logs (fire for every span in this service)
 			for _, ld := range svc.Logs {
-				tpl, err := newLogTemplate(ld, "")
-				if err != nil {
-					return nil, fmt.Errorf("service %q: %w", svcName, err)
-				}
-				tpls = append(tpls, tpl)
+				tpls = append(tpls, newLogTemplate(ld, ""))
 			}
 
 			// Operation-level logs (fire only for the specific operation)
@@ -86,11 +92,7 @@ func NewLogObserver(loggers map[string]log.Logger, topo *Topology, slowThreshold
 			slices.Sort(opNames)
 			for _, opName := range opNames {
 				for _, ld := range svc.Operations[opName].Logs {
-					tpl, err := newLogTemplate(ld, opName)
-					if err != nil {
-						return nil, fmt.Errorf("service %q operation %q: %w", svcName, opName, err)
-					}
-					tpls = append(tpls, tpl)
+					tpls = append(tpls, newLogTemplate(ld, opName))
 				}
 			}
 
@@ -104,23 +106,71 @@ func NewLogObserver(loggers map[string]log.Logger, topo *Topology, slowThreshold
 		loggers:       loggers,
 		slowThreshold: slowThreshold,
 		templates:     templates,
+		serviceNames:  serviceNames,
 		rng:           rng,
 	}, nil
 }
 
-// newLogTemplate builds a logTemplate from a resolved LogDefinition.
-func newLogTemplate(ld LogDefinition, operation string) (logTemplate, error) {
-	sev, ok := severityByName[ld.Severity]
-	if !ok {
-		return logTemplate{}, fmt.Errorf("log severity %q is not one of TRACE, DEBUG, INFO, WARN, ERROR, FATAL", ld.Severity)
+// SetOverrides replaces the active scenario log overrides. The engine calls
+// this as scenario windows open and close; a nil map clears all overrides.
+// Added log definitions are pre-built into templates here so the per-span
+// path only performs map lookups.
+func (l *LogObserver) SetOverrides(overrides map[string]Override) {
+	var added map[string][]logTemplate
+	var disabled map[string]bool
+	for _, ref := range slices.Sorted(maps.Keys(overrides)) {
+		ov := overrides[ref]
+		if ov.DisableLogs {
+			if disabled == nil {
+				disabled = make(map[string]bool)
+			}
+			disabled[ref] = true
+		}
+		if len(ov.AddLogs) == 0 {
+			continue
+		}
+		svcName, opName := l.splitScopeRef(ref)
+		if added == nil {
+			added = make(map[string][]logTemplate)
+		}
+		for _, ld := range ov.AddLogs {
+			added[svcName] = append(added[svcName], newLogTemplate(ld, opName))
+		}
 	}
+	l.overrideMu.Lock()
+	l.addTemplates = added
+	l.disabled = disabled
+	l.overrideMu.Unlock()
+}
+
+// splitScopeRef splits an override ref into service and operation names.
+// A ref matching a known service name is service-scoped (empty operation);
+// otherwise it is split at the first dot, like resolveRef.
+func (l *LogObserver) splitScopeRef(ref string) (service, operation string) {
+	if l.serviceNames[ref] {
+		return ref, ""
+	}
+	svcName, opName, ok := strings.Cut(ref, ".")
+	if !ok {
+		return ref, ""
+	}
+	return svcName, opName
+}
+
+// newLogTemplate builds a logTemplate from a resolved LogDefinition.
+// Severity is validated at config load (resolveLogs rejects names outside
+// validLogSeverity, which is derived from severityByName), so the lookup
+// cannot miss for resolved definitions. A hand-constructed definition with
+// an unknown severity maps to log.SeverityUndefined while preserving the
+// severity text, so the record still surfaces rather than disappearing.
+func newLogTemplate(ld LogDefinition, operation string) logTemplate {
 	attrKeys := make([]string, 0, len(ld.Attributes))
 	for k := range ld.Attributes {
 		attrKeys = append(attrKeys, k)
 	}
 	slices.Sort(attrKeys)
 	return logTemplate{
-		severity:     sev,
+		severity:     severityByName[ld.Severity],
 		severityText: ld.Severity,
 		body:         ld.Body,
 		condition:    ld.Condition,
@@ -130,11 +180,13 @@ func newLogTemplate(ld LogDefinition, operation string) (logTemplate, error) {
 		attrGens:     ld.Attributes,
 		attrKeys:     attrKeys,
 		operation:    operation,
-	}, nil
+	}
 }
 
 // Observe emits log records for the completed span. Services with topology
 // log templates emit those; services without fall back to derived error/slow logs.
+// Active scenario overrides can mute the base logs for a scope and add
+// window-scoped templates on top.
 func (l *LogObserver) Observe(info SpanInfo) {
 	logger := l.loggers[info.Service]
 	if logger == nil {
@@ -144,65 +196,78 @@ func (l *LogObserver) Observe(info SpanInfo) {
 	// Correlate emitted records with the span via the context's span context.
 	ctx := trace.ContextWithSpanContext(context.Background(), info.SpanContext)
 
+	l.overrideMu.RLock()
+	added := l.addTemplates[info.Service]
+	muted := l.disabled[info.Service] || l.disabled[info.Service+"."+info.Operation]
+	l.overrideMu.RUnlock()
+
 	templates := l.templates[info.Service]
-	if len(templates) == 0 {
-		l.emitDerived(ctx, logger, info)
+	if !muted {
+		if len(templates) == 0 && len(added) == 0 {
+			l.emitDerived(ctx, logger, info)
+			return
+		}
+		for i := range templates {
+			l.emitTemplate(ctx, logger, &templates[i], info)
+		}
+	}
+	for i := range added {
+		l.emitTemplate(ctx, logger, &added[i], info)
+	}
+}
+
+// emitTemplate emits one log record for a span if the template's operation
+// scope, condition, and probability allow it.
+func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *logTemplate, info SpanInfo) {
+	if tpl.operation != "" && tpl.operation != info.Operation {
 		return
 	}
-
-	for i := range templates {
-		tpl := &templates[i]
-
-		if tpl.operation != "" && tpl.operation != info.Operation {
-			continue
+	switch tpl.condition {
+	case logConditionError:
+		if !info.IsError {
+			return
 		}
-		switch tpl.condition {
-		case logConditionError:
-			if !info.IsError {
-				continue
-			}
-		case logConditionSuccess:
-			if info.IsError {
-				continue
-			}
-		case logConditionSlow:
-			if l.slowThreshold <= 0 || info.Duration <= l.slowThreshold {
-				continue
-			}
+	case logConditionSuccess:
+		if info.IsError {
+			return
 		}
-
-		// Lock only while sampling the RNG.
-		l.mu.Lock()
-		if l.rng.Float64() >= tpl.probability {
-			l.mu.Unlock()
-			continue
+	case logConditionSlow:
+		if l.slowThreshold <= 0 || info.Duration <= l.slowThreshold {
+			return
 		}
-		attrValues := make(map[string]any, len(tpl.attrGens))
-		for _, k := range tpl.attrKeys {
-			attrValues[k] = tpl.attrGens[k].Generate(l.rng)
-		}
-		l.mu.Unlock()
-
-		timestamp := info.Timestamp
-		if tpl.atEnd {
-			timestamp = timestamp.Add(info.Duration)
-		}
-		timestamp = timestamp.Add(tpl.delay)
-
-		attrs := make([]log.KeyValue, 0, len(tpl.attrKeys)+1)
-		attrs = append(attrs, log.String("operation.name", info.Operation))
-		for _, k := range tpl.attrKeys {
-			attrs = append(attrs, logKeyValue(k, attrValues[k]))
-		}
-
-		var rec log.Record
-		rec.SetTimestamp(timestamp)
-		rec.SetSeverity(tpl.severity)
-		rec.SetSeverityText(tpl.severityText)
-		rec.SetBody(log.StringValue(interpolateBody(tpl.body, attrValues, info)))
-		rec.AddAttributes(attrs...)
-		logger.Emit(ctx, rec)
 	}
+
+	// Lock only while sampling the RNG.
+	l.mu.Lock()
+	if l.rng.Float64() >= tpl.probability {
+		l.mu.Unlock()
+		return
+	}
+	attrValues := make(map[string]any, len(tpl.attrGens))
+	for _, k := range tpl.attrKeys {
+		attrValues[k] = tpl.attrGens[k].Generate(l.rng)
+	}
+	l.mu.Unlock()
+
+	timestamp := info.Timestamp
+	if tpl.atEnd {
+		timestamp = timestamp.Add(info.Duration)
+	}
+	timestamp = timestamp.Add(tpl.delay)
+
+	attrs := make([]log.KeyValue, 0, len(tpl.attrKeys)+1)
+	attrs = append(attrs, log.String("operation.name", info.Operation))
+	for _, k := range tpl.attrKeys {
+		attrs = append(attrs, logKeyValue(k, attrValues[k]))
+	}
+
+	var rec log.Record
+	rec.SetTimestamp(timestamp)
+	rec.SetSeverity(tpl.severity)
+	rec.SetSeverityText(tpl.severityText)
+	rec.SetBody(log.StringValue(interpolateBody(tpl.body, attrValues, info)))
+	rec.AddAttributes(attrs...)
+	logger.Emit(ctx, rec)
 }
 
 // emitDerived emits the built-in ERROR and WARN log records for services

@@ -30,6 +30,8 @@ type Override struct {
 	AddCalls     []Call
 	RemoveCalls  map[string]bool
 	Metrics      map[string]FloatDistribution
+	AddLogs      []LogDefinition
+	DisableLogs  bool
 }
 
 // ParseOffset parses a time offset string like "+5m" or "30s" into a duration.
@@ -127,6 +129,15 @@ func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 						return nil, fmt.Errorf("scenario %q override %q: metric %q: %w", cfg.Name, ref, name, distErr)
 					}
 					o.Metrics[name] = dist
+				}
+			}
+			if ov.Logs != nil {
+				o.DisableLogs = ov.Logs.Disable
+				if len(ov.Logs.Add) > 0 {
+					o.AddLogs, err = resolveLogs(ov.Logs.Add, fmt.Sprintf("scenario %q override %q: logs", cfg.Name, ref))
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 			overrides[ref] = o
@@ -297,6 +308,12 @@ func ResolveOverrides(active []Scenario) map[string]Override {
 				maps.Copy(newMetrics, existing.Metrics)
 				maps.Copy(newMetrics, ov.Metrics)
 				existing.Metrics = newMetrics
+			}
+			if len(ov.AddLogs) > 0 {
+				existing.AddLogs = append(slices.Clone(existing.AddLogs), ov.AddLogs...)
+			}
+			if ov.DisableLogs {
+				existing.DisableLogs = true
 			}
 			merged[ref] = existing
 		}

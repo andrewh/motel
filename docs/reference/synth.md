@@ -35,6 +35,12 @@ When a metric name matches a known OpenTelemetry semantic convention metric, val
 warning: service "gateway": metric "http.server.request.duration": unit "ms" does not match semantic convention unit "s"
 ```
 
+Log attribute names are also checked against the semantic conventions. Validate warns when an attribute is deprecated, or when a static value is not a member of a known enum. Unknown attribute names are never warned about — custom attributes are allowed:
+
+```
+warning: service "gateway" log[0]: attribute "log.iostream": value syslog is not a member of the semantic convention enum
+```
+
 ### run
 
 Generate synthetic signals from a topology definition.

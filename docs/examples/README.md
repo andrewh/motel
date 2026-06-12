@@ -26,6 +26,7 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 | `attribute-placement.yaml` | Resource attributes vs span attributes on the same service. |
 | `resource-attributes.yaml` | Per-service resource attributes (`deployment.environment`, `service.version`, etc.). |
 | `topology-driven-metrics.yaml` | All four metric instrument types at both service and operation level. |
+| `topology-driven-logs.yaml` | Log templates with conditions, probability, timing anchors, and scenario log overrides. |
 | `backpressure-queue.yaml` | Queue depth rejection, circuit breaker trips, and backpressure duration amplification. |
 | `internal-gateway.yaml` | Internal gateway pattern with async trace propagation through a service mesh. |
 | `ottl-transforms.yaml` | Messy, realistic attributes for practising OTTL transformations. |

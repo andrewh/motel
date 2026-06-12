@@ -684,3 +684,97 @@ func TestMetricByName(t *testing.T) {
 	assert.Nil(t, reg.MetricByName("my.custom.metric"), "unknown metric names return nil")
 	assert.Nil(t, reg.MetricByName(""), "empty name returns nil")
 }
+
+func newMixedTypeFS() fstest.MapFS {
+	return fstest.MapFS{
+		"http/metrics.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: metric.http.duration
+    type: metric
+    metric_name: http.server.request.duration
+    brief: 'HTTP request duration.'
+    instrument: histogram
+    unit: s
+  - id: metric.http.request.size
+    type: metric
+    metric_name: http.server.request.body.size
+    brief: 'HTTP request body size.'
+    instrument: histogram
+    unit: By
+`),
+		},
+		"http/spans.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: span.http.client
+    type: span
+    brief: 'HTTP client span.'
+  - id: span.http.server
+    type: span
+    brief: 'HTTP server span.'
+`),
+		},
+		"log/events.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: event.log.record
+    type: event
+    brief: 'Log event.'
+`),
+		},
+		"infra/entities.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: entity.host
+    type: entity
+    brief: 'Host entity.'
+`),
+		},
+		"http/registry.yaml": &fstest.MapFile{
+			Data: []byte(`
+groups:
+  - id: registry.http
+    type: attribute_group
+    brief: 'HTTP attributes.'
+`),
+		},
+	}
+}
+
+func TestGroupsByType(t *testing.T) {
+	t.Parallel()
+	reg, err := Load(newMixedTypeFS())
+	require.NoError(t, err)
+
+	metrics := reg.Metrics()
+	assert.Len(t, metrics, 2)
+	for _, m := range metrics {
+		assert.Equal(t, "metric", m.Type)
+	}
+
+	spans := reg.Spans()
+	assert.Len(t, spans, 2)
+	for _, s := range spans {
+		assert.Equal(t, "span", s.Type)
+	}
+
+	events := reg.Events()
+	require.Len(t, events, 1)
+	assert.Equal(t, "event.log.record", events[0].ID)
+
+	entities := reg.Entities()
+	require.Len(t, entities, 1)
+	assert.Equal(t, "entity.host", entities[0].ID)
+}
+
+func TestGroupsByType_Embedded(t *testing.T) {
+	t.Parallel()
+	reg, err := LoadEmbedded()
+	require.NoError(t, err)
+
+	assert.Greater(t, len(reg.Metrics()), 10, "expected at least 10 metrics in embedded data")
+	assert.Greater(t, len(reg.Spans()), 10, "expected at least 10 spans in embedded data")
+	assert.NotEmpty(t, reg.Events())
+	assert.NotEmpty(t, reg.Entities())
+}
