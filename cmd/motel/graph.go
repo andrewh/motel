@@ -22,13 +22,17 @@ import (
 var graphHTMLTemplate string
 
 const (
-	graphDataPlaceholder  = "/*GRAPH_DATA*/null"
-	graphLivePlaceholder  = "/*LIVE*/false"
-	graphTitlePlaceholder = "GRAPH_TITLE"
+	graphDataPlaceholder     = "/*GRAPH_DATA*/null"
+	graphLivePlaceholder     = "/*LIVE*/false"
+	graphTimelinePlaceholder = "/*TIMELINE_DATA*/null"
+	graphTitlePlaceholder    = "GRAPH_TITLE"
 )
 
 func graphCmd() *cobra.Command {
-	var output string
+	var (
+		output string
+		replay string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "graph <topology.yaml | URL>",
@@ -38,6 +42,9 @@ func graphCmd() *cobra.Command {
 			"layered left-to-right layout rendered with p5.js. Edge thickness reflects\n" +
 			"call volume, dashed edges are async calls, and hovering a service lists its\n" +
 			"operations.\n\n" +
+			"With --replay, a recording produced by motel run --graph-record is embedded\n" +
+			"as a scrubbable timeline: a slider moves backwards and forwards through the\n" +
+			"run, showing per-service rates and error levels at each point in time.\n\n" +
 			"The output is a single self-contained HTML file (p5.js is loaded from a CDN).\n" +
 			"The topology source can be a local file path or an HTTP/HTTPS URL.",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -47,16 +54,17 @@ func graphCmd() *cobra.Command {
 			return cobra.ExactArgs(1)(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGraph(cmd, args[0], output)
+			return runGraph(cmd, args[0], output, replay)
 		},
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout)")
+	cmd.Flags().StringVar(&replay, "replay", "", "recording file from motel run --graph-record to embed as a timeline")
 
 	return cmd
 }
 
-func runGraph(cmd *cobra.Command, configPath, output string) error {
+func runGraph(cmd *cobra.Command, configPath, output, replay string) error {
 	cfg, err := synth.LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -71,6 +79,14 @@ func runGraph(cmd *cobra.Command, configPath, output string) error {
 
 	data := buildGraphData(topo)
 
+	var timeline []liveSnapshot
+	if replay != "" {
+		timeline, err = loadTimeline(replay)
+		if err != nil {
+			return err
+		}
+	}
+
 	var w io.Writer = cmd.OutOrStdout()
 	if output != "" {
 		f, err := os.Create(output) //nolint:gosec // user-supplied output path is expected
@@ -82,7 +98,7 @@ func runGraph(cmd *cobra.Command, configPath, output string) error {
 	}
 
 	title := filepath.Base(configPath)
-	return renderGraphHTML(w, data, title, false)
+	return renderGraphHTML(w, data, title, false, timeline)
 }
 
 // graphNode is a service node in the visualised graph. X and Y are
@@ -294,7 +310,7 @@ func layoutGraph(data *graphData, layers map[string]int) {
 	}
 }
 
-func renderGraphHTML(w io.Writer, data graphData, title string, live bool) error {
+func renderGraphHTML(w io.Writer, data graphData, title string, live bool, timeline []liveSnapshot) error {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("encoding graph data: %w", err)
@@ -306,6 +322,13 @@ func renderGraphHTML(w io.Writer, data graphData, title string, live bool) error
 	}
 	page := strings.Replace(graphHTMLTemplate, graphDataPlaceholder, string(payload), 1)
 	page = strings.Replace(page, graphLivePlaceholder, liveValue, 1)
+	if len(timeline) > 0 {
+		timelineJSON, tErr := json.Marshal(timeline)
+		if tErr != nil {
+			return fmt.Errorf("encoding timeline: %w", tErr)
+		}
+		page = strings.Replace(page, graphTimelinePlaceholder, string(timelineJSON), 1)
+	}
 	page = strings.ReplaceAll(page, graphTitlePlaceholder, htmlEscape(title))
 
 	_, err = io.WriteString(w, page)

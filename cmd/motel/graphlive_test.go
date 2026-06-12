@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +54,9 @@ func TestGraphServerMux(t *testing.T) {
 	t.Parallel()
 
 	topo := liveTestTopology(t)
-	obs := newLiveObserver(topo)
-	mux, err := graphServerMux(topo, "test.yaml", obs)
+	capture := &graphCapture{obs: newLiveObserver(topo)}
+	capture.sample()
+	mux, err := graphServerMux(topo, "test.yaml", capture)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(mux)
@@ -80,7 +84,8 @@ func TestGraphServerMux(t *testing.T) {
 	})
 
 	t.Run("events endpoint streams snapshots", func(t *testing.T) {
-		obs.Observe(synth.SpanInfo{Service: "gateway", Operation: "GET /users", Duration: time.Millisecond})
+		capture.obs.Observe(synth.SpanInfo{Service: "gateway", Operation: "GET /users", Duration: time.Millisecond})
+		capture.sample()
 
 		resp, err := srv.Client().Get(srv.URL + "/events")
 		require.NoError(t, err)
@@ -99,9 +104,81 @@ func TestRenderGraphHTMLLiveFlag(t *testing.T) {
 	t.Parallel()
 
 	var static, live strings.Builder
-	require.NoError(t, renderGraphHTML(&static, graphData{}, "t.yaml", false))
-	require.NoError(t, renderGraphHTML(&live, graphData{}, "t.yaml", true))
+	require.NoError(t, renderGraphHTML(&static, graphData{}, "t.yaml", false, nil))
+	require.NoError(t, renderGraphHTML(&live, graphData{}, "t.yaml", true, nil))
 
 	assert.Contains(t, static.String(), "const live = false;")
 	assert.Contains(t, live.String(), "const live = true;")
+	assert.Contains(t, static.String(), "const timeline = /*TIMELINE_DATA*/null;")
+}
+
+func TestRenderGraphHTMLTimeline(t *testing.T) {
+	t.Parallel()
+
+	timeline := []liveSnapshot{
+		{TimestampMs: 1000, Services: map[string]liveServiceStats{"gateway": {Spans: 1}}},
+		{TimestampMs: 1500, Services: map[string]liveServiceStats{"gateway": {Spans: 5, Errors: 1}}},
+	}
+	var out strings.Builder
+	require.NoError(t, renderGraphHTML(&out, graphData{}, "t.yaml", false, timeline))
+
+	html := out.String()
+	assert.Contains(t, html, `const timeline = [{"timestampMs":1000`)
+	assert.Contains(t, html, `"spans":5`)
+}
+
+func TestLoadTimeline(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reads JSON lines recording", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "rec.jsonl")
+		content := `{"timestampMs":1000,"services":{"gateway":{"spans":1,"errors":0,"durationMs":3.5}}}
+{"timestampMs":1500,"services":{"gateway":{"spans":4,"errors":1,"durationMs":12}}}
+`
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		snaps, err := loadTimeline(path)
+		require.NoError(t, err)
+		require.Len(t, snaps, 2)
+		assert.Equal(t, int64(1000), snaps[0].TimestampMs)
+		assert.Equal(t, int64(4), snaps[1].Services["gateway"].Spans)
+	})
+
+	t.Run("empty recording is an error", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "empty.jsonl")
+		require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+		_, err := loadTimeline(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no snapshots")
+	})
+
+	t.Run("missing file is an error", func(t *testing.T) {
+		t.Parallel()
+		_, err := loadTimeline("/nonexistent.jsonl")
+		require.Error(t, err)
+	})
+}
+
+func TestGraphReplayCommand(t *testing.T) {
+	t.Parallel()
+
+	topoPath := writeTestConfig(t, validConfig)
+	recPath := filepath.Join(t.TempDir(), "rec.jsonl")
+	rec := `{"timestampMs":1000,"services":{"gateway":{"spans":10,"errors":0,"durationMs":50}}}
+{"timestampMs":1500,"services":{"gateway":{"spans":60,"errors":2,"durationMs":300}}}
+`
+	require.NoError(t, os.WriteFile(recPath, []byte(rec), 0o600))
+
+	root := rootCmd()
+	root.SetArgs([]string{"graph", "--replay", recPath, topoPath})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	require.NoError(t, root.Execute())
+	html := out.String()
+	assert.Contains(t, html, `const timeline = [{"timestampMs":1000`)
+	assert.Contains(t, html, "const live = false;")
 }

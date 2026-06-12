@@ -1,5 +1,6 @@
-// Live topology graph server: serves the graph page during a run and
-// streams per-service span statistics over Server-Sent Events.
+// Live topology graph server: captures per-service span statistics during
+// a run, serves the graph page, streams snapshots over Server-Sent Events,
+// and optionally records them to a JSON Lines file for later replay.
 package main
 
 import (
@@ -7,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -22,15 +24,15 @@ const (
 	graphReadHeaderTimeout = 5 * time.Second
 )
 
-// liveServiceStats holds cumulative per-service counters. The browser
-// computes rates from deltas between successive snapshots.
+// liveServiceStats holds cumulative per-service counters. Viewers compute
+// rates from deltas between successive snapshots.
 type liveServiceStats struct {
 	Spans      int64   `json:"spans"`
 	Errors     int64   `json:"errors"`
 	DurationMs float64 `json:"durationMs"`
 }
 
-// liveSnapshot is one SSE payload.
+// liveSnapshot is one timestamped sample of all service counters.
 type liveSnapshot struct {
 	TimestampMs int64                       `json:"timestampMs"`
 	Services    map[string]liveServiceStats `json:"services"`
@@ -79,9 +81,38 @@ func (o *liveObserver) snapshot() liveSnapshot {
 	}
 }
 
-// serveEvents streams snapshots as Server-Sent Events until the client
-// disconnects.
-func (o *liveObserver) serveEvents(w http.ResponseWriter, r *http.Request) {
+// graphCapture samples the observer on a timer into an append-only history.
+// SSE connections stream the history from the start, so late-joining
+// viewers see the whole run.
+type graphCapture struct {
+	obs     *liveObserver
+	mu      sync.Mutex
+	history []liveSnapshot
+}
+
+func (c *graphCapture) sample() liveSnapshot {
+	snap := c.obs.snapshot()
+	c.mu.Lock()
+	c.history = append(c.history, snap)
+	c.mu.Unlock()
+	return snap
+}
+
+// since returns a copy of history entries from index i onward.
+func (c *graphCapture) since(i int) []liveSnapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if i >= len(c.history) {
+		return nil
+	}
+	out := make([]liveSnapshot, len(c.history)-i)
+	copy(out, c.history[i:])
+	return out
+}
+
+// serveEvents streams the snapshot history as Server-Sent Events from the
+// beginning, then follows new samples until the client disconnects.
+func (c *graphCapture) serveEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -93,13 +124,17 @@ func (o *liveObserver) serveEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(liveUpdateInterval)
 	defer ticker.Stop()
 
+	next := 0
 	for {
-		payload, err := json.Marshal(o.snapshot())
-		if err != nil {
-			return
-		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
-			return
+		for _, snap := range c.since(next) {
+			payload, err := json.Marshal(snap)
+			if err != nil {
+				return
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+				return
+			}
+			next++
 		}
 		flusher.Flush()
 
@@ -113,9 +148,9 @@ func (o *liveObserver) serveEvents(w http.ResponseWriter, r *http.Request) {
 
 // graphServerMux builds the HTTP handler serving the live graph page and
 // the SSE stats stream.
-func graphServerMux(topo *synth.Topology, title string, obs *liveObserver) (*http.ServeMux, error) {
+func graphServerMux(topo *synth.Topology, title string, capture *graphCapture) (*http.ServeMux, error) {
 	var page bytes.Buffer
-	if err := renderGraphHTML(&page, buildGraphData(topo), title, true); err != nil {
+	if err := renderGraphHTML(&page, buildGraphData(topo), title, true, nil); err != nil {
 		return nil, err
 	}
 	html := page.Bytes()
@@ -129,32 +164,120 @@ func graphServerMux(topo *synth.Topology, title string, obs *liveObserver) (*htt
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(html)
 	})
-	mux.HandleFunc("/events", obs.serveEvents)
+	mux.HandleFunc("/events", capture.serveEvents)
 	return mux, nil
 }
 
-// startLiveGraph starts the live graph HTTP server and returns the span
-// observer feeding it plus a shutdown function.
-func startLiveGraph(addr string, topo *synth.Topology, configPath string) (*liveObserver, func(), error) {
+// startLiveGraph starts capturing snapshots and, if addr is non-empty,
+// serves the live graph page. If recordPath is non-empty, snapshots are
+// appended to it as JSON Lines for later replay with motel graph --replay.
+// Returns the span observer feeding the capture and a shutdown function.
+func startLiveGraph(addr, recordPath string, topo *synth.Topology, configPath string) (*liveObserver, func(), error) {
 	obs := newLiveObserver(topo)
-	mux, err := graphServerMux(topo, filepath.Base(configPath), obs)
-	if err != nil {
-		return nil, nil, err
+	capture := &graphCapture{obs: obs}
+
+	var record *os.File
+	if recordPath != "" {
+		f, err := os.Create(recordPath) //nolint:gosec // user-supplied output path is expected
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating graph recording file: %w", err)
+		}
+		record = f
 	}
 
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("starting live graph server: %w", err)
+	writeSnap := func(snap liveSnapshot) {
+		if record == nil {
+			return
+		}
+		payload, err := json.Marshal(snap)
+		if err != nil {
+			return
+		}
+		payload = append(payload, '\n')
+		if _, err := record.Write(payload); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing graph recording: %v\n", err)
+			record = nil
+		}
 	}
 
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: graphReadHeaderTimeout}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			fmt.Fprintf(os.Stderr, "live graph server error: %v\n", serveErr)
+		defer wg.Done()
+		ticker := time.NewTicker(liveUpdateInterval)
+		defer ticker.Stop()
+		writeSnap(capture.sample())
+		for {
+			select {
+			case <-stop:
+				writeSnap(capture.sample())
+				return
+			case <-ticker.C:
+				writeSnap(capture.sample())
+			}
 		}
 	}()
-	fmt.Fprintf(os.Stderr, "live graph available at http://%s/\n", ln.Addr())
 
-	shutdown := func() { _ = srv.Close() }
+	var srv *http.Server
+	if addr != "" {
+		mux, err := graphServerMux(topo, filepath.Base(configPath), capture)
+		if err != nil {
+			close(stop)
+			wg.Wait()
+			return nil, nil, err
+		}
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			close(stop)
+			wg.Wait()
+			return nil, nil, fmt.Errorf("starting live graph server: %w", err)
+		}
+		srv = &http.Server{Handler: mux, ReadHeaderTimeout: graphReadHeaderTimeout}
+		go func() {
+			if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				fmt.Fprintf(os.Stderr, "live graph server error: %v\n", serveErr)
+			}
+		}()
+		fmt.Fprintf(os.Stderr, "live graph available at http://%s/\n", ln.Addr())
+	}
+
+	shutdown := func() {
+		close(stop)
+		wg.Wait()
+		if record != nil {
+			if err := record.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "error closing graph recording: %v\n", err)
+			}
+		}
+		if srv != nil {
+			_ = srv.Close()
+		}
+	}
 	return obs, shutdown, nil
+}
+
+// loadTimeline reads a JSON Lines recording produced by --graph-record.
+func loadTimeline(path string) ([]liveSnapshot, error) {
+	f, err := os.Open(path) //nolint:gosec // user-supplied file path is expected
+	if err != nil {
+		return nil, fmt.Errorf("opening recording: %w", err)
+	}
+	defer f.Close() //nolint:errcheck // best-effort close on read-only file
+
+	dec := json.NewDecoder(f)
+	var snaps []liveSnapshot
+	for {
+		var s liveSnapshot
+		if err := dec.Decode(&s); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("parsing recording %s: %w", path, err)
+		}
+		snaps = append(snaps, s)
+	}
+	if len(snaps) == 0 {
+		return nil, fmt.Errorf("recording %s contains no snapshots", path)
+	}
+	return snaps, nil
 }

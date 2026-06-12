@@ -90,6 +90,7 @@ func runCmd() *cobra.Command {
 		timeOffset       time.Duration
 		realtime         bool
 		graphAddr        string
+		graphRecord      string
 	)
 
 	cmd := &cobra.Command{
@@ -125,6 +126,7 @@ func runCmd() *cobra.Command {
 				timeOffset:       timeOffset,
 				realtime:         realtime,
 				graphAddr:        graphAddr,
+				graphRecord:      graphRecord,
 			})
 		},
 	}
@@ -142,6 +144,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span, metric, and log timestamps by this duration (e.g. -1h for past, 1h for future)")
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 	cmd.Flags().StringVar(&graphAddr, "graph", "", "serve a live topology graph on this address during the run (e.g. :8077)")
+	cmd.Flags().StringVar(&graphRecord, "graph-record", "", "record graph statistics to this file for replay with motel graph --replay")
 
 	return cmd
 }
@@ -450,6 +453,7 @@ type runOptions struct {
 	timeOffset       time.Duration
 	realtime         bool
 	graphAddr        string
+	graphRecord      string
 }
 
 var validSignals = map[string]bool{
@@ -645,8 +649,8 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		observers = append(observers, obs)
 	}
 
-	if opts.graphAddr != "" {
-		obs, stopGraph, gErr := startLiveGraph(opts.graphAddr, topo, configPath)
+	if opts.graphAddr != "" || opts.graphRecord != "" {
+		obs, stopGraph, gErr := startLiveGraph(opts.graphAddr, opts.graphRecord, topo, configPath)
 		if gErr != nil {
 			return gErr
 		}

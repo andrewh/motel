@@ -18,6 +18,22 @@
   }
   #legend .title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
   #legend .hint { color: #888; margin-top: 4px; }
+  #timebar {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: none; align-items: center; gap: 10px;
+    width: min(640px, 85vw);
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px; color: #444;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #ddd; border-radius: 6px;
+    padding: 8px 14px; z-index: 10;
+  }
+  #timebar input[type=range] { flex: 1; }
+  #timebar button {
+    border: 1px solid #ccc; border-radius: 4px; background: white;
+    font-size: 12px; width: 28px; cursor: pointer;
+  }
+  #timebar #timelabel { min-width: 90px; text-align: right; color: #666; }
 </style>
 </head>
 <body>
@@ -27,11 +43,17 @@
   <div class="hint">hover a service for operations</div>
   <div class="hint" id="status"></div>
 </div>
+<div id="timebar">
+  <button id="play" title="play/pause">&#9654;</button>
+  <input type="range" id="slider" min="0" max="0" value="0" step="1">
+  <span id="timelabel"></span>
+</div>
 <script>
 "use strict";
 
 const graph = /*GRAPH_DATA*/null;
 const live = /*LIVE*/false;
+const timeline = /*TIMELINE_DATA*/null;
 
 const NODE_W = 130;
 const NODE_H = 36;
@@ -49,12 +71,21 @@ let nodes = [];
 let edges = [];
 let hovered = null;
 
-// Live mode state: per-service rates computed from deltas between
-// successive SSE snapshots of cumulative counters.
-let liveRates = {};    // service -> spans/s over the last interval
-let liveErrPct = {};   // service -> error fraction over the last interval
-let liveTotals = {};   // service -> cumulative {spans, errors}
-let prevSnapshot = null;
+// Timeline state. history holds timestamped cumulative counters, either
+// accumulated from SSE (live mode) or embedded at render time (--replay).
+// cursorIdx is the viewed index; -1 follows the latest snapshot. view
+// holds the rates derived for the current index, recomputed each frame.
+let history = [];
+let cursorIdx = -1;
+let view = null;
+let playing = false;
+let lastAdvanceMs = 0;
+
+const PLAYBACK_STEP_MS = 200;  // wall-clock time per snapshot during playback
+
+const slider = document.getElementById("slider");
+const playBtn = document.getElementById("play");
+const timeLabel = document.getElementById("timelabel");
 
 function setStatus(msg) {
   document.getElementById("status").textContent = msg;
@@ -66,21 +97,81 @@ function connectLive() {
   es.onopen = () => setStatus("live: connected");
   es.onerror = () => setStatus("live: disconnected (run ended?)");
   es.onmessage = ev => {
-    const snap = JSON.parse(ev.data);
-    liveTotals = snap.services;
-    if (prevSnapshot) {
-      const dt = (snap.timestampMs - prevSnapshot.timestampMs) / 1000;
-      if (dt > 0) {
-        for (const [name, s] of Object.entries(snap.services)) {
-          const p = prevSnapshot.services[name] || { spans: 0, errors: 0 };
-          const d = s.spans - p.spans;
-          liveRates[name] = d / dt;
-          liveErrPct[name] = d > 0 ? (s.errors - p.errors) / d : 0;
-        }
+    history.push(JSON.parse(ev.data));
+    updateTimebar();
+  };
+}
+
+// viewAt derives per-service rates and error fractions at history index i
+// from the delta against the previous snapshot.
+function viewAt(i) {
+  if (i < 0 || i >= history.length) return null;
+  const cur = history[i];
+  const prev = i > 0 ? history[i - 1] : null;
+  const rates = {}, errPct = {};
+  if (prev) {
+    const dt = (cur.timestampMs - prev.timestampMs) / 1000;
+    if (dt > 0) {
+      for (const [name, s] of Object.entries(cur.services)) {
+        const p = prev.services[name] || { spans: 0, errors: 0 };
+        const d = s.spans - p.spans;
+        rates[name] = d / dt;
+        errPct[name] = d > 0 ? (s.errors - p.errors) / d : 0;
       }
     }
-    prevSnapshot = snap;
-  };
+  }
+  return { rates, errPct, totals: cur.services };
+}
+
+function currentIndex() {
+  return cursorIdx === -1 ? history.length - 1 : Math.min(cursorIdx, history.length - 1);
+}
+
+function updateTimebar() {
+  if (history.length === 0) return;
+  slider.max = history.length - 1;
+  const idx = currentIndex();
+  slider.value = idx;
+  const elapsed = (history[idx].timestampMs - history[0].timestampMs) / 1000;
+  timeLabel.textContent = "+" + elapsed.toFixed(1) + "s" + (live && cursorIdx === -1 ? " (live)" : "");
+}
+
+function stopPlayback() {
+  playing = false;
+  playBtn.innerHTML = "&#9654;";
+}
+
+function initTimebar() {
+  document.getElementById("timebar").style.display = "flex";
+
+  slider.addEventListener("input", () => {
+    stopPlayback();
+    const v = Number(slider.value);
+    cursorIdx = live && v >= history.length - 1 ? -1 : v;
+    updateTimebar();
+  });
+
+  playBtn.addEventListener("click", () => {
+    if (playing) {
+      stopPlayback();
+      return;
+    }
+    playing = true;
+    playBtn.innerHTML = "&#10074;&#10074;";
+    if (cursorIdx === -1) cursorIdx = 0;
+    lastAdvanceMs = millis();
+  });
+}
+
+function advancePlayback() {
+  if (!playing || millis() - lastAdvanceMs < PLAYBACK_STEP_MS) return;
+  lastAdvanceMs = millis();
+  cursorIdx++;
+  if (cursorIdx >= history.length - 1) {
+    cursorIdx = live ? -1 : history.length - 1;
+    stopPlayback();
+  }
+  updateTimebar();
 }
 
 function setup() {
@@ -100,7 +191,14 @@ function setup() {
   }));
 
   placeNodes();
+  if (timeline) {
+    history = timeline;
+    cursorIdx = 0;
+    setStatus("recorded run: " + ((history[history.length - 1].timestampMs - history[0].timestampMs) / 1000).toFixed(1) + "s");
+  }
+  if (live || timeline) initTimebar();
   if (live) connectLive();
+  updateTimebar();
 }
 
 function windowResized() {
@@ -218,12 +316,12 @@ const PULSE_MAX = 6;      // maximum concurrent pulses per edge
 // reflecting the callee service's current span rate.
 function drawEdgePulses(e) {
   if (e.from === e.to) return;
-  const rate = liveRates[e.target] || 0;
+  const rate = view.rates[e.target] || 0;
   if (rate <= 0) return;
 
   const n = constrain(Math.round(Math.sqrt(rate)), 1, PULSE_MAX);
   const g = edgeGeometry(e);
-  const errLevel = constrain((liveErrPct[e.target] || 0) * 3, 0, 1);
+  const errLevel = constrain((view.errPct[e.target] || 0) * 3, 0, 1);
   const dotColor = lerpColor(color("#2563eb"), color("#dc2626"), errLevel);
   const size = 5 + edgeWidth(e.weight) / 2;
 
@@ -238,7 +336,7 @@ function drawEdgePulses(e) {
 
 function drawNode(n) {
   const isHover = n === hovered;
-  const errLevel = live ? constrain((liveErrPct[n.id] || 0) * 3, 0, 1) : 0;
+  const errLevel = view ? constrain((view.errPct[n.id] || 0) * 3, 0, 1) : 0;
   const border = lerpColor(color(n.isRoot ? COLOR_ROOT : COLOR_NODE), color("#dc2626"), errLevel);
   stroke(border);
   strokeWeight(isHover ? 2.5 : 1.5);
@@ -251,13 +349,13 @@ function drawNode(n) {
   textAlign(CENTER, CENTER);
   textSize(12);
   textStyle(n.isRoot ? BOLD : NORMAL);
-  if (live) {
+  if (view) {
     text(n.id, n.px, n.py - 7, NODE_W - 12, NODE_H / 2);
     textStyle(NORMAL);
     textSize(9);
     fill(errLevel > 0 ? border : "#6b7280");
-    const rate = liveRates[n.id] || 0;
-    const err = (liveErrPct[n.id] || 0) * 100;
+    const rate = view.rates[n.id] || 0;
+    const err = (view.errPct[n.id] || 0) * 100;
     text(rate.toFixed(1) + "/s · err " + err.toFixed(1) + "%", n.px, n.py + 8);
   } else {
     text(n.id, n.px, n.py, NODE_W - 12, NODE_H);
@@ -267,8 +365,8 @@ function drawNode(n) {
 
 function drawTooltip(n) {
   const lines = [n.id + (n.isRoot ? "  (entry point)" : "")];
-  if (live && liveTotals[n.id]) {
-    const t = liveTotals[n.id];
+  if (view && view.totals[n.id]) {
+    const t = view.totals[n.id];
     const avg = t.spans > 0 ? (t.durationMs / t.spans).toFixed(1) : "0";
     lines.push("  " + t.spans + " spans, " + t.errors + " errors, avg " + avg + " ms");
   }
@@ -323,11 +421,15 @@ function nodeAt(x, y) {
 function draw() {
   background("#fafafa");
 
+  advancePlayback();
+  view = viewAt(currentIndex());
+  if (live && cursorIdx === -1) updateTimebar();
+
   hovered = nodeAt(mouseX, mouseY);
   cursor(hovered ? HAND : ARROW);
 
   for (const e of edges) drawEdge(e);
-  if (live) for (const e of edges) drawEdgePulses(e);
+  if (view) for (const e of edges) drawEdgePulses(e);
   for (const n of nodes) drawNode(n);
   if (hovered) drawTooltip(hovered);
 }
