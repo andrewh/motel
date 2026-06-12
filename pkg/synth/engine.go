@@ -327,7 +327,7 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		// QueueRejections, and CircuitBreakerTrips which are plan-phase
 		// decisions.
 		var plans []SpanPlan
-		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit)
+		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit, false)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -417,7 +417,7 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 				stats.CircuitBreakerTrips++
 				notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventCircuitBreakerTrip, Service: op.Service.Name, Operation: op.Name, Timestamp: startTime})
 			}
-			return e.emitRejectionSpan(ctx, op, parent, startTime, reason, scenarioNames, stats, spanCount, isAsync)
+			return e.emitRejectionSpan(ctx, op, parent, startTime, reason, scenarioNames, stats, isAsync)
 		}
 		if durationMult > 1.0 {
 			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
@@ -608,8 +608,9 @@ func parentNames(parent *Operation) (string, string) {
 }
 
 // emitRejectionSpan creates a short error span for a rejected request.
-func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, spanCount *int, isAsync bool) (time.Time, bool) {
-	*spanCount++
+// The caller (walkTrace) has already counted this span against the trace's
+// span limit, so spanCount is not incremented here.
+func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, isAsync bool) (time.Time, bool) {
 	tracer := e.Tracers(op.Service.Name)
 	endTime := startTime.Add(rejectionDuration)
 
