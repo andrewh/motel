@@ -302,7 +302,7 @@ func sampleTracesWith(topo *Topology, n int, seed uint64, maxSpansPerTrace int, 
 		root := topo.Roots[rng.IntN(len(topo.Roots))]
 		var stats Stats
 		spanCount := 0
-		engine.walkTrace(context.Background(), root, time.Now(), 0, overrides, nil, &stats, &spanCount, maxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), root, nil, time.Now(), 0, overrides, nil, &stats, &spanCount, maxSpansPerTrace, false)
 		_ = tp.ForceFlush(context.Background())
 
 		spans := exporter.GetSpans()
