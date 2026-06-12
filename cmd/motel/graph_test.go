@@ -250,3 +250,27 @@ traffic:
 		assert.Equal(t, 0.5, edge.Calls[0].Probability)
 	})
 }
+
+func TestRenderGraphHTMLEscapesScriptSequences(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, `
+version: 1
+services:
+  svc:
+    operations:
+      "</script><script>alert(1)":
+        duration: 1ms
+traffic:
+  rate: 1/s
+`)
+	cfg, err := synth.LoadConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, synth.ValidateConfig(cfg))
+	topo, err := synth.BuildTopology(cfg, nil)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, renderGraphHTML(&buf, buildGraphData(topo), "test.yaml", false, nil))
+	assert.NotContains(t, buf.String(), "</script><script>alert(1)")
+}

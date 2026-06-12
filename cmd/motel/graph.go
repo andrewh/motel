@@ -311,7 +311,10 @@ func layoutGraph(data *graphData, layers map[string]int) {
 }
 
 func renderGraphHTML(w io.Writer, data graphData, title string, live bool, timeline []liveSnapshot) error {
-	payload, err := json.Marshal(data)
+	if !strings.Contains(graphHTMLTemplate, graphDataPlaceholder) {
+		return fmt.Errorf("graph template is missing the graph data placeholder")
+	}
+	payload, err := marshalScriptJSON(data)
 	if err != nil {
 		return fmt.Errorf("encoding graph data: %w", err)
 	}
@@ -320,19 +323,30 @@ func renderGraphHTML(w io.Writer, data graphData, title string, live bool, timel
 	if live {
 		liveValue = "true"
 	}
-	page := strings.Replace(graphHTMLTemplate, graphDataPlaceholder, string(payload), 1)
+	page := strings.Replace(graphHTMLTemplate, graphDataPlaceholder, payload, 1)
 	page = strings.Replace(page, graphLivePlaceholder, liveValue, 1)
 	if len(timeline) > 0 {
-		timelineJSON, tErr := json.Marshal(timeline)
+		timelineJSON, tErr := marshalScriptJSON(timeline)
 		if tErr != nil {
 			return fmt.Errorf("encoding timeline: %w", tErr)
 		}
-		page = strings.Replace(page, graphTimelinePlaceholder, string(timelineJSON), 1)
+		page = strings.Replace(page, graphTimelinePlaceholder, timelineJSON, 1)
 	}
 	page = strings.ReplaceAll(page, graphTitlePlaceholder, htmlEscape(title))
 
 	_, err = io.WriteString(w, page)
 	return err
+}
+
+// marshalScriptJSON encodes v as JSON safe for embedding in a <script>
+// element: "</" is escaped so values such as operation names cannot
+// terminate the enclosing script tag.
+func marshalScriptJSON(v any) (string, error) {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(string(payload), "</", `<\/`), nil
 }
 
 func htmlEscape(s string) string {
