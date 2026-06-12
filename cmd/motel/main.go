@@ -670,13 +670,15 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		observers = append(observers, obs)
 	}
 
+	var graphSess *graphSession
 	if opts.graphAddr != "" || opts.graphRecord != "" {
-		obs, stopGraph, gErr := startLiveGraph(opts.graphAddr, opts.graphRecord, topo, configPath)
+		var gErr error
+		graphSess, gErr = startGraphSession(opts.graphAddr, opts.graphRecord, topo, configPath, scenarios, opts)
 		if gErr != nil {
 			return gErr
 		}
-		defer stopGraph()
-		observers = append(observers, obs)
+		defer graphSess.close(nil) //nolint:errcheck // close errors are reported on the stats path below
+		observers = append(observers, graphSess.observers...)
 	}
 
 	duration := opts.duration
@@ -718,6 +720,12 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	stats, err := engine.Run(ctx)
 	if err != nil {
 		return err
+	}
+
+	if graphSess != nil {
+		if closeErr := graphSess.close(stats); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "error closing run log: %v\n", closeErr)
+		}
 	}
 
 	return json.NewEncoder(os.Stderr).Encode(stats)

@@ -127,50 +127,21 @@ func TestRenderGraphHTMLTimeline(t *testing.T) {
 	assert.Contains(t, html, `"spans":5`)
 }
 
-func TestLoadTimeline(t *testing.T) {
-	t.Parallel()
-
-	t.Run("reads JSON lines recording", func(t *testing.T) {
-		t.Parallel()
-		path := filepath.Join(t.TempDir(), "rec.jsonl")
-		content := `{"timestampMs":1000,"services":{"gateway":{"spans":1,"errors":0,"durationMs":3.5}}}
-{"timestampMs":1500,"services":{"gateway":{"spans":4,"errors":1,"durationMs":12}}}
+// testRunLog is a minimal valid run log: header, three spans, stats trailer.
+const testRunLog = `{"type":"run","v":1,"motel":"test","topology":"t.yaml","startMs":1000}
+{"type":"span","t":0,"d":30,"svc":"gateway","op":"GET /users"}
+{"type":"span","t":5,"d":20,"svc":"backend","op":"list","psvc":"gateway","pop":"GET /users"}
+{"type":"span","t":600,"d":10,"svc":"gateway","op":"GET /users","err":true}
+{"type":"plan","t":610,"kind":"retry","svc":"backend","op":"list"}
+{"type":"stats","t":1200,"stats":{"traces":2,"spans":3}}
 `
-		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-
-		snaps, err := loadTimeline(path)
-		require.NoError(t, err)
-		require.Len(t, snaps, 2)
-		assert.Equal(t, int64(1000), snaps[0].TimestampMs)
-		assert.Equal(t, int64(4), snaps[1].Services["gateway"].Spans)
-	})
-
-	t.Run("empty recording is an error", func(t *testing.T) {
-		t.Parallel()
-		path := filepath.Join(t.TempDir(), "empty.jsonl")
-		require.NoError(t, os.WriteFile(path, nil, 0o600))
-
-		_, err := loadTimeline(path)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no snapshots")
-	})
-
-	t.Run("missing file is an error", func(t *testing.T) {
-		t.Parallel()
-		_, err := loadTimeline("/nonexistent.jsonl")
-		require.Error(t, err)
-	})
-}
 
 func TestGraphReplayCommand(t *testing.T) {
 	t.Parallel()
 
 	topoPath := writeTestConfig(t, validConfig)
 	recPath := filepath.Join(t.TempDir(), "rec.jsonl")
-	rec := `{"timestampMs":1000,"services":{"gateway":{"spans":10,"errors":0,"durationMs":50}}}
-{"timestampMs":1500,"services":{"gateway":{"spans":60,"errors":2,"durationMs":300}}}
-`
-	require.NoError(t, os.WriteFile(recPath, []byte(rec), 0o600))
+	require.NoError(t, os.WriteFile(recPath, []byte(testRunLog), 0o600))
 
 	root := rootCmd()
 	root.SetArgs([]string{"graph", "--replay", recPath, topoPath})
@@ -179,6 +150,6 @@ func TestGraphReplayCommand(t *testing.T) {
 
 	require.NoError(t, root.Execute())
 	html := out.String()
-	assert.Contains(t, html, `const timeline = [{"timestampMs":1000`)
+	assert.Contains(t, html, `const timeline = [{"timestampMs":1500`)
 	assert.Contains(t, html, "const live = false;")
 }

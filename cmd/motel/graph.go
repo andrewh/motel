@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/spf13/cobra"
@@ -30,8 +31,9 @@ const (
 
 func graphCmd() *cobra.Command {
 	var (
-		output string
-		replay string
+		output   string
+		replay   string
+		interval time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -54,17 +56,18 @@ func graphCmd() *cobra.Command {
 			return cobra.ExactArgs(1)(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGraph(cmd, args[0], output, replay)
+			return runGraph(cmd, args[0], output, replay, interval)
 		},
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout)")
-	cmd.Flags().StringVar(&replay, "replay", "", "recording file from motel run --graph-record to embed as a timeline")
+	cmd.Flags().StringVar(&replay, "replay", "", "run log from motel run --graph-record to embed as a timeline")
+	cmd.Flags().DurationVar(&interval, "interval", 0, "timeline bucket width for --replay (default: chosen from run length); re-render with a smaller value to zoom in")
 
 	return cmd
 }
 
-func runGraph(cmd *cobra.Command, configPath, output, replay string) error {
+func runGraph(cmd *cobra.Command, configPath, output, replay string, interval time.Duration) error {
 	cfg, err := synth.LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -81,10 +84,14 @@ func runGraph(cmd *cobra.Command, configPath, output, replay string) error {
 
 	var timeline []liveSnapshot
 	if replay != "" {
-		timeline, err = loadTimeline(replay)
-		if err != nil {
-			return err
+		rlog, logErr := loadRunLog(replay)
+		if logErr != nil {
+			return logErr
 		}
+		if interval <= 0 {
+			interval = replayInterval(runLogDuration(rlog))
+		}
+		timeline = bucketSnapshots(rlog, interval)
 	}
 
 	var w io.Writer = cmd.OutOrStdout()

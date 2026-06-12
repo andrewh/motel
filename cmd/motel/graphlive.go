@@ -1,6 +1,7 @@
-// Live topology graph server: captures per-service span statistics during
-// a run, serves the graph page, streams snapshots over Server-Sent Events,
-// and optionally records them to a JSON Lines file for later replay.
+// Live topology graph server and run log recording. During a run a
+// graphSession captures per-service span statistics for the live page
+// (streamed over Server-Sent Events) and optionally writes a lossless
+// run log via runRecorder for later replay.
 package main
 
 import (
@@ -8,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -168,116 +168,113 @@ func graphServerMux(topo *synth.Topology, title string, capture *graphCapture) (
 	return mux, nil
 }
 
-// startLiveGraph starts capturing snapshots and, if addr is non-empty,
-// serves the live graph page. If recordPath is non-empty, snapshots are
-// appended to it as JSON Lines for later replay with motel graph --replay.
-// Returns the span observer feeding the capture and a shutdown function.
-func startLiveGraph(addr, recordPath string, topo *synth.Topology, configPath string) (*liveObserver, func(), error) {
-	obs := newLiveObserver(topo)
-	capture := &graphCapture{obs: obs}
+// graphSession ties together the optional live server and optional run log
+// recorder for one run. Register its observers with the engine, then call
+// close with the final stats when the run completes.
+type graphSession struct {
+	observers   []synth.SpanObserver
+	recorder    *runRecorder
+	srv         *http.Server
+	stopSampler func()
+	closeOnce   sync.Once
+	closeErr    error
+}
 
-	var record *os.File
+// startGraphSession starts the live graph server (if addr is non-empty)
+// and the run log recorder (if recordPath is non-empty).
+func startGraphSession(addr, recordPath string, topo *synth.Topology, configPath string, scenarios []synth.Scenario, opts runOptions) (*graphSession, error) {
+	s := &graphSession{}
+
 	if recordPath != "" {
-		f, err := os.Create(recordPath) //nolint:gosec // user-supplied output path is expected
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating graph recording file: %w", err)
+		header := runHeader{
+			Type:      recordTypeRun,
+			Version:   runLogVersion,
+			Motel:     version,
+			Topology:  filepath.Base(configPath),
+			Seed:      opts.seed,
+			StartMs:   time.Now().UnixMilli(),
+			Realtime:  opts.realtime,
+			Scenarios: scenarioWindows(scenarios),
 		}
-		record = f
+		epoch := time.Now().Add(opts.timeOffset)
+		recorder, err := newRunRecorder(recordPath, header, epoch)
+		if err != nil {
+			return nil, err
+		}
+		s.recorder = recorder
+		s.observers = append(s.observers, recorder)
 	}
 
-	writeSnap := func(snap liveSnapshot) {
-		if record == nil {
-			return
-		}
-		payload, err := json.Marshal(snap)
-		if err != nil {
-			return
-		}
-		payload = append(payload, '\n')
-		if _, err := record.Write(payload); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing graph recording: %v\n", err)
-			record = nil
-		}
-	}
-
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(liveUpdateInterval)
-		defer ticker.Stop()
-		writeSnap(capture.sample())
-		for {
-			select {
-			case <-stop:
-				writeSnap(capture.sample())
-				return
-			case <-ticker.C:
-				writeSnap(capture.sample())
-			}
-		}
-	}()
-
-	var srv *http.Server
 	if addr != "" {
+		obs := newLiveObserver(topo)
+		capture := &graphCapture{obs: obs}
+		s.observers = append(s.observers, obs)
+
 		mux, err := graphServerMux(topo, filepath.Base(configPath), capture)
 		if err != nil {
-			close(stop)
-			wg.Wait()
-			return nil, nil, err
+			s.closeRecorder()
+			return nil, err
 		}
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
+			s.closeRecorder()
+			return nil, fmt.Errorf("starting live graph server: %w", err)
+		}
+
+		stop := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(liveUpdateInterval)
+			defer ticker.Stop()
+			capture.sample()
+			for {
+				select {
+				case <-stop:
+					capture.sample()
+					return
+				case <-ticker.C:
+					capture.sample()
+				}
+			}
+		}()
+		s.stopSampler = func() {
 			close(stop)
 			wg.Wait()
-			return nil, nil, fmt.Errorf("starting live graph server: %w", err)
 		}
-		srv = &http.Server{Handler: mux, ReadHeaderTimeout: graphReadHeaderTimeout}
+
+		s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: graphReadHeaderTimeout}
 		go func() {
-			if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 				fmt.Fprintf(os.Stderr, "live graph server error: %v\n", serveErr)
 			}
 		}()
 		fmt.Fprintf(os.Stderr, "live graph available at http://%s/\n", ln.Addr())
 	}
 
-	shutdown := func() {
-		close(stop)
-		wg.Wait()
-		if record != nil {
-			if err := record.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "error closing graph recording: %v\n", err)
-			}
-		}
-		if srv != nil {
-			_ = srv.Close()
-		}
-	}
-	return obs, shutdown, nil
+	return s, nil
 }
 
-// loadTimeline reads a JSON Lines recording produced by --graph-record.
-func loadTimeline(path string) ([]liveSnapshot, error) {
-	f, err := os.Open(path) //nolint:gosec // user-supplied file path is expected
-	if err != nil {
-		return nil, fmt.Errorf("opening recording: %w", err)
+func (s *graphSession) closeRecorder() {
+	if s.recorder != nil {
+		_ = s.recorder.finish(nil)
 	}
-	defer f.Close() //nolint:errcheck // best-effort close on read-only file
+}
 
-	dec := json.NewDecoder(f)
-	var snaps []liveSnapshot
-	for {
-		var s liveSnapshot
-		if err := dec.Decode(&s); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return nil, fmt.Errorf("parsing recording %s: %w", path, err)
+// close shuts down the session, writing the stats trailer to the run log
+// when stats is non-nil. Idempotent: only the first call takes effect.
+func (s *graphSession) close(stats *synth.Stats) error {
+	s.closeOnce.Do(func() {
+		if s.stopSampler != nil {
+			s.stopSampler()
 		}
-		snaps = append(snaps, s)
-	}
-	if len(snaps) == 0 {
-		return nil, fmt.Errorf("recording %s contains no snapshots", path)
-	}
-	return snaps, nil
+		if s.recorder != nil {
+			s.closeErr = s.recorder.finish(stats)
+		}
+		if s.srv != nil {
+			_ = s.srv.Close()
+		}
+	})
+	return s.closeErr
 }
