@@ -78,7 +78,7 @@ func TestObserverCalledPerSpan(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -126,7 +126,7 @@ func TestObserverReceivesCorrectMetadata(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -188,7 +188,7 @@ func TestObserverDurationIsWallClock(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -224,7 +224,7 @@ func TestObserverNotCalledWhenNone(t *testing.T) {
 	}
 
 	engine, exporter, tp := newTestEngine(t, cfg)
-	engine.walkTrace(context.Background(), engine.Topology.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -264,7 +264,7 @@ func TestMultipleObservers(t *testing.T) {
 		Observers: []SpanObserver{obs1, obs2},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	assert.Len(t, obs1.get(), 1)
@@ -304,7 +304,7 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 		Observers: []SpanObserver{obs},
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records := obs.get()
@@ -317,7 +317,7 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 
 	// Generate another span and verify attrs are not corrupted
 	exporter.Reset()
-	engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	records2 := obs.get()
@@ -327,4 +327,163 @@ func TestObserverAttrsCopyIsolation(t *testing.T) {
 		assert.NotEqual(t, "mutated", string(kv.Key),
 			"observer attrs should be an independent copy")
 	}
+}
+
+// planEventRecorder captures plan events alongside spans.
+type planEventRecorder struct {
+	recordingObserver
+	evMu   sync.Mutex
+	events []PlanEvent
+}
+
+func (r *planEventRecorder) ObservePlanEvent(ev PlanEvent) {
+	r.evMu.Lock()
+	defer r.evMu.Unlock()
+	r.events = append(r.events, ev)
+}
+
+func (r *planEventRecorder) getEvents() []PlanEvent {
+	r.evMu.Lock()
+	defer r.evMu.Unlock()
+	out := make([]PlanEvent, len(r.events))
+	copy(out, r.events)
+	return out
+}
+
+func twoTierConfig(retries int, timeout string, errorRate string) *Config {
+	return &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "request",
+					Duration: "10ms",
+					Calls: []CallConfig{{
+						Target:  "backend.handle",
+						Retries: retries,
+						Timeout: timeout,
+					}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:      "handle",
+					Duration:  "50ms",
+					ErrorRate: errorRate,
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+}
+
+func TestObserverReceivesParentAttribution(t *testing.T) {
+	t.Parallel()
+
+	cfg := twoTierConfig(0, "", "")
+	engine, _, tp := newTestEngine(t, cfg)
+	obs := &recordingObserver{}
+	engine.Observers = []SpanObserver{obs}
+
+	engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	records := obs.get()
+	require.Len(t, records, 2)
+	byOp := map[string]SpanInfo{}
+	for _, r := range records {
+		byOp[r.Operation] = r
+	}
+
+	root := byOp["request"]
+	assert.Empty(t, root.ParentService, "root span has no parent")
+	assert.Empty(t, root.ParentOperation)
+
+	child := byOp["handle"]
+	assert.Equal(t, "gateway", child.ParentService)
+	assert.Equal(t, "request", child.ParentOperation)
+}
+
+func TestFinishSpanParentAttribution(t *testing.T) {
+	t.Parallel()
+
+	cfg := twoTierConfig(0, "", "")
+	engine, _, tp := newTestEngine(t, cfg)
+	obs := &recordingObserver{}
+
+	var plans []SpanPlan
+	now := time.Now()
+	engine.planTrace(engine.Topology.Roots[0], -1, now, 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace)
+	require.Len(t, plans, 2)
+
+	var rstats realtimeStats
+	emitTrace(context.Background(), plans, now, now, func(string) trace.Tracer { return tp.Tracer("t") }, []SpanObserver{obs}, &rstats, nil)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	records := obs.get()
+	require.Len(t, records, 2)
+	byOp := map[string]SpanInfo{}
+	for _, r := range records {
+		byOp[r.Operation] = r
+	}
+	assert.Empty(t, byOp["request"].ParentService)
+	assert.Equal(t, "gateway", byOp["handle"].ParentService)
+	assert.Equal(t, "request", byOp["handle"].ParentOperation)
+}
+
+func TestPlanEventObserverRetries(t *testing.T) {
+	t.Parallel()
+
+	cfg := twoTierConfig(2, "", "100%")
+	engine, _, tp := newTestEngine(t, cfg)
+	obs := &planEventRecorder{}
+	engine.Observers = []SpanObserver{obs}
+
+	engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	events := obs.getEvents()
+	require.Len(t, events, 2, "two retries before the final failed attempt")
+	for _, ev := range events {
+		assert.Equal(t, PlanEventRetry, ev.Kind)
+		assert.Equal(t, "backend", ev.Service)
+		assert.Equal(t, "handle", ev.Operation)
+		assert.False(t, ev.Timestamp.IsZero())
+	}
+}
+
+func TestPlanEventObserverTimeouts(t *testing.T) {
+	t.Parallel()
+
+	cfg := twoTierConfig(0, "1ms", "")
+	engine, _, tp := newTestEngine(t, cfg)
+	obs := &planEventRecorder{}
+	engine.Observers = []SpanObserver{obs}
+
+	stats := &Stats{}
+	engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, time.Now(), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	events := obs.getEvents()
+	require.Len(t, events, 1, "50ms child exceeds 1ms timeout")
+	assert.Equal(t, PlanEventTimeout, events[0].Kind)
+	assert.Equal(t, "backend", events[0].Service)
+	assert.Equal(t, int64(1), stats.Timeouts)
+}
+
+func TestPlanTracePlanEvents(t *testing.T) {
+	t.Parallel()
+
+	cfg := twoTierConfig(2, "", "100%")
+	engine, _, _ := newTestEngine(t, cfg)
+	obs := &planEventRecorder{}
+	engine.Observers = []SpanObserver{obs}
+
+	var plans []SpanPlan
+	engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace)
+
+	events := obs.getEvents()
+	require.Len(t, events, 2)
+	assert.Equal(t, PlanEventRetry, events[0].Kind)
 }

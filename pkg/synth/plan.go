@@ -70,8 +70,10 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 			switch reason {
 			case ReasonQueueFull:
 				stats.QueueRejections++
+				notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventQueueRejection, Service: op.Service.Name, Operation: op.Name, Timestamp: startTime})
 			case ReasonCircuitOpen:
 				stats.CircuitBreakerTrips++
+				notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventCircuitBreakerTrip, Service: op.Service.Name, Operation: op.Name, Timestamp: startTime})
 			}
 			return e.planRejectionSpan(op, parentIndex, startTime, reason, scenarioNames, plans, spanCount)
 		}
@@ -252,6 +254,7 @@ func (e *Engine) executePlanCall(call Call, parentIndex int, callStart time.Time
 			perceivedEnd = attemptStart.Add(call.Timeout)
 			failed = true
 			stats.Timeouts++
+			notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventTimeout, Service: call.Operation.Service.Name, Operation: call.Operation.Name, Timestamp: perceivedEnd})
 		}
 
 		if !failed || attempt == maxAttempts-1 {
@@ -259,6 +262,7 @@ func (e *Engine) executePlanCall(call Call, parentIndex int, callStart time.Time
 		}
 
 		stats.Retries++
+		notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventRetry, Service: call.Operation.Service.Name, Operation: call.Operation.Name, Timestamp: perceivedEnd})
 		attemptStart = perceivedEnd.Add(call.RetryBackoff)
 	}
 
