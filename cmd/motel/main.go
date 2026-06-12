@@ -91,6 +91,7 @@ func runCmd() *cobra.Command {
 		realtime         bool
 		graphAddr        string
 		graphRecord      string
+		seed             uint64
 	)
 
 	cmd := &cobra.Command{
@@ -127,6 +128,7 @@ func runCmd() *cobra.Command {
 				realtime:         realtime,
 				graphAddr:        graphAddr,
 				graphRecord:      graphRecord,
+				seed:             seed,
 			})
 		},
 	}
@@ -145,6 +147,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 	cmd.Flags().StringVar(&graphAddr, "graph", "", "serve a live topology graph on this address during the run (e.g. :8077)")
 	cmd.Flags().StringVar(&graphRecord, "graph-record", "", "record graph statistics to this file for replay with motel graph --replay")
+	cmd.Flags().Uint64Var(&seed, "seed", 0, "seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions")
 
 	return cmd
 }
@@ -454,6 +457,26 @@ type runOptions struct {
 	realtime         bool
 	graphAddr        string
 	graphRecord      string
+	seed             uint64
+}
+
+// RNG streams for seeded runs. Each consumer of randomness gets a fixed
+// stream of the same seed so that enabling or disabling one signal does
+// not perturb the sequences of the others.
+const (
+	rngStreamEngine  = 1
+	rngStreamMetrics = 2
+	rngStreamLogs    = 3
+)
+
+// newRunRng returns the RNG for one consumer of randomness during a run.
+// With a non-zero seed the RNG is deterministic on the given stream;
+// with seed 0 it is independently random.
+func newRunRng(seed, stream uint64) *rand.Rand {
+	if seed == 0 {
+		return rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
+	}
+	return rand.New(rand.NewPCG(seed, stream)) //nolint:gosec // synthetic data, not security-sensitive
 }
 
 var validSignals = map[string]bool{
@@ -625,8 +648,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			return fmt.Errorf("creating metric providers: %w", mErr)
 		}
 		defer shutdownMetrics()
-		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
-		obs, mErr := synth.NewMetricObserver(meters, topo, rng)
+		obs, mErr := synth.NewMetricObserver(meters, topo, newRunRng(opts.seed, rngStreamMetrics))
 		if mErr != nil {
 			return fmt.Errorf("creating metric observer: %w", mErr)
 		}
@@ -641,8 +663,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 			return fmt.Errorf("creating log providers: %w", lErr)
 		}
 		defer shutdownLogs()
-		rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // synthetic data, not security-sensitive
-		obs, lErr := synth.NewLogObserver(loggers, topo, opts.slowThreshold, rng)
+		obs, lErr := synth.NewLogObserver(loggers, topo, opts.slowThreshold, newRunRng(opts.seed, rngStreamLogs))
 		if lErr != nil {
 			return fmt.Errorf("creating log observer: %w", lErr)
 		}
@@ -680,7 +701,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 				),
 			)
 		},
-		Rng:              rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
+		Rng:              newRunRng(opts.seed, rngStreamEngine),
 		Duration:         duration,
 		Observers:        observers,
 		MaxSpansPerTrace: opts.maxSpansPerTrace,
