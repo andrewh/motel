@@ -1,0 +1,308 @@
+# 2026/06/12 11:30:59.997060 [TestPropLayout] [rapid] draw n: 10
+# 2026/06/12 11:30:59.997067 [TestPropLayout] [rapid] draw w0: 18
+# 2026/06/12 11:30:59.997070 [TestPropLayout] [rapid] draw h0: 74.4482421875
+# 2026/06/12 11:30:59.997072 [TestPropLayout] [rapid] draw w1: 10
+# 2026/06/12 11:30:59.997074 [TestPropLayout] [rapid] draw h1: 20.00048828125
+# 2026/06/12 11:30:59.997075 [TestPropLayout] [rapid] draw w2: 120
+# 2026/06/12 11:30:59.997076 [TestPropLayout] [rapid] draw h2: 10.5
+# 2026/06/12 11:30:59.997078 [TestPropLayout] [rapid] draw w3: 10.000041127204895
+# 2026/06/12 11:30:59.997079 [TestPropLayout] [rapid] draw h3: 30.75
+# 2026/06/12 11:30:59.997081 [TestPropLayout] [rapid] draw w4: 11.015625
+# 2026/06/12 11:30:59.997082 [TestPropLayout] [rapid] draw h4: 13.375
+# 2026/06/12 11:30:59.997083 [TestPropLayout] [rapid] draw w5: 18.2734375
+# 2026/06/12 11:30:59.997084 [TestPropLayout] [rapid] draw h5: 10
+# 2026/06/12 11:30:59.997085 [TestPropLayout] [rapid] draw w6: 13.0322265625
+# 2026/06/12 11:30:59.997086 [TestPropLayout] [rapid] draw h6: 120
+# 2026/06/12 11:30:59.997088 [TestPropLayout] [rapid] draw w7: 94.42355918884277
+# 2026/06/12 11:30:59.997089 [TestPropLayout] [rapid] draw h7: 12.199509662576938
+# 2026/06/12 11:30:59.997090 [TestPropLayout] [rapid] draw w8: 91.2294921875
+# 2026/06/12 11:30:59.997091 [TestPropLayout] [rapid] draw h8: 10.285255432128906
+# 2026/06/12 11:30:59.997093 [TestPropLayout] [rapid] draw w9: 70.3070989958942
+# 2026/06/12 11:30:59.997094 [TestPropLayout] [rapid] draw h9: 26.953144990835426
+# 2026/06/12 11:30:59.997095 [TestPropLayout] [rapid] draw m: 17
+# 2026/06/12 11:30:59.997096 [TestPropLayout] [rapid] draw ei0: 6
+# 2026/06/12 11:30:59.997097 [TestPropLayout] [rapid] draw ej0: 3
+# 2026/06/12 11:30:59.997099 [TestPropLayout] [rapid] draw ei1: 1
+# 2026/06/12 11:30:59.997099 [TestPropLayout] [rapid] draw ej1: 7
+# 2026/06/12 11:30:59.997101 [TestPropLayout] [rapid] draw ei2: 0
+# 2026/06/12 11:30:59.997101 [TestPropLayout] [rapid] draw ej2: 8
+# 2026/06/12 11:30:59.997102 [TestPropLayout] [rapid] draw ei3: 1
+# 2026/06/12 11:30:59.997103 [TestPropLayout] [rapid] draw ej3: 3
+# 2026/06/12 11:30:59.997105 [TestPropLayout] [rapid] draw ei4: 1
+# 2026/06/12 11:30:59.997106 [TestPropLayout] [rapid] draw ej4: 2
+# 2026/06/12 11:30:59.997107 [TestPropLayout] [rapid] draw ei5: 9
+# 2026/06/12 11:30:59.997108 [TestPropLayout] [rapid] draw ej5: 9
+# 2026/06/12 11:30:59.997108 [TestPropLayout] [rapid] draw ei6: 4
+# 2026/06/12 11:30:59.997109 [TestPropLayout] [rapid] draw ej6: 5
+# 2026/06/12 11:30:59.997110 [TestPropLayout] [rapid] draw ei7: 7
+# 2026/06/12 11:30:59.997110 [TestPropLayout] [rapid] draw ej7: 0
+# 2026/06/12 11:30:59.997111 [TestPropLayout] [rapid] draw ei8: 3
+# 2026/06/12 11:30:59.997112 [TestPropLayout] [rapid] draw ej8: 0
+# 2026/06/12 11:30:59.997113 [TestPropLayout] [rapid] draw ei9: 2
+# 2026/06/12 11:30:59.997114 [TestPropLayout] [rapid] draw ej9: 0
+# 2026/06/12 11:30:59.997115 [TestPropLayout] [rapid] draw ei10: 1
+# 2026/06/12 11:30:59.997116 [TestPropLayout] [rapid] draw ej10: 3
+# 2026/06/12 11:30:59.997118 [TestPropLayout] [rapid] draw ei11: 3
+# 2026/06/12 11:30:59.997120 [TestPropLayout] [rapid] draw ej11: 5
+# 2026/06/12 11:30:59.997121 [TestPropLayout] [rapid] draw ei12: 2
+# 2026/06/12 11:30:59.997121 [TestPropLayout] [rapid] draw ej12: 0
+# 2026/06/12 11:30:59.997123 [TestPropLayout] [rapid] draw ei13: 0
+# 2026/06/12 11:30:59.997123 [TestPropLayout] [rapid] draw ej13: 8
+# 2026/06/12 11:30:59.997124 [TestPropLayout] [rapid] draw ei14: 9
+# 2026/06/12 11:30:59.997125 [TestPropLayout] [rapid] draw ej14: 5
+# 2026/06/12 11:30:59.997126 [TestPropLayout] [rapid] draw ei15: 0
+# 2026/06/12 11:30:59.997127 [TestPropLayout] [rapid] draw ej15: 5
+# 2026/06/12 11:30:59.997127 [TestPropLayout] [rapid] draw ei16: 9
+# 2026/06/12 11:30:59.997128 [TestPropLayout] [rapid] draw ej16: 3
+# 2026/06/12 11:31:00.007530 [TestPropLayout] nodes n0 and n3 overlap by (14.000020563602448, 3.5650859860471087)
+# 2026/06/12 11:31:00.007539 [TestPropLayout] nodes n2 and n4 overlap by (1.7344349741472342, 6.000695172812584)
+# 
+v0.4.8#13726134213289619476
+0x0
+0x9867f1f40f739
+0x9
+0x0
+0x0
+0x0
+0x1
+0x2
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x3
+0xa
+0xa
+0x1cb000000000
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x4
+0xc
+0x2000000000
+0x0
+0x0
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x0
+0x0
+0x1
+0x1000000000000
+0x0
+0x0
+0x38e38e38e38e4
+0x0
+0x0
+0x18
+0x564000000
+0x0
+0x0
+0x0
+0x1
+0xe
+0x2
+0xc00000000000
+0x0
+0x0
+0x38e38e38e38e4
+0x0
+0x1
+0x8
+0x80000000000
+0x0
+0x0
+0x38e38e38e38e4
+0x0
+0x3
+0x3
+0xc00000000000
+0x0
+0x0
+0x0
+0x1
+0x2
+0x7
+0x460000000000
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x0
+0x3
+0xc
+0x108000000000
+0x0
+0x0
+0x1f2b5a0e61c3a6
+0xffffffffffffffff
+0x0
+0x0
+0x0
+0xabfe322ccbf2e
+0x1360af475bb787
+0x19f4f680631fcc
+0x3
+0x1e
+0x13
+0x1b1b9c0984c7
+0x124a4a816265d9
+0xa25532cc64d72
+0x5932368264fa9
+0x0
+0x2
+0x32
+0x662621680205
+0x14778ec8f8620c
+0x14944c84eb4a22
+0xfa99008fb32bb
+0x3
+0x1b
+0xc
+0xeb1a4bc6cb4
+0xc3013e7012206
+0x5ca39a5af7f68
+0x5d3e1a65f077d
+0x0
+0x0
+0x11
+0x920dc2f60625
+0xd7d5932563a82
+0xf53fdb877b966
+0x14c830e4ad9602
+0x3
+0x6
+0x1c
+0x13a7828dcb5e
+0x1156b316c9a89f
+0xdad54b38b391a
+0x15b571425b241c
+0x1
+0xa
+0x29
+0xf4014f63fc4e
+0xf88501ed1e700
+0x1e10f333321010
+0x11
+0x113308cf95a43c
+0x115f9b08bdbd65
+0x6
+0x8a108483dcfad
+0x742acc9553ddc
+0x3
+0x12561523f7dee2
+0x1a6ea99bbef0a
+0x1
+0x736862b704b1e
+0x1db21f307f0fe0
+0x7
+0x11e7b2016232b4
+0xf575b7c84da48
+0x0
+0x18ba3ab4b173d4
+0x9ee7c7abea604
+0x8
+0xe7b7d310920c6
+0x1105c3496288c
+0x1
+0x171e2461c9074b
+0x1d66f27722de2a
+0x3
+0x15269396cd0b7c
+0xf2e09e250a6fe
+0x1
+0x5692d5fd9be38
+0xb860bfe6e17f6
+0x2
+0x1bf36ad6471750
+0x1e5d4b620b66ae
+0x9
+0x161afabf878f19
+0x1c47d46e30dcbe
+0x9
+0xe4107823e9d7f
+0x9df7ce17353c3
+0x4
+0x197571ca272c77
+0x1c08d109b7440e
+0x5
+0x164a5bc44ad6bb
+0x15fabb3fdef9f1
+0x7
+0x5e39cf8ed2613
+0x362a280ba7ef5
+0x0
+0xa123c56586e2f
+0x3f71b06f6620f
+0x3
+0xf4d25a44a99d5
+0x6377c5bed8adf
+0x0
+0x1d85026e74a97e
+0x1451ac98e70513
+0x2
+0x1f2a5a47bd5c54
+0x364d53a8a4a05
+0x0
+0x121a6ec57a1ded
+0x2d0ae7df12b1b
+0x1
+0x1da18e39c79a
+0x18483d8d0ca576
+0x3
+0xfab7541a56c1a
+0x12f918be5a33d4
+0x3
+0xd56cc82048c2d
+0x1dc53c9cbe7f6f
+0x5
+0x13140db0250d4b
+0x159afb2e4f4066
+0x2
+0x150ff678da06b4
+0xf8f16542299f
+0x0
+0x7d33f34e1b0b4
+0x1e5e6e91e31b06
+0x0
+0x531d97abc7716
+0xeeb7edb33c84e
+0x8
+0x80236afc79067
+0x1c030e3005c64a
+0x9
+0x94df472a343ba
+0x107d55ca782b04
+0x5
+0x1031d6dc29eba4
+0x51fec9c3ad712
+0x0
+0x1fcd7e8fd4a17c
+0x12a842bbb254ab
+0x5
+0x1f5b19db948ad8
+0xb11750477fe86
+0x9
+0x152c4a279778a6
+0x5cebd2980d5ab
+0x3

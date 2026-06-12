@@ -63,6 +63,7 @@ nav:
       - docs/explanation/semantic-conventions.md
       - docs/explanation/performance-profile.md
       - docs/explanation/property-testing.md
+      - docs/explanation/hola-layout.md
   - Demos:
       - docs/demos/demo-async-calls.md
       - docs/demos/demo-backpressure.md

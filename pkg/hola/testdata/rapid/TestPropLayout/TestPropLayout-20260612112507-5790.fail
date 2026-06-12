@@ -1,0 +1,211 @@
+# 2026/06/12 11:25:07.142714 [TestPropLayout] [rapid] draw n: 8
+# 2026/06/12 11:25:07.142720 [TestPropLayout] [rapid] draw w0: 10
+# 2026/06/12 11:25:07.142724 [TestPropLayout] [rapid] draw h0: 10
+# 2026/06/12 11:25:07.142726 [TestPropLayout] [rapid] draw w1: 10
+# 2026/06/12 11:25:07.142727 [TestPropLayout] [rapid] draw h1: 10
+# 2026/06/12 11:25:07.142730 [TestPropLayout] [rapid] draw w2: 10
+# 2026/06/12 11:25:07.142731 [TestPropLayout] [rapid] draw h2: 10
+# 2026/06/12 11:25:07.142732 [TestPropLayout] [rapid] draw w3: 10
+# 2026/06/12 11:25:07.142733 [TestPropLayout] [rapid] draw h3: 10
+# 2026/06/12 11:25:07.142735 [TestPropLayout] [rapid] draw w4: 10
+# 2026/06/12 11:25:07.142736 [TestPropLayout] [rapid] draw h4: 10
+# 2026/06/12 11:25:07.142738 [TestPropLayout] [rapid] draw w5: 32
+# 2026/06/12 11:25:07.142739 [TestPropLayout] [rapid] draw h5: 32
+# 2026/06/12 11:25:07.142740 [TestPropLayout] [rapid] draw w6: 120
+# 2026/06/12 11:25:07.142741 [TestPropLayout] [rapid] draw h6: 10
+# 2026/06/12 11:25:07.142742 [TestPropLayout] [rapid] draw w7: 10
+# 2026/06/12 11:25:07.142743 [TestPropLayout] [rapid] draw h7: 10
+# 2026/06/12 11:25:07.142745 [TestPropLayout] [rapid] draw m: 9
+# 2026/06/12 11:25:07.142746 [TestPropLayout] [rapid] draw ei0: 2
+# 2026/06/12 11:25:07.142747 [TestPropLayout] [rapid] draw ej0: 6
+# 2026/06/12 11:25:07.142748 [TestPropLayout] [rapid] draw ei1: 0
+# 2026/06/12 11:25:07.142749 [TestPropLayout] [rapid] draw ej1: 0
+# 2026/06/12 11:25:07.142750 [TestPropLayout] [rapid] draw ei2: 1
+# 2026/06/12 11:25:07.142750 [TestPropLayout] [rapid] draw ej2: 0
+# 2026/06/12 11:25:07.142752 [TestPropLayout] [rapid] draw ei3: 0
+# 2026/06/12 11:25:07.142752 [TestPropLayout] [rapid] draw ej3: 0
+# 2026/06/12 11:25:07.142753 [TestPropLayout] [rapid] draw ei4: 0
+# 2026/06/12 11:25:07.142754 [TestPropLayout] [rapid] draw ej4: 0
+# 2026/06/12 11:25:07.142754 [TestPropLayout] [rapid] draw ei5: 6
+# 2026/06/12 11:25:07.142755 [TestPropLayout] [rapid] draw ej5: 5
+# 2026/06/12 11:25:07.142756 [TestPropLayout] [rapid] draw ei6: 0
+# 2026/06/12 11:25:07.142757 [TestPropLayout] [rapid] draw ej6: 2
+# 2026/06/12 11:25:07.142758 [TestPropLayout] [rapid] draw ei7: 0
+# 2026/06/12 11:25:07.142760 [TestPropLayout] [rapid] draw ej7: 0
+# 2026/06/12 11:25:07.142761 [TestPropLayout] [rapid] draw ei8: 0
+# 2026/06/12 11:25:07.142761 [TestPropLayout] [rapid] draw ej8: 5
+# 2026/06/12 11:25:07.144706 [TestPropLayout] nodes n5 and n6 overlap by (50.84213512351039, 6.973837151507098)
+# 
+v0.4.8#1173389733330619262
+0x0
+0x6b74f03291620
+0x7
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0x9
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x6b74f03291620
+0x6
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x6
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5
