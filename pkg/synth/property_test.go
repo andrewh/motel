@@ -133,7 +133,7 @@ func walkOnce(t *rapid.T, cfg *Config) (*Topology, []tracetest.SpanStub, *Stats)
 	rootOp := topo.Roots[rng.IntN(len(topo.Roots))]
 	now := time.Now().Add(offset)
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
 
 	if err := tp.ForceFlush(context.Background()); err != nil {
 		t.Fatalf("ForceFlush: %v", err)
@@ -591,7 +591,7 @@ func TestProperty_ResolveOverrides_DoesNotMutateInput(t *testing.T) {
 			scenarios[i] = Scenario{
 				Overrides: map[string]Override{
 					ref: {
-						Attributes: attrs,
+						Attributes: NewAttributes(attrs),
 						AddCalls:   []Call{{Operation: &Operation{Ref: fmt.Sprintf("target%d.op", i)}}},
 					},
 				},
@@ -722,7 +722,7 @@ func TestProperty_Engine_ScenarioOverrideApplied(t *testing.T) {
 		}
 
 		var stats Stats
-		engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
 
 		if err := tp.ForceFlush(context.Background()); err != nil {
 			t.Fatalf("ForceFlush: %v", err)
@@ -779,7 +779,7 @@ func TestProperty_Engine_ScenarioErrorRateOverride(t *testing.T) {
 		}
 
 		var stats Stats
-		engine.walkTrace(context.Background(), topo.Roots[0], time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
 
 		if err := tp.ForceFlush(context.Background()); err != nil {
 			t.Fatalf("ForceFlush: %v", err)

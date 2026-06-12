@@ -103,7 +103,7 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if ls.Span == nil {
 				continue
 			}
-			finishSpan(ls.Span, plan, observers, rstats)
+			finishSpan(ls.Span, plan, plans, observers, rstats)
 			live[ev.Index] = liveSpan{}
 		}
 	}
@@ -138,8 +138,18 @@ func buildEvents(plans []SpanPlan) []spanEvent {
 	return events
 }
 
+// planParentNames returns the parent's service and operation names for a
+// plan, or empty strings for root spans.
+func planParentNames(plans []SpanPlan, plan *SpanPlan) (string, string) {
+	if plan.ParentIndex < 0 {
+		return "", ""
+	}
+	p := &plans[plan.ParentIndex]
+	return p.Service, p.Operation
+}
+
 // finishSpan ends a span, records errors, fires observers, and updates stats.
-func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstats *realtimeStats) {
+func finishSpan(span trace.Span, plan *SpanPlan, plans []SpanPlan, observers []SpanObserver, rstats *realtimeStats) {
 	if plan.IsError {
 		if plan.Rejected {
 			span.SetStatus(codes.Error, plan.RejectionReason)
@@ -155,8 +165,10 @@ func finishSpan(span trace.Span, plan *SpanPlan, observers []SpanObserver, rstat
 	span.End(trace.WithTimestamp(plan.EndTime))
 
 	if len(observers) > 0 {
+		parentService, parentOperation := planParentNames(plans, plan)
 		info := newSpanInfo(
 			plan.Service, plan.Operation,
+			parentService, parentOperation,
 			plan.StartTime, plan.EndTime.Sub(plan.StartTime),
 			plan.IsError, plan.Kind,
 			plan.Attrs, plan.Scenarios,
@@ -183,8 +195,10 @@ func endAllOpen(live []liveSpan, plans []SpanPlan, observers []SpanObserver, rst
 		rstats.Errors.Add(1)
 		if len(observers) > 0 {
 			plan := &plans[i]
+			parentService, parentOperation := planParentNames(plans, plan)
 			info := newSpanInfo(
 				plan.Service, plan.Operation,
+				parentService, parentOperation,
 				plan.StartTime, now.Sub(plan.StartTime),
 				true, plan.Kind,
 				plan.Attrs, plan.Scenarios,

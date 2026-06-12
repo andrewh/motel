@@ -1396,3 +1396,23 @@ func TestSemconvLogWarnings_ValidEnumValue(t *testing.T) {
 
 	assert.Empty(t, semconvLogWarnings(cfg, reg))
 }
+
+func TestNewRunRng(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same seed and stream produce identical sequences", func(t *testing.T) {
+		t.Parallel()
+		a := newRunRng(42, rngStreamEngine)
+		b := newRunRng(42, rngStreamEngine)
+		for range 10 {
+			assert.Equal(t, a.Uint64(), b.Uint64())
+		}
+	})
+
+	t.Run("different streams diverge", func(t *testing.T) {
+		t.Parallel()
+		a := newRunRng(42, rngStreamEngine)
+		b := newRunRng(42, rngStreamMetrics)
+		assert.NotEqual(t, a.Uint64(), b.Uint64())
+	})
+}

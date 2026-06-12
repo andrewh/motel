@@ -381,3 +381,50 @@ func TestTypedAttribute(t *testing.T) {
 		assert.Equal(t, "7", kv.Value.AsString())
 	})
 }
+
+func TestNewAttributesSortsByKey(t *testing.T) {
+	t.Parallel()
+
+	attrs := NewAttributes(map[string]AttributeGenerator{
+		"zeta":  &StaticValue{Value: "z"},
+		"alpha": &StaticValue{Value: "a"},
+		"mid":   &StaticValue{Value: "m"},
+	})
+	require.Len(t, attrs, 3)
+	assert.Equal(t, "alpha", attrs[0].Key)
+	assert.Equal(t, "mid", attrs[1].Key)
+	assert.Equal(t, "zeta", attrs[2].Key)
+
+	assert.Nil(t, NewAttributes(nil))
+}
+
+func TestAttributesMerge(t *testing.T) {
+	t.Parallel()
+
+	base := NewAttributes(map[string]AttributeGenerator{
+		"a": &StaticValue{Value: "base-a"},
+		"c": &StaticValue{Value: "base-c"},
+	})
+	over := NewAttributes(map[string]AttributeGenerator{
+		"b": &StaticValue{Value: "over-b"},
+		"c": &StaticValue{Value: "over-c"},
+	})
+
+	merged := base.Merge(over)
+	require.Len(t, merged, 3)
+	assert.Equal(t, []string{"a", "b", "c"}, []string{merged[0].Key, merged[1].Key, merged[2].Key}, "result stays sorted")
+	assert.Equal(t, "base-a", merged.Get("a").Generate(nil))
+	assert.Equal(t, "over-b", merged.Get("b").Generate(nil))
+	assert.Equal(t, "over-c", merged.Get("c").Generate(nil), "override wins on collision")
+
+	assert.Equal(t, base, base.Merge(nil))
+	assert.Equal(t, over, Attributes(nil).Merge(over))
+}
+
+func TestAttributesGet(t *testing.T) {
+	t.Parallel()
+
+	attrs := NewAttributes(map[string]AttributeGenerator{"k": &StaticValue{Value: "v"}})
+	assert.Equal(t, "v", attrs.Get("k").Generate(nil))
+	assert.Nil(t, attrs.Get("missing"))
+}

@@ -276,7 +276,7 @@ func TestBuildScenariosWithAttributes(t *testing.T) {
 	require.Len(t, scenarios, 1)
 	require.Contains(t, scenarios[0].Overrides, "svc.op")
 	require.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes)
-	assert.Contains(t, scenarios[0].Overrides["svc.op"].Attributes, "http.status")
+	assert.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes.Get("http.status"))
 }
 
 func TestBuildScenariosInvalidAttribute(t *testing.T) {
@@ -311,20 +311,20 @@ func TestResolveOverridesMergesAttributes(t *testing.T) {
 		{
 			Overrides: map[string]Override{
 				"svc.op": {
-					Attributes: map[string]AttributeGenerator{
+					Attributes: NewAttributes(map[string]AttributeGenerator{
 						"keep":    gen1,
 						"replace": gen1,
-					},
+					}),
 				},
 			},
 		},
 		{
 			Overrides: map[string]Override{
 				"svc.op": {
-					Attributes: map[string]AttributeGenerator{
+					Attributes: NewAttributes(map[string]AttributeGenerator{
 						"replace": gen2,
 						"new":     gen3,
-					},
+					}),
 				},
 			},
 		},
@@ -334,9 +334,9 @@ func TestResolveOverridesMergesAttributes(t *testing.T) {
 	require.Contains(t, overrides, "svc.op")
 	attrs := overrides["svc.op"].Attributes
 	require.Len(t, attrs, 3)
-	assert.Equal(t, gen1, attrs["keep"], "untouched attribute preserved")
-	assert.Equal(t, gen2, attrs["replace"], "overridden attribute replaced")
-	assert.Equal(t, gen3, attrs["new"], "new attribute added")
+	assert.Equal(t, gen1, attrs.Get("keep"), "untouched attribute preserved")
+	assert.Equal(t, gen2, attrs.Get("replace"), "overridden attribute replaced")
+	assert.Equal(t, gen3, attrs.Get("new"), "new attribute added")
 }
 
 func TestResolveOverridesDoesNotMutateOriginal(t *testing.T) {
@@ -348,12 +348,12 @@ func TestResolveOverridesDoesNotMutateOriginal(t *testing.T) {
 	scenarios := []Scenario{
 		{
 			Overrides: map[string]Override{
-				"svc.op": {Attributes: map[string]AttributeGenerator{"a": original}},
+				"svc.op": {Attributes: NewAttributes(map[string]AttributeGenerator{"a": original})},
 			},
 		},
 		{
 			Overrides: map[string]Override{
-				"svc.op": {Attributes: map[string]AttributeGenerator{"b": override}},
+				"svc.op": {Attributes: NewAttributes(map[string]AttributeGenerator{"b": override})},
 			},
 		},
 	}
@@ -374,7 +374,7 @@ func TestResolveOverridesNoAttributesIsNoop(t *testing.T) {
 	scenarios := []Scenario{
 		{
 			Overrides: map[string]Override{
-				"svc.op": {Attributes: map[string]AttributeGenerator{"a": gen}},
+				"svc.op": {Attributes: NewAttributes(map[string]AttributeGenerator{"a": gen})},
 			},
 		},
 		{
@@ -387,7 +387,7 @@ func TestResolveOverridesNoAttributesIsNoop(t *testing.T) {
 	overrides := ResolveOverrides(scenarios)
 	attrs := overrides["svc.op"].Attributes
 	require.Len(t, attrs, 1)
-	assert.Equal(t, gen, attrs["a"], "earlier attributes preserved when later has none")
+	assert.Equal(t, gen, attrs.Get("a"), "earlier attributes preserved when later has none")
 }
 
 func TestResolveOverrides(t *testing.T) {

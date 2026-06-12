@@ -45,7 +45,7 @@ func TestPlanTraceBasic(t *testing.T) {
 	spanCount := 0
 
 	engine.Rng = rand.New(rand.NewPCG(42, 0))
-	endTime, isError := engine.planTrace(rootOp, -1, now, 0, nil, nil, &stats, &plans, &spanCount, DefaultMaxSpansPerTrace)
+	endTime, isError := engine.planTrace(rootOp, -1, now, 0, nil, nil, &stats, &plans, &spanCount, DefaultMaxSpansPerTrace, false)
 
 	require.Len(t, plans, 2)
 
@@ -124,7 +124,7 @@ func TestPlanTraceMatchesWalkTrace(t *testing.T) {
 	planSpanCount := 0
 	planEnd, planErr := planEngine.planTrace(
 		planEngine.Topology.Roots[0], -1, now, 0, nil, nil,
-		&planStats, &plans, &planSpanCount, DefaultMaxSpansPerTrace,
+		&planStats, &plans, &planSpanCount, DefaultMaxSpansPerTrace, false,
 	)
 
 	// Run walkTrace with the same seed
@@ -133,7 +133,7 @@ func TestPlanTraceMatchesWalkTrace(t *testing.T) {
 	var walkStats Stats
 	walkSpanCount := 0
 	walkEnd, walkErr := walkEngine.walkTrace(
-		context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
+		context.Background(), walkEngine.Topology.Roots[0], nil, now, 0, nil, nil,
 		&walkStats, &walkSpanCount, DefaultMaxSpansPerTrace, false,
 	)
 	require.NoError(t, tp.ForceFlush(context.Background()))
@@ -202,7 +202,7 @@ func TestPlanTraceSpanLimit(t *testing.T) {
 	spanCount := 0
 
 	engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil,
-		&stats, &plans, &spanCount, 2)
+		&stats, &plans, &spanCount, 2, false)
 
 	assert.Equal(t, 2, len(plans), "should stop at span limit")
 }
@@ -231,7 +231,7 @@ func TestPlanTraceRejection(t *testing.T) {
 	var stats1 Stats
 	var plans1 []SpanPlan
 	sc1 := 0
-	engine.planTrace(rootOp, -1, time.Now(), 0, nil, nil, &stats1, &plans1, &sc1, DefaultMaxSpansPerTrace)
+	engine.planTrace(rootOp, -1, time.Now(), 0, nil, nil, &stats1, &plans1, &sc1, DefaultMaxSpansPerTrace, false)
 
 	// Manually bump active requests to trigger queue full
 	opState := engine.State.Get(rootOp.Ref)
@@ -240,7 +240,7 @@ func TestPlanTraceRejection(t *testing.T) {
 	var stats2 Stats
 	var plans2 []SpanPlan
 	sc2 := 0
-	engine.planTrace(rootOp, -1, time.Now(), time.Second, nil, nil, &stats2, &plans2, &sc2, DefaultMaxSpansPerTrace)
+	engine.planTrace(rootOp, -1, time.Now(), time.Second, nil, nil, &stats2, &plans2, &sc2, DefaultMaxSpansPerTrace, false)
 
 	require.Len(t, plans2, 1)
 	assert.True(t, plans2[0].Rejected)
@@ -282,14 +282,14 @@ func TestPlanTraceSequentialCalls(t *testing.T) {
 	var plans []SpanPlan
 	psc := 0
 	planEngine.planTrace(planEngine.Topology.Roots[0], -1, now, 0, nil, nil,
-		&planStats, &plans, &psc, DefaultMaxSpansPerTrace)
+		&planStats, &plans, &psc, DefaultMaxSpansPerTrace, false)
 
 	// Walk path with same seed
 	walkEngine, exporter, tp := newTestEngine(t, cfg)
 	walkEngine.Rng = rand.New(rand.NewPCG(seed[0], seed[1]))
 	var walkStats Stats
 	wsc := 0
-	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
+	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], nil, now, 0, nil, nil,
 		&walkStats, &wsc, DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
@@ -351,18 +351,118 @@ func TestPlanTraceRetries(t *testing.T) {
 	var plans []SpanPlan
 	psc := 0
 	planEngine.planTrace(planEngine.Topology.Roots[0], -1, now, 0, nil, nil,
-		&planStats, &plans, &psc, DefaultMaxSpansPerTrace)
+		&planStats, &plans, &psc, DefaultMaxSpansPerTrace, false)
 
 	// Walk
 	walkEngine, exporter, tp := newTestEngine(t, cfg)
 	walkEngine.Rng = rand.New(rand.NewPCG(seed[0], seed[1]))
 	var walkStats Stats
 	wsc := 0
-	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], now, 0, nil, nil,
+	walkEngine.walkTrace(context.Background(), walkEngine.Topology.Roots[0], nil, now, 0, nil, nil,
 		&walkStats, &wsc, DefaultMaxSpansPerTrace, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
 	require.Len(t, plans, len(spans), "should have same span count with retries")
 	assert.Equal(t, walkStats.Retries, planStats.Retries, "retry counts must match")
+}
+
+// twoTierStateConfig builds a gateway->backend topology where backend has a
+// queue depth of 1, so pre-filling its state forces a queue rejection.
+func twoTierQueueConfig() *Config {
+	return &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{{
+					Name:     "request",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "backend.handle"}},
+				}},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:       "handle",
+					Duration:   "5ms",
+					QueueDepth: 1,
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+}
+
+// TestRejectionSpanCountedOnce pins that a rejected operation consumes
+// exactly one slot of the per-trace span limit on both engine paths.
+// Previously the rejection helpers incremented spanCount a second time.
+func TestRejectionSpanCountedOnce(t *testing.T) {
+	t.Parallel()
+
+	t.Run("walk path", func(t *testing.T) {
+		t.Parallel()
+		engine, exporter, tp := newTestEngine(t, twoTierQueueConfig())
+		engine.State = NewSimulationState(engine.Topology)
+		engine.State.Get("backend.handle").Enter() // queue now full
+
+		spanCount := 0
+		engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, time.Now(), 0, nil, nil, &Stats{}, &spanCount, DefaultMaxSpansPerTrace, false)
+		require.NoError(t, tp.ForceFlush(context.Background()))
+
+		assert.Equal(t, 2, spanCount, "root span plus one rejected span")
+		assert.Len(t, exporter.GetSpans(), 2)
+	})
+
+	t.Run("plan path", func(t *testing.T) {
+		t.Parallel()
+		engine, _, _ := newTestEngine(t, twoTierQueueConfig())
+		engine.State = NewSimulationState(engine.Topology)
+		engine.State.Get("backend.handle").Enter()
+
+		spanCount := 0
+		var plans []SpanPlan
+		engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil, &Stats{}, &plans, &spanCount, DefaultMaxSpansPerTrace, false)
+
+		assert.Equal(t, 2, spanCount, "root span plus one rejected span")
+		assert.Len(t, plans, 2, "span count matches planned spans")
+	})
+}
+
+// TestPlanTraceAsyncConsumerKind pins that realtime planning marks async
+// callees as CONSUMER spans, mirroring walkTrace.
+func TestPlanTraceAsyncConsumerKind(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "submit",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "queue.publish", Async: true}},
+				}},
+			},
+			{
+				Name: "queue",
+				Operations: []OperationConfig{{
+					Name:     "publish",
+					Duration: "2ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+	engine, _, _ := newTestEngine(t, cfg)
+
+	var plans []SpanPlan
+	engine.planTrace(engine.Topology.Roots[0], -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false)
+
+	require.Len(t, plans, 2)
+	byOp := map[string]SpanPlan{}
+	for _, p := range plans {
+		byOp[p.Operation] = p
+	}
+	assert.Equal(t, trace.SpanKindServer, byOp["submit"].Kind)
+	assert.Equal(t, trace.SpanKindConsumer, byOp["publish"].Kind, "async callee is a CONSUMER span in realtime mode")
 }
