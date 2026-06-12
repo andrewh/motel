@@ -27,7 +27,7 @@ type metricInstrument struct {
 	scopeRef   string             // service name or "service.operation" — key into scenario overrides
 	value      *FloatDistribution // nil = span-derived
 	unit       string
-	attrGens   map[string]AttributeGenerator
+	attrGens   Attributes
 	operation  string        // non-empty if operation-level (fires only for this op)
 	errorsOnly bool          // if true, counter only increments for error spans
 	interval   time.Duration // non-zero = emit on a wall-clock timer instead of per span
@@ -337,13 +337,13 @@ func clampValue(v float64, minBound, maxBound *float64) float64 {
 }
 
 // buildMetricAttrs constructs metric attributes from generators and adds operation.name.
-func buildMetricAttrs(attrGens map[string]AttributeGenerator, operation string, rng *rand.Rand) metric.MeasurementOption {
+func buildMetricAttrs(attrGens Attributes, operation string, rng *rand.Rand) metric.MeasurementOption {
 	attrs := make([]attribute.KeyValue, 0, len(attrGens)+1)
 	if operation != "" {
 		attrs = append(attrs, attribute.String("operation.name", operation))
 	}
-	for k, gen := range attrGens {
-		attrs = append(attrs, typedAttribute(k, gen.Generate(rng)))
+	for _, a := range attrGens {
+		attrs = append(attrs, typedAttribute(a.Key, a.Gen.Generate(rng)))
 	}
 	return metric.WithAttributes(attrs...)
 }

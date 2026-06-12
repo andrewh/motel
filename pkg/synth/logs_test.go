@@ -370,7 +370,7 @@ func TestLogObserverTopologyBodyInterpolation(t *testing.T) {
 	require.NoError(t, err)
 
 	def := alwaysLog("ERROR", "{error.type} in {service.name} {operation.name}: method={http.request.method} missing={no.such.key}")
-	def.Attributes = map[string]AttributeGenerator{"error.type": gen}
+	def.Attributes = NewAttributes(map[string]AttributeGenerator{"error.type": gen})
 
 	topo := testLogTopology("svc", []LogDefinition{def}, "op", nil)
 	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
@@ -397,10 +397,10 @@ func TestLogObserverTopologyTypedAttributes(t *testing.T) {
 	require.NoError(t, err)
 
 	def := alwaysLog("INFO", "typed attributes")
-	def.Attributes = map[string]AttributeGenerator{
+	def.Attributes = NewAttributes(map[string]AttributeGenerator{
 		"app.flow":    strGen,
 		"app.retries": intGen,
-	}
+	})
 
 	topo := testLogTopology("svc", []LogDefinition{def}, "op", nil)
 	obs, exporter := newTestLogObserver(t, topo, 0, "svc")
@@ -680,7 +680,7 @@ func TestLogObserverScenarioAddInterpolation(t *testing.T) {
 			Severity:    "ERROR",
 			Body:        "{error.type} in {operation.name}",
 			Probability: 1.0,
-			Attributes:  map[string]AttributeGenerator{"error.type": gen},
+			Attributes:  NewAttributes(map[string]AttributeGenerator{"error.type": gen}),
 		}}},
 	})
 

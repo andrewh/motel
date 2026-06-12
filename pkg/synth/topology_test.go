@@ -181,9 +181,9 @@ func TestBuildTopology(t *testing.T) {
 		require.NoError(t, err)
 		op := topo.Services["svc"].Operations["op"]
 		require.Len(t, op.Attributes, 3)
-		assert.IsType(t, &StaticValue{}, op.Attributes["http.route"])
-		assert.IsType(t, &WeightedChoice{}, op.Attributes["status"])
-		assert.IsType(t, &SequenceValue{}, op.Attributes["req.id"])
+		assert.IsType(t, &StaticValue{}, op.Attributes.Get("http.route"))
+		assert.IsType(t, &WeightedChoice{}, op.Attributes.Get("status"))
+		assert.IsType(t, &SequenceValue{}, op.Attributes.Get("req.id"))
 	})
 
 	t.Run("resolves call_style", func(t *testing.T) {
@@ -253,8 +253,8 @@ func TestBuildTopology(t *testing.T) {
 		require.NoError(t, err)
 		op := topo.Services["svc"].Operations["op"]
 		require.Len(t, op.Attributes, 2)
-		assert.Equal(t, "GET", op.Attributes["http.method"].Generate(nil))
-		assert.Equal(t, "/default", op.Attributes["http.route"].Generate(nil))
+		assert.Equal(t, "GET", op.Attributes.Get("http.method").Generate(nil))
+		assert.Equal(t, "/default", op.Attributes.Get("http.route").Generate(nil))
 	})
 
 	t.Run("user attributes override domain defaults", func(t *testing.T) {
@@ -282,7 +282,7 @@ func TestBuildTopology(t *testing.T) {
 		topo, err := BuildTopology(cfg, resolver)
 		require.NoError(t, err)
 		op := topo.Services["svc"].Operations["op"]
-		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Generate(nil))
+		assert.Equal(t, "/api/v1/users", op.Attributes.Get("http.route").Generate(nil))
 	})
 
 	t.Run("domain with no resolver returns error", func(t *testing.T) {
@@ -353,8 +353,8 @@ func TestBuildTopology(t *testing.T) {
 		require.NoError(t, err)
 		op := topo.Services["svc"].Operations["op"]
 		require.Len(t, op.Attributes, 2)
-		assert.Equal(t, "GET", op.Attributes["http.method"].Generate(nil))
-		assert.Equal(t, "/api/v1/users", op.Attributes["http.route"].Generate(nil))
+		assert.Equal(t, "GET", op.Attributes.Get("http.method").Generate(nil))
+		assert.Equal(t, "/api/v1/users", op.Attributes.Get("http.route").Generate(nil))
 	})
 
 	t.Run("no domain ignores resolver", func(t *testing.T) {
@@ -530,7 +530,7 @@ func TestBuildTopologyLogs(t *testing.T) {
 		assert.InDelta(t, 0.25, opLogs[0].Probability, 1e-9)
 		assert.True(t, opLogs[0].AtEnd)
 		assert.Equal(t, 5*time.Millisecond, opLogs[0].Delay)
-		require.Contains(t, opLogs[0].Attributes, "error.type")
+		require.NotNil(t, opLogs[0].Attributes.Get("error.type"))
 	})
 
 	t.Run("rejects invalid delay", func(t *testing.T) {

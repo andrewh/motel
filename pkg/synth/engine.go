@@ -6,7 +6,6 @@ package synth
 import (
 	"context"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"slices"
 	"sync"
@@ -398,10 +397,7 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 			errorRate = ov.ErrorRate
 		}
 		if len(ov.Attributes) > 0 {
-			merged := make(map[string]AttributeGenerator, len(op.Attributes)+len(ov.Attributes))
-			maps.Copy(merged, op.Attributes)
-			maps.Copy(merged, ov.Attributes)
-			opAttrs = merged
+			opAttrs = op.Attributes.Merge(ov.Attributes)
 		}
 	}
 
@@ -476,8 +472,8 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	for k, v := range op.Service.Attributes {
 		spanAttrs = append(spanAttrs, attribute.String(k, v))
 	}
-	for k, gen := range opAttrs {
-		spanAttrs = append(spanAttrs, typedAttribute(k, gen.Generate(e.Rng)))
+	for _, a := range opAttrs {
+		spanAttrs = append(spanAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
 	}
 	span.SetAttributes(spanAttrs...)
 
@@ -487,8 +483,8 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 		}
 		if len(evt.Attributes) > 0 {
 			evtAttrs := make([]attribute.KeyValue, 0, len(evt.Attributes))
-			for k, gen := range evt.Attributes {
-				evtAttrs = append(evtAttrs, typedAttribute(k, gen.Generate(e.Rng)))
+			for _, a := range evt.Attributes {
+				evtAttrs = append(evtAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
 			}
 			evtOpts = append(evtOpts, trace.WithAttributes(evtAttrs...))
 		}

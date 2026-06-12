@@ -257,9 +257,9 @@ func TestMetricObserverAttributes(t *testing.T) {
 		{
 			Name: "order.count",
 			Type: "counter",
-			Attributes: map[string]AttributeGenerator{
+			Attributes: NewAttributes(map[string]AttributeGenerator{
 				"region": &StaticValue{Value: "us-east"},
-			},
+			}),
 		},
 	})
 

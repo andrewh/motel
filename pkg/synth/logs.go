@@ -41,9 +41,8 @@ type logTemplate struct {
 	probability  float64
 	atEnd        bool
 	delay        time.Duration
-	attrGens     map[string]AttributeGenerator
-	attrKeys     []string // sorted for deterministic attribute order
-	operation    string   // non-empty if operation-level (fires only for this op)
+	attrGens     Attributes // key-sorted; deterministic iteration order
+	operation    string     // non-empty if operation-level (fires only for this op)
 }
 
 // LogObserver emits log records for observed spans.
@@ -164,11 +163,6 @@ func (l *LogObserver) splitScopeRef(ref string) (service, operation string) {
 // an unknown severity maps to log.SeverityUndefined while preserving the
 // severity text, so the record still surfaces rather than disappearing.
 func newLogTemplate(ld LogDefinition, operation string) logTemplate {
-	attrKeys := make([]string, 0, len(ld.Attributes))
-	for k := range ld.Attributes {
-		attrKeys = append(attrKeys, k)
-	}
-	slices.Sort(attrKeys)
 	return logTemplate{
 		severity:     severityByName[ld.Severity],
 		severityText: ld.Severity,
@@ -178,7 +172,6 @@ func newLogTemplate(ld LogDefinition, operation string) logTemplate {
 		atEnd:        ld.AtEnd,
 		delay:        ld.Delay,
 		attrGens:     ld.Attributes,
-		attrKeys:     attrKeys,
 		operation:    operation,
 	}
 }
@@ -244,8 +237,8 @@ func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *
 		return
 	}
 	attrValues := make(map[string]any, len(tpl.attrGens))
-	for _, k := range tpl.attrKeys {
-		attrValues[k] = tpl.attrGens[k].Generate(l.rng)
+	for _, a := range tpl.attrGens {
+		attrValues[a.Key] = a.Gen.Generate(l.rng)
 	}
 	l.mu.Unlock()
 
@@ -255,10 +248,10 @@ func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *
 	}
 	timestamp = timestamp.Add(tpl.delay)
 
-	attrs := make([]log.KeyValue, 0, len(tpl.attrKeys)+1)
+	attrs := make([]log.KeyValue, 0, len(tpl.attrGens)+1)
 	attrs = append(attrs, log.String("operation.name", info.Operation))
-	for _, k := range tpl.attrKeys {
-		attrs = append(attrs, logKeyValue(k, attrValues[k]))
+	for _, a := range tpl.attrGens {
+		attrs = append(attrs, logKeyValue(a.Key, attrValues[a.Key]))
 	}
 
 	var rec log.Record
