@@ -12,6 +12,9 @@ TOPO_DIR="${1:?usage: test_corpus.sh <topology-dir>}"
 MOTEL="${MOTEL:-build/motel}"
 DURATION="${DURATION:-1s}"
 RATE="${RATE:-}"  # override traffic rate if set
+# Parse CHECK_ARGS into an array to avoid word-splitting and glob expansion.
+# Example: CHECK_ARGS="--max-depth 25 --max-fan-out 500"
+read -ra check_args <<< "${CHECK_ARGS:-}"
 
 if [ ! -x "$MOTEL" ]; then
     echo "error: $MOTEL not found or not executable" >&2
@@ -42,9 +45,9 @@ for f in "${files[@]}"; do
     rel="${f#"$TOPO_DIR"/}"
 
     # motel check
-    if ! "$MOTEL" check "$f" > /dev/null 2>&1; then
+    if ! "$MOTEL" check "${check_args[@]}" "$f" > /dev/null 2>&1; then
         echo "CHECK FAIL: $rel"
-        "$MOTEL" check "$f" 2>&1 | sed 's/^/  /'
+        "$MOTEL" check "${check_args[@]}" "$f" 2>&1 | sed 's/^/  /'
         check_fail=$((check_fail + 1))
     else
         check_pass=$((check_pass + 1))
