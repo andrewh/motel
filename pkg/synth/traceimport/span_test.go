@@ -235,21 +235,21 @@ func TestParseStdouttrace_BlankLinesOnly(t *testing.T) {
 	assert.Contains(t, err.Error(), "no spans found")
 }
 
-func TestDetectFormat_Tempo(t *testing.T) {
+func TestDetectFormat_Jaeger(t *testing.T) {
 	input := `{"data":[{"traceID":"abc","spans":[{"traceID":"abc","spanID":"def","operationName":"op","references":[],"startTime":1700000000000000,"duration":30000,"tags":[],"processID":"p1","process":{"serviceName":"api"}}],"processes":{"p1":{"serviceName":"api"}}}]}`
 	format, err := detectFormat([]byte(input))
 	require.NoError(t, err)
-	assert.Equal(t, FormatTempo, format)
+	assert.Equal(t, FormatJaeger, format)
 }
 
-func TestDetectFormat_PrettyPrintedTempo(t *testing.T) {
+func TestDetectFormat_PrettyPrintedJaeger(t *testing.T) {
 	input := "{\n  \"data\": [{\"spans\":[{\"operationName\":\"op\"}]}]\n}"
 	format, err := detectFormat([]byte(input))
 	require.NoError(t, err)
-	assert.Equal(t, FormatTempo, format)
+	assert.Equal(t, FormatJaeger, format)
 }
 
-func TestParseTempo_Basic(t *testing.T) {
+func TestParseJaeger_Basic(t *testing.T) {
 	input := `{
 		"data": [{
 			"traceID": "abc123",
@@ -268,7 +268,7 @@ func TestParseTempo_Basic(t *testing.T) {
 		}]
 	}`
 
-	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	spans, err := ParseSpans(strings.NewReader(input), FormatJaeger)
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 
@@ -285,7 +285,7 @@ func TestParseTempo_Basic(t *testing.T) {
 	assert.Equal(t, int64(1700000000000000+30000), s.EndTime.UnixMicro())
 }
 
-func TestParseTempo_ParentRef(t *testing.T) {
+func TestParseJaeger_ParentRef(t *testing.T) {
 	input := `{
 		"data": [{
 			"spans": [
@@ -310,7 +310,7 @@ func TestParseTempo_ParentRef(t *testing.T) {
 		}]
 	}`
 
-	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	spans, err := ParseSpans(strings.NewReader(input), FormatJaeger)
 	require.NoError(t, err)
 	require.Len(t, spans, 2)
 
@@ -322,7 +322,7 @@ func TestParseTempo_ParentRef(t *testing.T) {
 	assert.Equal(t, "backend", child.Service)
 }
 
-func TestParseTempo_ErrorTag(t *testing.T) {
+func TestParseJaeger_ErrorTag(t *testing.T) {
 	input := `{
 		"data": [{
 			"spans": [{
@@ -337,13 +337,13 @@ func TestParseTempo_ErrorTag(t *testing.T) {
 		}]
 	}`
 
-	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	spans, err := ParseSpans(strings.NewReader(input), FormatJaeger)
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.True(t, spans[0].IsError)
 }
 
-func TestParseTempo_ServiceFromProcessesMap(t *testing.T) {
+func TestParseJaeger_ServiceFromProcessesMap(t *testing.T) {
 	// No inline process field; service resolved from processes map via processID.
 	input := `{
 		"data": [{
@@ -362,13 +362,13 @@ func TestParseTempo_ServiceFromProcessesMap(t *testing.T) {
 		}]
 	}`
 
-	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	spans, err := ParseSpans(strings.NewReader(input), FormatJaeger)
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, "target-service", spans[0].Service)
 }
 
-func TestParseTempo_MultipleTraces(t *testing.T) {
+func TestParseJaeger_MultipleTraces(t *testing.T) {
 	input := `{
 		"data": [
 			{
@@ -382,20 +382,20 @@ func TestParseTempo_MultipleTraces(t *testing.T) {
 		]
 	}`
 
-	spans, err := ParseSpans(strings.NewReader(input), FormatTempo)
+	spans, err := ParseSpans(strings.NewReader(input), FormatJaeger)
 	require.NoError(t, err)
 	require.Len(t, spans, 2)
 	assert.Equal(t, "t1", spans[0].TraceID)
 	assert.Equal(t, "t2", spans[1].TraceID)
 }
 
-func TestParseTempo_EmptyData(t *testing.T) {
-	_, err := ParseSpans(strings.NewReader(`{"data":[]}`), FormatTempo)
+func TestParseJaeger_EmptyData(t *testing.T) {
+	_, err := ParseSpans(strings.NewReader(`{"data":[]}`), FormatJaeger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no spans found")
 }
 
-func TestParseTempo_AutoDetect(t *testing.T) {
+func TestParseJaeger_AutoDetect(t *testing.T) {
 	input := `{"data":[{"spans":[{"traceID":"t1","spanID":"s1","operationName":"op","references":[],"startTime":1700000000000000,"duration":1000,"tags":[],"process":{"serviceName":"svc"}}],"processes":{}}]}`
 	spans, err := ParseSpans(strings.NewReader(input), FormatAuto)
 	require.NoError(t, err)

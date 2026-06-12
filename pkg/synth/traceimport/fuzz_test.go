@@ -28,7 +28,7 @@ func FuzzParseSpans(f *testing.F) {
 		// Test explicit formats
 		_, _ = ParseSpans(bytes.NewReader(data), FormatStdouttrace)
 		_, _ = ParseSpans(bytes.NewReader(data), FormatOTLP)
-		_, _ = ParseSpans(bytes.NewReader(data), FormatTempo)
+		_, _ = ParseSpans(bytes.NewReader(data), FormatJaeger)
 	})
 }
 
