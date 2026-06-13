@@ -50,6 +50,7 @@ func Import(r io.Reader, opts Options) ([]byte, error) {
 	// Step 3: Collect statistics
 	collector := NewStatsCollector()
 	collector.CollectFromTrees(trees)
+	reportConfidenceDiagnostics(collector, opts.MinTraces, opts.Warnings)
 
 	// Step 4: Infer service-level constant attributes
 	serviceAttrs := inferServiceAttributes(spans)

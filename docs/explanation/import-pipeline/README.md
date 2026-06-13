@@ -156,6 +156,9 @@ duration is formatted as `mean +/- stddev` (e.g. `27ms +/- 4.8ms`).
 | cache | lookup | 2 | 0 | — |
 
 `FormatErrorRate()` only emits an `error_rate` field when errors > 0.
+If an operation has fewer samples than `--min-traces`, import prints a
+confidence warning with the operation sample count and error count. The YAML
+is still emitted, but the duration and error-rate estimates need review.
 
 ### Call counts (for probability)
 
@@ -173,6 +176,8 @@ was called and how many times the parent was invoked total:
 In the YAML output, probability 1.0 is omitted (the call is listed as a
 plain string target). Probability < 1.0 is written as a mapping with an
 explicit `probability` field.
+Calls observed only a few times are reported on stderr as low-confidence
+call probability estimates.
 
 ## Stage 4: Infer call style
 
@@ -194,6 +199,9 @@ Both votes are parallel, so no `call_style` field appears in the output
 would include `call_style: sequential`.
 
 Traces 2 and 4 have only one child each, so no vote is cast.
+When the vote total is small or parallel and sequential votes are mixed,
+import reports the vote counts on stderr so the inferred call style can be
+checked against the real service behaviour.
 
 ## Stage 5: Detect service attributes
 
@@ -227,7 +235,21 @@ The traffic rate is calculated from root span timestamps:
 
 The rate is formatted as `3/s` in the traffic section.
 
-## Stage 7: Marshal to YAML
+## Stage 7: Report confidence diagnostics
+
+**Code**: `diagnostics.go` → `ReportConfidenceDiagnostics()`
+
+Before writing YAML, import reviews the collected statistics for weak
+evidence:
+
+- operations below `--min-traces`, including the observed error count
+- downstream calls observed only a few times
+- call-style inference with few votes or mixed parallel/sequential evidence
+
+Diagnostics are written to stderr as warnings. They do not make the import
+fail and they are not included in redirected topology YAML.
+
+## Stage 8: Marshal to YAML
 
 **Code**: `marshal.go` → `MarshalConfig()`
 
@@ -266,7 +288,7 @@ traffic:
 Note: no `call_style` field appears because all votes were parallel
 (the default).
 
-## Stage 8: Round-trip validation
+## Stage 9: Round-trip validation
 
 **Code**: `infer.go` → `validateRoundTrip()`
 
