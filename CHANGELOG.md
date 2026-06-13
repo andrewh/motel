@@ -5,6 +5,107 @@ All notable changes to motel are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-13
+
+Same code as [0.8.1]. Tagged as the minor release for the `motel check`
+checks-file workflow and trace-import additions.
+
+## [0.8.1] - 2026-06-13
+
+### Added
+
+- Checks-file support for `motel check` (#178)
+- Swarm-inspired sampling strategy for `motel check`
+- Jaeger JSON trace import for Grafana Explore Tempo downloads (#170)
+- `dgggen` tool for generating production-shaped call graphs (#166)
+- Showboat demos for checks files and swarm-inspired sampling
+
+### Fixed
+
+- Telemetry lifecycle and exporter shutdown stability (#176)
+- Metric offset exporter test stability (#177)
+
+### Changed
+
+- Engine observability and seeded-run determinism (#168)
+
+### Dependencies
+
+- OTel trace, log, stdout trace, metric SDK, and OTLP proto dependencies bumped
+  (#160, #161, #162, #163, #164)
+
+## [0.8.0] - 2026-06-12
+
+### Added
+
+- Topology-driven log generation (#145)
+- Scenario overrides for topology-driven logs (#156)
+- Semantic convention signal-type queries and log attribute validation (#158)
+
+### Changed
+
+- Replaced CLAUDE.md with AGENTS.md (#159)
+- Documented log attribute warnings in the validate reference
+
+## [0.7.4] - 2026-06-11
+
+### Dependencies
+
+- OTel metric exporter bumped (#126)
+- OTel SDK and API packages bumped to 1.41.0 (#127, #128, #129, #130)
+
+## [0.7.3] - 2026-06-10
+
+### Added
+
+- Topology-driven metrics generation (#135)
+- Scenario-aware exploration in `motel check` (#143)
+- Empirical trace metric validation for `motel check` (#144)
+- GitHub Pages documentation site (#142)
+- Documentation site navigation for demos and research (#150, #151)
+
+### Changed
+
+- Metric timestamp offset support (#141)
+- Resource `service.name` preferred when importing stdouttrace data (#147)
+- Demo and MkDocs path fixes (#152, #153, #154)
+- GitHub Pages actions updated for Node 24 runtime (#149)
+
+## [0.7.2] - 2026-03-06
+
+### Added
+
+- InstrumentationScope fields populated in trace output (#131)
+
+## [0.7.1] - 2026-03-05
+
+### Added
+
+- `motel emit` command for inline trace generation (#125)
+
+## [0.7.0] - 2026-03-04
+
+### Added
+
+- DGG call-graph to motel topology converter and demo (#100)
+- Property-test topology generator using production graph distributions (#109)
+- Async call support for fire-and-forget trace propagation (#95)
+- CONSUMER span kind for async call targets (#116)
+- Configurable per-service resource attributes (#117)
+- Span events on operations (#118)
+- Span link support (#123)
+- Span events demo and DSL reference updates (#121)
+
+### Changed
+
+- Service-level attributes migrated to `resource_attributes` (#122)
+- Async and retries documentation clarified as caller-side behavior
+
+### Dependencies
+
+- GoReleaser and upload-artifact actions bumped (#103, #104)
+- OTel exporters bumped (#105, #106, #107, #108)
+
 ## [0.6.4] - 2026-02-25
 
 ### Added
@@ -137,6 +238,14 @@ Initial public release. Extracted from motel-kitchen (#1).
 - Homebrew tap via GoReleaser
 - Community files (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY)
 
+[0.9.0]: https://github.com/andrewh/motel/compare/v0.8.1...v0.9.0
+[0.8.1]: https://github.com/andrewh/motel/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/andrewh/motel/compare/v0.7.4...v0.8.0
+[0.7.4]: https://github.com/andrewh/motel/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/andrewh/motel/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/andrewh/motel/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/andrewh/motel/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/andrewh/motel/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/andrewh/motel/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/andrewh/motel/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/andrewh/motel/compare/v0.6.1...v0.6.2
