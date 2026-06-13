@@ -18,6 +18,7 @@ func FuzzParseSpans(f *testing.F) {
 	// Seed with valid inputs for each format
 	f.Add([]byte(`{"Name":"op","SpanContext":{"TraceID":"aaa","SpanID":"bbb"},"Parent":{"TraceID":"aaa","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`))
 	f.Add([]byte(`{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"api"}}]},"scopeSpans":[{"scope":{"name":"api"},"spans":[{"traceId":"AQIDBAUGBwgJCgsMDQ4PEA==","spanId":"AQIDBAUGBwg=","name":"op","startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000030000000","status":{},"attributes":[{"key":"http.method","value":{"stringValue":"GET"}},{"key":"count","value":{"intValue":"42"}},{"key":"ok","value":{"boolValue":true}}]}]}]}]}`))
+	f.Add([]byte(`{"data":[{"traceID":"abc","spans":[{"traceID":"abc","spanID":"def","operationName":"op","references":[],"startTime":1700000000000000,"duration":30000,"tags":[{"key":"http.method","value":"GET"}],"processID":"p1","process":{"serviceName":"api"}}],"processes":{"p1":{"serviceName":"api"}}}]}`))
 	f.Add([]byte(`not json at all`))
 	f.Add([]byte(`{"something":"else"}`))
 	f.Add([]byte{})
@@ -27,6 +28,7 @@ func FuzzParseSpans(f *testing.F) {
 		// Test explicit formats
 		_, _ = ParseSpans(bytes.NewReader(data), FormatStdouttrace)
 		_, _ = ParseSpans(bytes.NewReader(data), FormatOTLP)
+		_, _ = ParseSpans(bytes.NewReader(data), FormatJaeger)
 	})
 }
 

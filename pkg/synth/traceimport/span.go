@@ -1,5 +1,5 @@
 // Normalised span type and format-specific parsers for trace inference
-// Handles both stdouttrace (line-delimited JSON) and OTLP protobuf JSON formats
+// Handles stdouttrace, OTLP protobuf JSON, and Jaeger JSON formats
 package traceimport
 
 import (
@@ -38,6 +38,7 @@ const (
 	FormatAuto        Format = "auto"        // Detects the format from the input.
 	FormatStdouttrace Format = "stdouttrace" // Line-delimited JSON from the OTel stdout exporter.
 	FormatOTLP        Format = "otlp"        // OTLP protobuf JSON.
+	FormatJaeger      Format = "jaeger"      // Jaeger JSON export format (also used by Grafana Tempo).
 )
 
 // maxInputSize is the maximum input size to prevent OOM on large trace exports.
@@ -71,14 +72,16 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 		return parseStdouttrace(data)
 	case FormatOTLP:
 		return parseOTLP(data)
+	case FormatJaeger:
+		return parseJaeger(data)
 	default:
-		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp", format)
+		return nil, fmt.Errorf("unknown format %q, valid formats: auto, stdouttrace, otlp, jaeger", format)
 	}
 }
 
 // detectFormat examines the input to determine the format.
 // Tries the first line (for line-delimited stdouttrace), then the full data
-// (for pretty-printed OTLP JSON).
+// (for pretty-printed OTLP or Jaeger JSON).
 func detectFormat(data []byte) (Format, error) {
 	firstLine, _, hasMore := bytes.Cut(data, []byte{'\n'})
 	firstLine = bytes.TrimSpace(firstLine)
@@ -91,9 +94,12 @@ func detectFormat(data []byte) (Format, error) {
 		if _, ok := probe["resourceSpans"]; ok {
 			return FormatOTLP, nil
 		}
+		if isJaegerData(probe["data"]) {
+			return FormatJaeger, nil
+		}
 	}
 
-	// First line wasn't a complete JSON object (e.g. pretty-printed OTLP).
+	// First line wasn't a complete JSON object (e.g. pretty-printed OTLP or Jaeger).
 	// Try the full input as a single JSON document.
 	if hasMore {
 		if err := json.Unmarshal(data, &probe); err == nil {
@@ -103,10 +109,13 @@ func detectFormat(data []byte) (Format, error) {
 			if _, ok := probe["SpanContext"]; ok {
 				return FormatStdouttrace, nil
 			}
+			if isJaegerData(probe["data"]) {
+				return FormatJaeger, nil
+			}
 		}
 	}
 
-	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace) nor resourceSpans (OTLP)")
+	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace), resourceSpans (OTLP), nor data[].spans[].operationName (Jaeger/Tempo)")
 }
 
 // stdouttraceEvent mirrors the Go SDK's stdouttrace JSON output.
@@ -322,6 +331,143 @@ func isZeroID(id string) bool {
 		}
 	}
 	return len(id) > 0
+}
+
+// isJaegerData returns true when raw is a JSON array whose first element contains
+// both "spans" and within it "operationName" — the distinguishing marks of a
+// Jaeger JSON export (also produced by Grafana Explore Tempo downloads).
+func isJaegerData(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var traces []struct {
+		Spans []struct {
+			OperationName *json.RawMessage `json:"operationName"`
+		} `json:"spans"`
+	}
+	if err := json.Unmarshal(raw, &traces); err != nil || len(traces) == 0 {
+		return false
+	}
+	if len(traces[0].Spans) == 0 {
+		return false
+	}
+	return traces[0].Spans[0].OperationName != nil
+}
+
+// jaegerExport is the top-level structure of a Jaeger JSON export.
+type jaegerExport struct {
+	Data []jaegerTrace `json:"data"`
+}
+
+type jaegerTrace struct {
+	Spans     []jaegerSpan              `json:"spans"`
+	Processes map[string]*jaegerProcess `json:"processes"`
+}
+
+type jaegerSpan struct {
+	TraceID       string         `json:"traceID"`
+	SpanID        string         `json:"spanID"`
+	OperationName string         `json:"operationName"`
+	References    []jaegerRef    `json:"references"`
+	StartTime     int64          `json:"startTime"` // microseconds since epoch
+	Duration      int64          `json:"duration"`  // microseconds
+	Tags          []jaegerTag    `json:"tags"`
+	ProcessID     string         `json:"processID"`
+	Process       *jaegerProcess `json:"process"`
+}
+
+type jaegerRef struct {
+	RefType string `json:"refType"`
+	SpanID  string `json:"spanID"`
+}
+
+type jaegerProcess struct {
+	ServiceName string `json:"serviceName"`
+}
+
+type jaegerTag struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+func parseJaeger(data []byte) ([]Span, error) {
+	var export jaegerExport
+	if err := json.Unmarshal(data, &export); err != nil {
+		return nil, fmt.Errorf("parsing Jaeger JSON: %w", err)
+	}
+
+	var spans []Span
+	for _, trace := range export.Data {
+		for _, js := range trace.Spans {
+			service := jaegerService(js, trace.Processes)
+
+			parentID := ""
+			for _, ref := range js.References {
+				if ref.RefType == "CHILD_OF" {
+					parentID = ref.SpanID
+					break
+				}
+			}
+
+			startTime := time.UnixMicro(js.StartTime)
+			endTime := time.UnixMicro(js.StartTime + js.Duration)
+
+			attrs := make(map[string]string)
+			isError := false
+			for _, tag := range js.Tags {
+				val := jaegerTagString(tag.Value)
+				if tag.Key == "error" && val == "true" {
+					isError = true
+				}
+				attrs[tag.Key] = val
+			}
+
+			spans = append(spans, Span{
+				TraceID:    js.TraceID,
+				SpanID:     js.SpanID,
+				ParentID:   parentID,
+				Service:    service,
+				Operation:  js.OperationName,
+				StartTime:  startTime,
+				EndTime:    endTime,
+				IsError:    isError,
+				Attributes: attrs,
+			})
+		}
+	}
+
+	if len(spans) == 0 {
+		return nil, fmt.Errorf("no spans found in input")
+	}
+	return spans, nil
+}
+
+// jaegerService resolves the service name: prefers the span's inline process
+// field, falls back to the trace-level processes map.
+func jaegerService(js jaegerSpan, processes map[string]*jaegerProcess) string {
+	if js.Process != nil && js.Process.ServiceName != "" {
+		return js.Process.ServiceName
+	}
+	if js.ProcessID != "" && processes != nil {
+		if p := processes[js.ProcessID]; p != nil {
+			return p.ServiceName
+		}
+	}
+	return ""
+}
+
+// jaegerTagString converts a raw Jaeger tag JSON value to a string.
+// Strings are unquoted; other JSON scalars (numbers, booleans) use their
+// literal representation so callers can match against "true"/"false"/etc.
+func jaegerTagString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }
 
 // attrValueString extracts a string representation from an OTLP AnyValue.

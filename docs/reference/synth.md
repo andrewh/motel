@@ -147,10 +147,10 @@ Reads trace spans and generates a YAML topology. If no file is given, reads from
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--format` | string | `auto` | Input format: `auto`, `stdouttrace`, or `otlp` |
+| `--format` | string | `auto` | Input format: `auto`, `stdouttrace`, `otlp`, or `jaeger` |
 | `--min-traces` | int | 1 | Minimum traces for statistical accuracy (warns if fewer) |
 
-The `auto` format detector examines the first line to determine whether the input is stdouttrace JSON (one span per line) or OTLP JSON (batched export format).
+The `auto` format detector examines the JSON structure to determine whether the input is stdouttrace JSON (one span per line), OTLP JSON (batched export format), or Jaeger JSON such as Grafana Explore Tempo downloads.
 
 Output is written to stdout as a YAML topology with a commented header noting how many traces and spans were analysed.
 

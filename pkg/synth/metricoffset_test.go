@@ -48,6 +48,12 @@ func (e *captureMetricExporter) ForceFlush(context.Context) error { return nil }
 
 func (e *captureMetricExporter) Shutdown(context.Context) error { return nil }
 
+func (e *captureMetricExporter) LastExported() *metricdata.ResourceMetrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.exported
+}
+
 func TestNewTimeOffsetMetricExporterZeroOffset(t *testing.T) {
 	t.Parallel()
 
@@ -113,13 +119,14 @@ func TestTimeOffsetMetricExporterShiftsAllDataPointTypes(t *testing.T) {
 	capture := &captureMetricExporter{}
 	exporter := NewTimeOffsetMetricExporter(capture, offset)
 	require.NoError(t, exporter.Export(context.Background(), rm))
-	require.NotNil(t, capture.exported)
+	exported := capture.LastExported()
+	require.NotNil(t, exported)
 
 	wantStart := start.Add(offset)
 	wantEnd := end.Add(offset)
 	wantExemplar := exemplarTime.Add(offset)
 
-	for _, m := range capture.exported.ScopeMetrics[0].Metrics {
+	for _, m := range exported.ScopeMetrics[0].Metrics {
 		switch data := m.Data.(type) {
 		case metricdata.Gauge[int64]:
 			assert.Equal(t, wantStart, data.DataPoints[0].StartTime, m.Name)
@@ -162,7 +169,7 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 
 	offset := -24 * time.Hour
 	capture := &captureMetricExporter{}
-	reader := sdkmetric.NewManualReader()
+	reader := sdkmetric.NewPeriodicReader(NewTimeOffsetMetricExporter(capture, offset), sdkmetric.WithInterval(10*time.Millisecond))
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { require.NoError(t, mp.Shutdown(context.Background())) }()
 
@@ -171,14 +178,21 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 
 	before := time.Now()
 	counter.Add(context.Background(), 1)
-	var rm metricdata.ResourceMetrics
-	require.NoError(t, reader.Collect(context.Background(), &rm))
-	require.NoError(t, NewTimeOffsetMetricExporter(capture, offset).Export(context.Background(), &rm))
+
+	var matched metricdata.Metrics
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		rm := capture.LastExported()
+		if !assert.NotNil(c, rm) {
+			return
+		}
+		m := findMetric(*rm, "requests.count")
+		if assert.NotNil(c, m) {
+			matched = *m
+		}
+	}, time.Second, 10*time.Millisecond)
 	after := time.Now()
 
-	m := capture.findMetric("requests.count")
-	require.NotNil(t, m)
-	sum, ok := m.Data.(metricdata.Sum[int64])
+	sum, ok := matched.Data.(metricdata.Sum[int64])
 	require.True(t, ok)
 	require.Len(t, sum.DataPoints, 1)
 
