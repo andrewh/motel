@@ -148,7 +148,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 	data := buf.Bytes()
 
 	// Prepend header comment
-	header := fmt.Sprintf("# Inferred from %d traces (%d spans) observed over %.0f seconds\n# Review and adjust durations, error rates, and call probabilities as needed\n\n",
+	header := fmt.Sprintf("# Inferred from %d traces (%d spans) observed over %.1f seconds\n# Review and adjust durations, error rates, and call probabilities as needed\n\n",
 		traceCount, spanCount, windowSecs)
 
 	return append([]byte(header), data...), nil

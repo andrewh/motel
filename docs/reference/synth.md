@@ -60,7 +60,7 @@ motel run <topology.yaml | URL> [flags]
 | `--stdout` | bool | false | Emit signals to stdout as JSON instead of sending to an endpoint |
 | `--semconv` | string | | Directory of additional semantic convention YAML files |
 | `--label-scenarios` | bool | false | Add a `synth.scenarios` attribute to spans listing active scenario names |
-| `--time-offset` | duration | 0 | Shift span timestamps by this duration (e.g. `-1h` for past, `1h` for future) |
+| `--time-offset` | duration | 0 | Shift span, metric, and log timestamps by this duration (e.g. `-1h` for past, `1h` for future) |
 | `--realtime` | bool | false | Emit spans at wall-clock times matching simulated timestamps |
 | `--seed` | uint | 0 | Seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions |
 | `--pprof` | string | | Start a pprof HTTP server on this address (e.g. `:6060`) |

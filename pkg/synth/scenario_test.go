@@ -37,6 +37,7 @@ func TestParseOffset(t *testing.T) {
 		{name: "complex duration", input: "+1h30m", want: 90 * time.Minute},
 		{name: "empty", input: "", wantErr: "offset is required"},
 		{name: "invalid", input: "+xyz", wantErr: "invalid"},
+		{name: "negative", input: "-5m", wantErr: "must not be negative"},
 	}
 
 	for _, tt := range tests {
@@ -277,6 +278,21 @@ func TestBuildScenariosWithAttributes(t *testing.T) {
 	require.Contains(t, scenarios[0].Overrides, "svc.op")
 	require.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes)
 	assert.NotNil(t, scenarios[0].Overrides["svc.op"].Attributes.Get("http.status"))
+}
+
+func TestBuildScenariosNonPositiveDuration(t *testing.T) {
+	t.Parallel()
+
+	for _, dur := range []string{"0s", "-5m"} {
+		cfgs := []ScenarioConfig{{
+			Name:     "bad",
+			At:       "+1m",
+			Duration: dur,
+		}}
+		_, err := BuildScenarios(cfgs, minimalTopo())
+		require.Error(t, err, "duration %q", dur)
+		assert.Contains(t, err.Error(), "duration must be positive")
+	}
 }
 
 func TestBuildScenariosInvalidAttribute(t *testing.T) {

@@ -1,4 +1,4 @@
-# Inferred from 4 traces (10 spans) observed over 1 seconds
+# Inferred from 4 traces (10 spans) observed over 1.4 seconds
 # Review and adjust durations, error rates, and call probabilities as needed
 
 version: 1

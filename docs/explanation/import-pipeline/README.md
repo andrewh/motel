@@ -237,7 +237,7 @@ and operations are sorted alphabetically for deterministic output.
 Each decision maps to a line in `inferred-topology.yaml`:
 
 ```yaml
-# Inferred from 4 traces (10 spans) observed over 1 seconds   ← trace/span count, window
+# Inferred from 4 traces (10 spans) observed over 1.4 seconds ← trace/span count, window
 version: 1
 services:
   api:
