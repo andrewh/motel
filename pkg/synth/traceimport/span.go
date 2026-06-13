@@ -1,5 +1,5 @@
 // Normalised span type and format-specific parsers for trace inference
-// Handles both stdouttrace (line-delimited JSON) and OTLP protobuf JSON formats
+// Handles stdouttrace, OTLP protobuf JSON, and Jaeger JSON formats
 package traceimport
 
 import (
@@ -81,7 +81,7 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 
 // detectFormat examines the input to determine the format.
 // Tries the first line (for line-delimited stdouttrace), then the full data
-// (for pretty-printed OTLP JSON).
+// (for pretty-printed OTLP or Jaeger JSON).
 func detectFormat(data []byte) (Format, error) {
 	firstLine, _, hasMore := bytes.Cut(data, []byte{'\n'})
 	firstLine = bytes.TrimSpace(firstLine)
@@ -335,7 +335,7 @@ func isZeroID(id string) bool {
 
 // isJaegerData returns true when raw is a JSON array whose first element contains
 // both "spans" and within it "operationName" — the distinguishing marks of a
-// Jaeger JSON export (also produced by Grafana Tempo's UI download).
+// Jaeger JSON export (also produced by Grafana Explore Tempo downloads).
 func isJaegerData(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
@@ -360,8 +360,8 @@ type jaegerExport struct {
 }
 
 type jaegerTrace struct {
-	Spans     []jaegerSpan               `json:"spans"`
-	Processes map[string]*jaegerProcess  `json:"processes"`
+	Spans     []jaegerSpan              `json:"spans"`
+	Processes map[string]*jaegerProcess `json:"processes"`
 }
 
 type jaegerSpan struct {

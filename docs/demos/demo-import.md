@@ -10,7 +10,7 @@ For a detailed walkthrough of how each pipeline stage processes real trace data,
 
 The import pipeline analyses trace data in stages:
 
-1. **Parse spans** -- reads stdouttrace (line-delimited JSON) or OTLP protobuf JSON, normalising both into a common span representation
+1. **Parse spans** -- reads stdouttrace (line-delimited JSON), OTLP protobuf JSON, or Jaeger JSON, normalising them into a common span representation
 2. **Build trace trees** -- links parent and child spans by span ID, reconstructing the call graph per trace
 3. **Collect statistics** -- for each (service, operation) pair: duration mean and standard deviation, error rate, and which downstream operations are called
 4. **Infer call style** -- when an operation has multiple children, votes parallel (children start within 1ms of each other) or sequential (each child starts after the previous ends)
@@ -87,7 +87,7 @@ Configuration valid: 5 services, 2 root operations
 
 ## Explicit format selection
 
-By default, `import` auto-detects the input format by inspecting the JSON structure. You can also specify `--format stdouttrace` or `--format otlp` to skip detection.
+By default, `import` auto-detects the input format by inspecting the JSON structure. You can also specify `--format stdouttrace`, `--format otlp`, or `--format jaeger` to skip detection.
 
 ```bash
 motel run --stdout --duration 500ms docs/examples/basic-topology.yaml 2>/dev/null | motel import --format stdouttrace 2>/dev/null | grep -c "^version:"

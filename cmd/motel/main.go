@@ -422,7 +422,7 @@ func importCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, otlp, or jaeger (Jaeger JSON, also used by Grafana Tempo exports)")
+	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, otlp, or jaeger (Jaeger JSON, including Grafana Explore Tempo downloads)")
 	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
 
 	return cmd

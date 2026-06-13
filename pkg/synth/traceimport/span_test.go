@@ -1,4 +1,4 @@
-// Unit tests for span parsing across stdouttrace and OTLP formats
+// Unit tests for span parsing across supported trace import formats
 // Covers format detection, field extraction, and error handling
 package traceimport
 
