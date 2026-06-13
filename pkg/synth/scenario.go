@@ -45,6 +45,9 @@ func ParseOffset(s string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid offset %q: %w", s, err)
 	}
+	if d < 0 {
+		return 0, fmt.Errorf("offset must not be negative, got %q", s)
+	}
 	return d, nil
 }
 
@@ -60,6 +63,9 @@ func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 		dur, err := time.ParseDuration(cfg.Duration)
 		if err != nil {
 			return nil, fmt.Errorf("scenario %q: invalid duration: %w", cfg.Name, err)
+		}
+		if dur <= 0 {
+			return nil, fmt.Errorf("scenario %q: duration must be positive, got %q", cfg.Name, cfg.Duration)
 		}
 
 		overrides := make(map[string]Override, len(cfg.Override))

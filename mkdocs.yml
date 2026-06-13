@@ -63,12 +63,14 @@ nav:
       - docs/explanation/semantic-conventions.md
       - docs/explanation/performance-profile.md
       - docs/explanation/property-testing.md
+      - docs/explanation/swarm-testing.md
   - Demos:
       - docs/demos/demo-async-calls.md
       - docs/demos/demo-backpressure.md
       - docs/demos/demo-call-topology.md
       - docs/demos/demo-cascading-failure.md
       - docs/demos/demo-check.md
+      - docs/demos/demo-checks-file.md
       - docs/demos/demo-custom-semconv.md
       - docs/demos/demo-dgg.md
       - docs/demos/demo-emit.md
@@ -78,6 +80,7 @@ nav:
       - docs/demos/demo-quickstart.md
       - docs/demos/demo-scenarios.md
       - docs/demos/demo-span-events.md
+      - docs/demos/demo-swarm-testing.md
       - docs/demos/demo-time-offset.md
       - docs/demos/demo-traffic.md
       - docs/demos/demo-url-loading.md

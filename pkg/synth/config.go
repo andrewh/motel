@@ -670,8 +670,10 @@ func ValidateConfig(cfg *Config) error {
 		if _, err := ParseOffset(sc.At); err != nil {
 			return fmt.Errorf("scenario %q: invalid at: %w", sc.Name, err)
 		}
-		if _, err := time.ParseDuration(sc.Duration); err != nil {
+		if dur, err := time.ParseDuration(sc.Duration); err != nil {
 			return fmt.Errorf("scenario %q: invalid duration: %w", sc.Name, err)
+		} else if dur <= 0 {
+			return fmt.Errorf("scenario %q: duration must be positive, got %q", sc.Name, sc.Duration)
 		}
 		for ref, override := range sc.Override {
 			if !knownOps[ref] {
