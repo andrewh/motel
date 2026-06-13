@@ -4,6 +4,7 @@ package synth
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 // captureMetricExporter records the last exported ResourceMetrics.
 type captureMetricExporter struct {
+	mu       sync.Mutex
 	exported *metricdata.ResourceMetrics
 }
 
@@ -27,8 +29,19 @@ func (e *captureMetricExporter) Aggregation(k sdkmetric.InstrumentKind) sdkmetri
 }
 
 func (e *captureMetricExporter) Export(_ context.Context, rm *metricdata.ResourceMetrics) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.exported = rm
 	return nil
+}
+
+func (e *captureMetricExporter) findMetric(name string) *metricdata.Metrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exported == nil {
+		return nil
+	}
+	return findMetric(*e.exported, name)
 }
 
 func (e *captureMetricExporter) ForceFlush(context.Context) error { return nil }
@@ -149,7 +162,7 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 
 	offset := -24 * time.Hour
 	capture := &captureMetricExporter{}
-	reader := sdkmetric.NewPeriodicReader(NewTimeOffsetMetricExporter(capture, offset))
+	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { require.NoError(t, mp.Shutdown(context.Background())) }()
 
@@ -158,11 +171,12 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 
 	before := time.Now()
 	counter.Add(context.Background(), 1)
-	require.NoError(t, reader.ForceFlush(context.Background()))
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	require.NoError(t, NewTimeOffsetMetricExporter(capture, offset).Export(context.Background(), &rm))
 	after := time.Now()
 
-	require.NotNil(t, capture.exported)
-	m := findMetric(*capture.exported, "requests.count")
+	m := capture.findMetric("requests.count")
 	require.NotNil(t, m)
 	sum, ok := m.Data.(metricdata.Sum[int64])
 	require.True(t, ok)
