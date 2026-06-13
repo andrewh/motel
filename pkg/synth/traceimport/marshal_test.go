@@ -33,6 +33,20 @@ func TestMarshalConfig_Basic(t *testing.T) {
 	assert.Contains(t, yaml, "env: prod")
 }
 
+func TestMarshalConfig_Header(t *testing.T) {
+	collector := NewStatsCollector()
+	svc := collector.getService("api")
+	op := collector.getOp(svc, "handle")
+	op.Durations = []time.Duration{10 * time.Millisecond}
+	op.TotalCount = 1
+
+	data, err := MarshalConfig(collector, nil, 4, 10, 1.42)
+	require.NoError(t, err)
+
+	// Window is rendered with one decimal place, not rounded to a whole number.
+	assert.Contains(t, string(data), "# Inferred from 4 traces (10 spans) observed over 1.4 seconds")
+}
+
 func TestMarshalConfig_RoundTrip(t *testing.T) {
 	collector := NewStatsCollector()
 
