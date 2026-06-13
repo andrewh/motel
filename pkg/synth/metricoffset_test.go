@@ -169,7 +169,8 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 
 	offset := -24 * time.Hour
 	capture := &captureMetricExporter{}
-	reader := sdkmetric.NewPeriodicReader(NewTimeOffsetMetricExporter(capture, offset), sdkmetric.WithInterval(10*time.Millisecond))
+	exporter := NewTimeOffsetMetricExporter(capture, offset)
+	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer func() { require.NoError(t, mp.Shutdown(context.Background())) }()
 
@@ -179,18 +180,14 @@ func TestTimeOffsetMetricExporterEndToEnd(t *testing.T) {
 	before := time.Now()
 	counter.Add(context.Background(), 1)
 
-	var matched metricdata.Metrics
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		rm := capture.LastExported()
-		if !assert.NotNil(c, rm) {
-			return
-		}
-		m := findMetric(*rm, "requests.count")
-		if assert.NotNil(c, m) {
-			matched = *m
-		}
-	}, time.Second, 10*time.Millisecond)
+	// Manual collection avoids racing the periodic reader's background export.
+	rm := collectMetrics(t, reader)
+	require.NoError(t, exporter.Export(context.Background(), &rm))
 	after := time.Now()
+
+	m := capture.findMetric("requests.count")
+	require.NotNil(t, m)
+	matched := *m
 
 	sum, ok := matched.Data.(metricdata.Sum[int64])
 	require.True(t, ok)
