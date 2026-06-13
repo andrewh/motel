@@ -15,6 +15,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	CheckNameMaxDepth  = "max-depth"
+	CheckNameMaxFanOut = "max-fan-out"
+	CheckNameMaxSpans  = "max-spans"
+	CheckNameP50Depth  = "p50-depth"
+	CheckNameP95Depth  = "p95-depth"
+	CheckNameP99Depth  = "p99-depth"
+	CheckNameP50FanOut = "p50-fan-out"
+	CheckNameP95FanOut = "p95-fan-out"
+	CheckNameP99FanOut = "p99-fan-out"
+	CheckNameP50Spans  = "p50-spans"
+	CheckNameP95Spans  = "p95-spans"
+	CheckNameP99Spans  = "p99-spans"
+)
+
 // CheckResult holds the outcome of a single structural check.
 // Scenarios names the scenario combination that produced the worst case;
 // empty means the baseline topology (no scenarios active).
@@ -88,6 +103,7 @@ type CheckOptions struct {
 	Samples          int
 	Seed             uint64
 	Scenarios        []Scenario
+	Assertions       CheckThresholds
 }
 
 // SampleResults holds empirical measurements from sampled trace generation.
@@ -437,6 +453,81 @@ type setEvaluation struct {
 	sampled   SampleResults
 }
 
+func appendPercentileCheckResults(results []CheckResult, evals []setEvaluation, thresholds CheckThresholds) []CheckResult {
+	type spec struct {
+		name       string
+		limit      *int
+		summary    func(setEvaluation) DistributionSummary
+		percentile func(DistributionSummary) int
+	}
+
+	for _, s := range []spec{
+		{CheckNameP50Depth, thresholds.P50Depth, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Depths)
+		}, func(d DistributionSummary) int { return d.P50 }},
+		{CheckNameP95Depth, thresholds.P95Depth, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Depths)
+		}, func(d DistributionSummary) int { return d.P95 }},
+		{CheckNameP99Depth, thresholds.P99Depth, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Depths)
+		}, func(d DistributionSummary) int { return d.P99 }},
+		{CheckNameP50FanOut, thresholds.P50FanOut, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.FanOuts)
+		}, func(d DistributionSummary) int { return d.P50 }},
+		{CheckNameP95FanOut, thresholds.P95FanOut, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.FanOuts)
+		}, func(d DistributionSummary) int { return d.P95 }},
+		{CheckNameP99FanOut, thresholds.P99FanOut, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.FanOuts)
+		}, func(d DistributionSummary) int { return d.P99 }},
+		{CheckNameP50Spans, thresholds.P50Spans, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Spans)
+		}, func(d DistributionSummary) int { return d.P50 }},
+		{CheckNameP95Spans, thresholds.P95Spans, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Spans)
+		}, func(d DistributionSummary) int { return d.P95 }},
+		{CheckNameP99Spans, thresholds.P99Spans, func(e setEvaluation) DistributionSummary {
+			return summarise(e.sampled.Distribution.Spans)
+		}, func(d DistributionSummary) int { return d.P99 }},
+	} {
+		if s.limit == nil {
+			continue
+		}
+
+		best := evals[0]
+		bestDist := s.summary(best)
+		bestActual := s.percentile(bestDist)
+		for _, ev := range evals[1:] {
+			dist := s.summary(ev)
+			actual := s.percentile(dist)
+			if actual > bestActual || (actual == bestActual && dist.Max > bestDist.Max) {
+				best = ev
+				bestDist = dist
+				bestActual = actual
+			}
+		}
+
+		results = append(results, CheckResult{
+			Name:         s.name,
+			Pass:         bestActual <= *s.limit,
+			Limit:        *s.limit,
+			Actual:       bestActual,
+			SamplesRun:   best.sampled.TracesRun,
+			Scenarios:    best.names,
+			Distribution: &bestDist,
+		})
+	}
+
+	return results
+}
+
+func checkLimit(fallback int, assertion *int) int {
+	if assertion != nil {
+		return *assertion
+	}
+	return fallback
+}
+
 // Check runs structural analysis and sampled exploration, returning one result
 // per check. When opts.Scenarios is non-empty, the baseline topology and every
 // distinct combination of co-active scenarios are evaluated; each result
@@ -486,12 +577,16 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 		func(e setEvaluation) int { return e.spans },
 		func(e setEvaluation) int { return e.sampled.MaxSpans })
 
-	results := make([]CheckResult, 0, 3)
+	maxDepthLimit := checkLimit(opts.MaxDepth, opts.Assertions.MaxDepth)
+	maxFanOutLimit := checkLimit(opts.MaxFanOut, opts.Assertions.MaxFanOut)
+	maxSpansLimit := checkLimit(opts.MaxSpans, opts.Assertions.MaxSpans)
+
+	results := make([]CheckResult, 0, 3+opts.Assertions.percentileCount())
 
 	depthResult := CheckResult{
-		Name:       "max-depth",
-		Pass:       depthEval.depth <= opts.MaxDepth,
-		Limit:      opts.MaxDepth,
+		Name:       CheckNameMaxDepth,
+		Pass:       depthEval.depth <= maxDepthLimit,
+		Limit:      maxDepthLimit,
 		Actual:     depthEval.depth,
 		SamplesRun: depthEval.sampled.TracesRun,
 		Path:       depthEval.depthPath,
@@ -505,9 +600,9 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 	results = append(results, depthResult)
 
 	fanOutResult := CheckResult{
-		Name:       "max-fan-out",
-		Pass:       fanOutEval.fanOut <= opts.MaxFanOut,
-		Limit:      opts.MaxFanOut,
+		Name:       CheckNameMaxFanOut,
+		Pass:       fanOutEval.fanOut <= maxFanOutLimit,
+		Limit:      maxFanOutLimit,
 		Actual:     fanOutEval.fanOut,
 		SamplesRun: fanOutEval.sampled.TracesRun,
 		Ref:        fanOutEval.fanOutRef,
@@ -521,9 +616,9 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 	results = append(results, fanOutResult)
 
 	spansResult := CheckResult{
-		Name:       "max-spans",
-		Pass:       spansEval.spans <= opts.MaxSpans,
-		Limit:      opts.MaxSpans,
+		Name:       CheckNameMaxSpans,
+		Pass:       spansEval.spans <= maxSpansLimit,
+		Limit:      maxSpansLimit,
 		Actual:     spansEval.spans,
 		SamplesRun: spansEval.sampled.TracesRun,
 		Scenarios:  spansEval.names,
@@ -534,6 +629,10 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 		spansResult.Distribution = &sd
 	}
 	results = append(results, spansResult)
+
+	if opts.Samples > 0 && opts.Assertions.HasPercentile() {
+		results = appendPercentileCheckResults(results, evals, opts.Assertions)
+	}
 
 	return results
 }

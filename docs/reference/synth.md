@@ -131,9 +131,24 @@ Scenarios defined in the topology are explored automatically. Scenario windows a
 | `--seed` | uint | 0 | Random seed for reproducibility (0 = random) |
 | `--max-spans-per-trace` | int | 0 | Maximum spans per sampled trace; 0 means the default of 10000 |
 | `--semconv` | string | | Directory of additional semantic convention YAML files |
+| `--checks` | string | | YAML checks file or URL with structural thresholds |
 | `--skip-scenarios` | bool | false | Check the baseline topology only, ignoring scenarios |
 
 Output is one line per check showing PASS/FAIL, the measured value, and the limit. Depth checks include the worst-case path; fan-out checks identify the worst operation; span checks show both static worst-case and observed values from sampling. When a scenario combination produces the worst case, the check is annotated with `scenarios:` naming it.
+
+Use `--checks` to load project-specific thresholds from a separate YAML file or HTTP/HTTPS URL. Explicit command-line limit flags override matching values from the checks source.
+
+```yaml
+version: 1
+checks:
+  max_depth: 8
+  max_fan_out: 100
+  max_spans: 200
+  p95_depth: 6
+  p99_spans: 150
+```
+
+Static thresholds (`max_depth`, `max_fan_out`, `max_spans`) reuse the same checks as the matching flags. Percentile thresholds (`p50_*`, `p95_*`, `p99_*` for `depth`, `fan_out`, and `spans`) are evaluated from sampled traces, so they require sampling to be enabled.
 
 ### import
 
