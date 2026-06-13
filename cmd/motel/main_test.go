@@ -614,6 +614,47 @@ traffic:
 		assert.Contains(t, out.String(), "samples)")
 	})
 
+	t.Run("swarm sample strategy", func(t *testing.T) {
+		t.Parallel()
+		cfg := `
+version: 1
+services:
+  gateway:
+    operations:
+      root:
+        duration: 10ms
+        calls:
+          - target: backend.work
+            probability: 0.000000000000001
+  backend:
+    operations:
+      work:
+        duration: 10ms
+traffic:
+  rate: 10/s
+`
+		path := writeTestConfig(t, cfg)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--samples", "1", "--seed", "42", "--sample-strategy", "swarm", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "PASS  max-spans: 2 static worst-case, 2 observed/1 samples")
+	})
+
+	t.Run("invalid sample strategy", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--sample-strategy", "bogus", path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid sample strategy")
+	})
+
 	t.Run("checks file thresholds pass", func(t *testing.T) {
 		t.Parallel()
 		path := writeTestConfig(t, validConfig)

@@ -2,6 +2,7 @@ package synth
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -414,6 +415,151 @@ func TestSampleTraces_PopulatesDistribution(t *testing.T) {
 	}
 }
 
+func lowProbabilityFanOutTopology(width int) *Topology {
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	root := &Operation{
+		Service:  s,
+		Name:     "root",
+		Ref:      "s.root",
+		Duration: Distribution{Mean: 10 * time.Millisecond},
+		Calls:    make([]Call, 0, width),
+	}
+	s.Operations[root.Name] = root
+
+	for i := range width {
+		child := &Operation{
+			Service:  s,
+			Name:     fmt.Sprintf("child%d", i),
+			Ref:      fmt.Sprintf("s.child%d", i),
+			Duration: Distribution{Mean: 10 * time.Millisecond},
+		}
+		s.Operations[child.Name] = child
+		root.Calls = append(root.Calls, Call{
+			Operation:   child,
+			Probability: math.SmallestNonzeroFloat64,
+		})
+	}
+
+	return &Topology{
+		Services: map[string]*Service{s.Name: s},
+		Roots:    []*Operation{root},
+	}
+}
+
+func TestSampleTracesSwarm_ForcesErrorCondition(t *testing.T) {
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	child := &Operation{Service: s, Name: "child", Ref: "s.child",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	root := &Operation{Service: s, Name: "root", Ref: "s.root",
+		Duration:  Distribution{Mean: 10 * time.Millisecond},
+		ErrorRate: math.SmallestNonzeroFloat64,
+		Calls:     []Call{{Operation: child, Condition: "on-error"}}}
+	s.Operations["root"] = root
+	s.Operations["child"] = child
+
+	topo := &Topology{
+		Services: map[string]*Service{"s": s},
+		Roots:    []*Operation{root},
+	}
+
+	random := SampleTraces(topo, 1, 42, 0)
+	if random.MaxSpans != 1 {
+		t.Fatalf("expected random sample to miss error branch, got %d spans", random.MaxSpans)
+	}
+
+	swarm := SampleTracesSwarm(topo, 1, 42, 0)
+	if swarm.MaxSpans != 2 {
+		t.Fatalf("expected swarm to force error branch and observe 2 spans, got %d", swarm.MaxSpans)
+	}
+}
+
+func TestSampleTracesSwarm_CoversSuccessConditionWithOperationErrorChoice(t *testing.T) {
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	child := &Operation{Service: s, Name: "child", Ref: "s.child",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	root := &Operation{Service: s, Name: "root", Ref: "s.root",
+		Duration:  Distribution{Mean: 10 * time.Millisecond},
+		ErrorRate: math.SmallestNonzeroFloat64,
+		Calls: []Call{{
+			Operation:   child,
+			Condition:   "on-success",
+			Probability: math.SmallestNonzeroFloat64,
+		}}}
+	s.Operations["root"] = root
+	s.Operations["child"] = child
+
+	topo := &Topology{
+		Services: map[string]*Service{"s": s},
+		Roots:    []*Operation{root},
+	}
+
+	random := SampleTraces(topo, 2, 42, 0)
+	if random.MaxSpans != 1 {
+		t.Fatalf("expected random samples to miss rare success branch, got %d spans", random.MaxSpans)
+	}
+
+	swarm := SampleTracesSwarm(topo, 2, 42, 0)
+	if swarm.MaxSpans != 2 {
+		t.Fatalf("expected swarm to cover rare success branch and observe 2 spans, got %d", swarm.MaxSpans)
+	}
+	if swarm.MaxFanOut != 1 {
+		t.Fatalf("expected swarm fan-out 1 from success branch, got %d", swarm.MaxFanOut)
+	}
+}
+
+func TestSampleTracesSwarm_ForcesRetryActivation(t *testing.T) {
+	s := &Service{Name: "s", Operations: make(map[string]*Operation)}
+	child := &Operation{Service: s, Name: "child", Ref: "s.child",
+		Duration: Distribution{Mean: 10 * time.Millisecond}}
+	root := &Operation{Service: s, Name: "root", Ref: "s.root",
+		Duration: Distribution{Mean: 10 * time.Millisecond},
+		Calls:    []Call{{Operation: child, Retries: 2}}}
+	s.Operations["root"] = root
+	s.Operations["child"] = child
+
+	topo := &Topology{
+		Services: map[string]*Service{"s": s},
+		Roots:    []*Operation{root},
+	}
+
+	random := SampleTraces(topo, 1, 42, 0)
+	if random.MaxSpans != 2 {
+		t.Fatalf("expected random sample not to retry, got %d spans", random.MaxSpans)
+	}
+
+	swarm := SampleTracesSwarm(topo, 1, 42, 0)
+	if swarm.MaxSpans != 4 {
+		t.Fatalf("expected swarm to force three attempts and observe 4 spans, got %d", swarm.MaxSpans)
+	}
+	if swarm.MaxFanOut != 3 {
+		t.Fatalf("expected swarm fan-out 3 from retry attempts, got %d", swarm.MaxFanOut)
+	}
+}
+
+func TestParseSampleStrategy(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  SampleStrategy
+	}{
+		{"", SampleStrategyRandom},
+		{"random", SampleStrategyRandom},
+		{"swarm", SampleStrategySwarm},
+		{" SWARM ", SampleStrategySwarm},
+	} {
+		got, err := ParseSampleStrategy(tc.value)
+		if err != nil {
+			t.Fatalf("ParseSampleStrategy(%q): %v", tc.value, err)
+		}
+		if got != tc.want {
+			t.Fatalf("ParseSampleStrategy(%q): expected %q, got %q", tc.value, tc.want, got)
+		}
+	}
+
+	if _, err := ParseSampleStrategy("bogus"); err == nil {
+		t.Fatal("expected invalid strategy error")
+	}
+}
+
 // --- Property tests: static bounds >= sampled observations ---
 //
 // Static analysis computes the worst case over all possible executions: it
@@ -741,6 +887,26 @@ func TestProperty_DistributionOrdering(t *testing.T) {
 			if tc.dist.Max != tc.max {
 				t.Fatalf("%s: distribution max (%d) != MaxX (%d)", tc.name, tc.dist.Max, tc.max)
 			}
+		}
+	})
+}
+
+func TestProperty_SwarmFindsProbabilisticFanOutRandomMisses(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		width := rapid.IntRange(1, 12).Draw(t, "width")
+		topo := lowProbabilityFanOutTopology(width)
+
+		random := SampleTraces(topo, 1, 42, 0)
+		if random.MaxFanOut != 0 {
+			t.Fatalf("expected one random sample to miss low-probability fan-out, got %d", random.MaxFanOut)
+		}
+
+		swarm := SampleTracesSwarm(topo, 1, 42, 0)
+		if swarm.MaxFanOut != width {
+			t.Fatalf("expected swarm fan-out %d, got %d", width, swarm.MaxFanOut)
+		}
+		if swarm.MaxSpans != width+1 {
+			t.Fatalf("expected swarm spans %d, got %d", width+1, swarm.MaxSpans)
 		}
 	})
 }

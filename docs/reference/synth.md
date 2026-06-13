@@ -122,6 +122,8 @@ Computes worst-case trace depth, fan-out per span, and total spans per trace usi
 
 Scenarios defined in the topology are explored automatically. Scenario windows are swept to find every distinct combination of co-active scenarios, and each combination — plus the baseline with no scenarios — is checked with its overrides applied (including `add_calls` and `remove_calls`). Each check reports the worst case found and which scenario combination produced it, so a topology that passes in isolation but explodes when a scenario adds calls fails the check.
 
+Sampling uses the `random` strategy by default, which follows the topology's configured probabilities. Use `--sample-strategy swarm` to partition probabilistic call, operation error, and retry choices across sample runs for corner-case exploration. Swarm samples are useful for finding structural bounds that pure random sampling may miss, but their percentile summaries are not empirical production-frequency percentiles. See [Swarm Testing for Topology Exploration](../explanation/swarm-testing.md).
+
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--max-depth` | int | 10 | Fail if worst-case trace depth exceeds this |
@@ -132,6 +134,7 @@ Scenarios defined in the topology are explored automatically. Scenario windows a
 | `--max-spans-per-trace` | int | 0 | Maximum spans per sampled trace; 0 means the default of 10000 |
 | `--semconv` | string | | Directory of additional semantic convention YAML files |
 | `--checks` | string | | YAML checks file or URL with structural thresholds |
+| `--sample-strategy` | string | `random` | Sample strategy: `random` or `swarm` |
 | `--skip-scenarios` | bool | false | Check the baseline topology only, ignoring scenarios |
 
 Output is one line per check showing PASS/FAIL, the measured value, and the limit. Depth checks include the worst-case path; fan-out checks identify the worst operation; span checks show both static worst-case and observed values from sampling. When a scenario combination produces the worst case, the check is annotated with `scenarios:` naming it.

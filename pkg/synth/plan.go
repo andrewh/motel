@@ -42,14 +42,11 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 	index := len(*plans)
 
 	duration := op.Duration
-	errorRate := op.ErrorRate
+	errorRate := effectiveErrorRate(op, overrides)
 	opAttrs := op.Attributes
 	if ov, ok := overrides[op.Ref]; ok {
 		if ov.Duration.Mean > 0 {
 			duration = ov.Duration
-		}
-		if ov.HasErrorRate {
-			errorRate = ov.ErrorRate
 		}
 		if len(ov.Attributes) > 0 {
 			opAttrs = op.Attributes.Merge(ov.Attributes)
@@ -103,7 +100,14 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 		spanAttrs = append(spanAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
 	}
 
-	ownError := e.Rng.Float64() < errorRate
+	ownError := false
+	if errorRate > 0 {
+		if forced, ok := e.forcedChoice(choiceKindOperationError, op.Ref, "", -1); ok {
+			ownError = forced
+		} else {
+			ownError = e.Rng.Float64() < errorRate
+		}
+	}
 	ownDuration := duration.Sample(e.Rng)
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
@@ -131,29 +135,38 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 
 	baseCalls := effectiveCalls(op, overrides)
 
-	activeCalls := make([]Call, 0, len(baseCalls))
-	for _, call := range baseCalls {
+	activeCalls := make([]activeCall, 0, len(baseCalls))
+	for i, call := range baseCalls {
 		if call.Condition == "on-error" && !ownError {
 			continue
 		}
 		if call.Condition == "on-success" && ownError {
 			continue
 		}
-		if call.Probability > 0 && e.Rng.Float64() >= call.Probability {
-			continue
+		if call.Probability > 0 {
+			fire, ok := false, false
+			if isChoiceRate(call.Probability) {
+				fire, ok = e.forcedChoice(choiceKindCallProbability, op.Ref, call.Operation.Ref, i)
+			}
+			if !ok {
+				fire = e.Rng.Float64() < call.Probability
+			}
+			if !fire {
+				continue
+			}
 		}
-		activeCalls = append(activeCalls, call)
+		activeCalls = append(activeCalls, activeCall{Call: call, ChoiceIndex: i})
 	}
 
 	latestChildEnd := childStartTime
 	anyChildFailed := false
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
-		for _, call := range activeCalls {
-			count := max(call.Count, 1)
+		for _, active := range activeCalls {
+			count := max(active.Call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executePlanCall(call, index, nextStart, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit)
-				if call.Async {
+				perceivedEnd, failed := e.executePlanCall(active, op, index, nextStart, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit)
+				if active.Call.Async {
 					continue
 				}
 				if failed {
@@ -166,11 +179,11 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 			}
 		}
 	} else {
-		for _, call := range activeCalls {
-			count := max(call.Count, 1)
+		for _, active := range activeCalls {
+			count := max(active.Call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executePlanCall(call, index, childStartTime, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit)
-				if call.Async {
+				perceivedEnd, failed := e.executePlanCall(active, op, index, childStartTime, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit)
+				if active.Call.Async {
 					continue
 				}
 				if failed {
@@ -242,7 +255,8 @@ func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime tim
 }
 
 // executePlanCall mirrors executeCall but delegates to planTrace.
-func (e *Engine) executePlanCall(call Call, parentIndex int, callStart time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, plans *[]SpanPlan, spanCount *int, spanLimit int) (time.Time, bool) {
+func (e *Engine) executePlanCall(active activeCall, parent *Operation, parentIndex int, callStart time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, plans *[]SpanPlan, spanCount *int, spanLimit int) (time.Time, bool) {
+	call := active.Call
 	maxAttempts := 1 + call.Retries
 	attemptStart := callStart
 
@@ -256,6 +270,15 @@ func (e *Engine) executePlanCall(call Call, parentIndex int, callStart time.Time
 			failed = true
 			stats.Timeouts++
 			notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventTimeout, Service: call.Operation.Service.Name, Operation: call.Operation.Name, Timestamp: perceivedEnd})
+		}
+
+		if attempt < maxAttempts-1 {
+			if retry, ok := e.forcedChoice(choiceKindRetryActivation, parent.Ref, call.Operation.Ref, active.ChoiceIndex); ok {
+				if !retry {
+					return perceivedEnd, failed
+				}
+				failed = true
+			}
 		}
 
 		if !failed || attempt == maxAttempts-1 {

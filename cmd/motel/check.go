@@ -18,6 +18,7 @@ func checkCmd() *cobra.Command {
 		seed             uint64
 		semconvDir       string
 		checksPath       string
+		sampleStrategy   string
 		skipScenarios    bool
 	)
 
@@ -42,6 +43,10 @@ func checkCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if maxDepth < 0 || maxFanOut < 0 || maxSpans < 0 || maxSpansPerTrace < 0 || samples < 0 {
 				return fmt.Errorf("limit and sample flags must be non-negative")
+			}
+			strategy, err := synth.ParseSampleStrategy(sampleStrategy)
+			if err != nil {
+				return err
 			}
 
 			var assertions synth.CheckAssertions
@@ -94,6 +99,7 @@ func checkCmd() *cobra.Command {
 				MaxSpansPerTrace: maxSpansPerTrace,
 				Samples:          samples,
 				Seed:             seed,
+				SampleStrategy:   strategy,
 				Scenarios:        scenarios,
 				Assertions:       assertions.Checks,
 			}
@@ -157,6 +163,7 @@ func checkCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, fmt.Sprintf("maximum spans per sampled trace (0 = default %d)", synth.DefaultMaxSpansPerTrace))
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
 	cmd.Flags().StringVar(&checksPath, "checks", "", "YAML checks file or URL with structural thresholds")
+	cmd.Flags().StringVar(&sampleStrategy, "sample-strategy", string(synth.SampleStrategyRandom), "sample strategy: random or swarm")
 	cmd.Flags().BoolVar(&skipScenarios, "skip-scenarios", false, "check the baseline topology only, ignoring scenarios")
 
 	return cmd
