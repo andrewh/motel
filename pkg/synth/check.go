@@ -102,6 +102,7 @@ type CheckOptions struct {
 	MaxSpansPerTrace int
 	Samples          int
 	Seed             uint64
+	SampleStrategy   SampleStrategy
 	Scenarios        []Scenario
 	Assertions       CheckThresholds
 }
@@ -277,14 +278,20 @@ func maxSpansWith(topo *Topology, overrides map[string]Override) (int, string) {
 // maxSpansPerTrace (or DefaultMaxSpansPerTrace when 0), so for topologies whose
 // static worst-case exceeds that limit, the observed value will plateau.
 func SampleTraces(topo *Topology, n int, seed uint64, maxSpansPerTrace int) SampleResults {
-	return sampleTracesWith(topo, n, seed, maxSpansPerTrace, nil)
+	return sampleTracesWith(topo, n, seed, maxSpansPerTrace, nil, SampleStrategyRandom)
+}
+
+// SampleTracesSwarm runs sampled exploration with swarm choice partitioning.
+func SampleTracesSwarm(topo *Topology, n int, seed uint64, maxSpansPerTrace int) SampleResults {
+	return sampleTracesWith(topo, n, seed, maxSpansPerTrace, nil, SampleStrategySwarm)
 }
 
 // sampleTracesWith runs SampleTraces with scenario overrides applied to every trace.
-func sampleTracesWith(topo *Topology, n int, seed uint64, maxSpansPerTrace int, overrides map[string]Override) SampleResults {
+func sampleTracesWith(topo *Topology, n int, seed uint64, maxSpansPerTrace int, overrides map[string]Override, strategy SampleStrategy) SampleResults {
 	if maxSpansPerTrace <= 0 {
 		maxSpansPerTrace = DefaultMaxSpansPerTrace
 	}
+	strategy = normalizeSampleStrategy(strategy)
 
 	if seed == 0 {
 		seed = rand.Uint64() //nolint:gosec // not security-sensitive
@@ -305,14 +312,24 @@ func sampleTracesWith(topo *Topology, n int, seed uint64, maxSpansPerTrace int, 
 			FanOuts: make([]int, 0, n),
 		},
 	}
+	choicePoints := []choicePoint(nil)
+	if strategy == SampleStrategySwarm {
+		choicePoints = enumerateChoicePoints(topo, overrides)
+	}
 	for i := range n {
 		exporter.Reset()
 
 		rng := rand.New(rand.NewPCG(seed+uint64(i), 0)) //nolint:gosec // not security-sensitive
+		var decisions choiceDecisions
+		if strategy == SampleStrategySwarm {
+			decisionRng := rand.New(rand.NewPCG(seed+uint64(i), swarmDecisionStream)) //nolint:gosec // not security-sensitive
+			decisions = swarmChoices(choicePoints, i, decisionRng)
+		}
 		engine := &Engine{
-			Topology: topo,
-			Tracers:  func(name string) trace.Tracer { return tp.Tracer("github.com/andrewh/motel") },
-			Rng:      rng,
+			Topology:        topo,
+			Tracers:         func(name string) trace.Tracer { return tp.Tracer("github.com/andrewh/motel") },
+			Rng:             rng,
+			choiceDecisions: decisions,
 		}
 
 		root := topo.Roots[rng.IntN(len(topo.Roots))]
@@ -535,6 +552,7 @@ func checkLimit(fallback int, assertion *int) int {
 // (selected by static value, with the sampled maximum as tie-breaker).
 func Check(topo *Topology, opts CheckOptions) []CheckResult {
 	sets := ScenarioSets(opts.Scenarios)
+	strategy := normalizeSampleStrategy(opts.SampleStrategy)
 
 	// Fix the seed once so every scenario set samples the same trace sequence.
 	seed := opts.Seed
@@ -549,7 +567,7 @@ func Check(topo *Topology, opts CheckOptions) []CheckResult {
 		ev.fanOut, ev.fanOutRef = maxFanOutWith(topo, set.Overrides)
 		ev.spans, _ = maxSpansWith(topo, set.Overrides)
 		if opts.Samples > 0 {
-			ev.sampled = sampleTracesWith(topo, opts.Samples, seed, opts.MaxSpansPerTrace, set.Overrides)
+			ev.sampled = sampleTracesWith(topo, opts.Samples, seed, opts.MaxSpansPerTrace, set.Overrides, strategy)
 		}
 		evals = append(evals, ev)
 	}

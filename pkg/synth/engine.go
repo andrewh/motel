@@ -89,6 +89,7 @@ type Engine struct {
 	MaxInFlightTraces int
 	MaxTraces         int
 	linkRegistry      *spanContextRegistry
+	choiceDecisions   choiceDecisions
 }
 
 // Stats holds counters collected during a simulation run.
@@ -409,14 +410,11 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 
 	// Determine effective duration, error rate, and attributes (apply overrides if active)
 	duration := op.Duration
-	errorRate := op.ErrorRate
+	errorRate := effectiveErrorRate(op, overrides)
 	opAttrs := op.Attributes
 	if ov, ok := overrides[op.Ref]; ok {
 		if ov.Duration.Mean > 0 {
 			duration = ov.Duration
-		}
-		if ov.HasErrorRate {
-			errorRate = ov.ErrorRate
 		}
 		if len(ov.Attributes) > 0 {
 			opAttrs = op.Attributes.Merge(ov.Attributes)
@@ -513,8 +511,14 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 		span.AddEvent(evt.Name, evtOpts...)
 	}
 
-	// Determine if this span errors from its own error rate (before cascading)
-	ownError := e.Rng.Float64() < errorRate
+	ownError := false
+	if errorRate > 0 {
+		if forced, ok := e.forcedChoice(choiceKindOperationError, op.Ref, "", -1); ok {
+			ownError = forced
+		} else {
+			ownError = e.Rng.Float64() < errorRate
+		}
+	}
 
 	// Sample own processing duration
 	ownDuration := duration.Sample(e.Rng)
@@ -527,18 +531,27 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	baseCalls := effectiveCalls(op, overrides)
 
 	// Filter calls by condition and probability (uses own error state, not cascaded)
-	activeCalls := make([]Call, 0, len(baseCalls))
-	for _, call := range baseCalls {
+	activeCalls := make([]activeCall, 0, len(baseCalls))
+	for i, call := range baseCalls {
 		if call.Condition == "on-error" && !ownError {
 			continue
 		}
 		if call.Condition == "on-success" && ownError {
 			continue
 		}
-		if call.Probability > 0 && e.Rng.Float64() >= call.Probability {
-			continue
+		if call.Probability > 0 {
+			fire, ok := false, false
+			if isChoiceRate(call.Probability) {
+				fire, ok = e.forcedChoice(choiceKindCallProbability, op.Ref, call.Operation.Ref, i)
+			}
+			if !ok {
+				fire = e.Rng.Float64() < call.Probability
+			}
+			if !fire {
+				continue
+			}
 		}
-		activeCalls = append(activeCalls, call)
+		activeCalls = append(activeCalls, activeCall{Call: call, ChoiceIndex: i})
 	}
 
 	// Walk downstream calls (parallel or sequential) with fan-out
@@ -546,11 +559,11 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	anyChildFailed := false
 	if op.CallStyle == "sequential" {
 		nextStart := childStartTime
-		for _, call := range activeCalls {
-			count := max(call.Count, 1)
+		for _, active := range activeCalls {
+			count := max(active.Call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, op, nextStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
-				if call.Async {
+				perceivedEnd, failed := e.executeCall(ctx, active, op, nextStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
+				if active.Call.Async {
 					continue
 				}
 				if failed {
@@ -563,11 +576,11 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 			}
 		}
 	} else {
-		for _, call := range activeCalls {
-			count := max(call.Count, 1)
+		for _, active := range activeCalls {
+			count := max(active.Call.Count, 1)
 			for range count {
-				perceivedEnd, failed := e.executeCall(ctx, call, op, childStartTime, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
-				if call.Async {
+				perceivedEnd, failed := e.executeCall(ctx, active, op, childStartTime, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit)
+				if active.Call.Async {
 					continue
 				}
 				if failed {
@@ -688,9 +701,15 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, s
 	return endTime, true
 }
 
+type activeCall struct {
+	Call        Call
+	ChoiceIndex int
+}
+
 // executeCall runs a single downstream call, applying timeout capping and retries.
 // parent is the calling operation.
-func (e *Engine) executeCall(ctx context.Context, call Call, parent *Operation, callStart time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+func (e *Engine) executeCall(ctx context.Context, active activeCall, parent *Operation, callStart time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int) (time.Time, bool) {
+	call := active.Call
 	maxAttempts := 1 + call.Retries
 	attemptStart := callStart
 
@@ -704,6 +723,15 @@ func (e *Engine) executeCall(ctx context.Context, call Call, parent *Operation, 
 			failed = true
 			stats.Timeouts++
 			notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventTimeout, Service: call.Operation.Service.Name, Operation: call.Operation.Name, Timestamp: perceivedEnd})
+		}
+
+		if attempt < maxAttempts-1 {
+			if retry, ok := e.forcedChoice(choiceKindRetryActivation, parent.Ref, call.Operation.Ref, active.ChoiceIndex); ok {
+				if !retry {
+					return perceivedEnd, failed
+				}
+				failed = true
+			}
 		}
 
 		if !failed || attempt == maxAttempts-1 {

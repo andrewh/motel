@@ -21,6 +21,7 @@ motel \- synthetic OpenTelemetry generator
 [\fB\-\-max\-spans\fR \fIN\fR]
 [\fB\-\-samples\fR \fIN\fR]
 [\fB\-\-seed\fR \fIN\fR]
+[\fB\-\-sample\-strategy\fR \fIrandom\fR|\fIswarm\fR]
 [\fB\-\-semconv\fR \fIdir\fR]
 \fItopology.yaml\fR | \fIURL\fR
 .PP
@@ -115,6 +116,10 @@ fan\-out per span, and total spans per trace using static graph analysis,
 then validates these against configurable limits. Optionally runs sampled
 exploration to measure empirical values.
 .PP
+Sampling uses the random strategy by default. The swarm strategy partitions
+probabilistic call, operation error, and retry choices across sample runs for
+corner\-case exploration.
+.PP
 Exits with code 0 if all checks pass, 1 if any check fails.
 .TP
 .B \-\-max\-depth
@@ -137,6 +142,10 @@ Set to 0 to skip sampling.
 .B \-\-seed
 \fIN\fR
 Random seed for reproducibility. When 0 (default), a random seed is used.
+.TP
+.B \-\-sample\-strategy
+\fIrandom\fR|\fIswarm\fR
+Sample strategy for sampled exploration (default: random).
 .TP
 .B \-\-max\-spans\-per\-trace
 \fIN\fR

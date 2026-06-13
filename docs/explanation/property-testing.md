@@ -62,6 +62,11 @@ call edge in the topology.
 **Error cascading (1 test).** If a child span has an error, its parent also
 has an error.
 
+**Swarm sampling (5 tests).** Swarm choice partitioning forces low-probability
+calls, operation error branches, and retry activation during sampled
+exploration. A rapid property varies fan-out width and verifies swarm finds the
+full probabilistic fan-out where a one-run pure random sample misses it.
+
 **Scenarios (7 tests).** `ActiveScenarios` returns only scenarios whose window
 contains the current time, sorted by priority, with stable ordering.
 `ResolveOverrides` merges correctly (last-defined wins), preserves earlier
