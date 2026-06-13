@@ -62,6 +62,7 @@ motel run <topology.yaml | URL> [flags]
 | `--label-scenarios` | bool | false | Add a `synth.scenarios` attribute to spans listing active scenario names |
 | `--time-offset` | duration | 0 | Shift span timestamps by this duration (e.g. `-1h` for past, `1h` for future) |
 | `--realtime` | bool | false | Emit spans at wall-clock times matching simulated timestamps |
+| `--seed` | uint | 0 | Seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions |
 | `--pprof` | string | | Start a pprof HTTP server on this address (e.g. `:6060`) |
 
 `--realtime` and `--time-offset` are mutually exclusive.
@@ -70,13 +71,13 @@ motel run <topology.yaml | URL> [flags]
 
 When `--stdout` is used, motel writes to two streams:
 
-- **stdout** — one JSON object per line, one span per line (stdouttrace format from the OpenTelemetry Go SDK). This is newline-delimited JSON, not the OTLP wire format.
+- **stdout** — emitted signal records as JSON. Trace-only output uses stdouttrace format from the OpenTelemetry Go SDK: one span JSON object per line. Metrics and logs use their own OpenTelemetry stdout exporter JSON shapes.
 - **stderr** — a single JSON statistics object on the final line, containing `traces`, `spans`, `errors`, `failed_traces`, `error_rate`, and other run metrics.
 
 To capture them separately:
 
 ```sh
-# Spans to file, stats to terminal
+# Trace-only stdouttrace spans to file, stats to terminal
 motel run --stdout --duration 5s topology.yaml > spans.jsonl
 
 # Stats to file, spans to terminal
@@ -86,7 +87,11 @@ motel run --stdout --duration 5s topology.yaml 2> stats.json
 motel run --stdout --duration 5s topology.yaml > spans.jsonl 2> stats.json
 ```
 
-The stdout format is the same format accepted by `motel import`, so you can round-trip: generate traces, then infer a topology from them.
+Trace-only stdout uses the same format accepted by `motel import`, so you can round-trip: generate traces, then infer a topology from them.
+This import round-trip applies to trace-only stdout output. When `--signals`
+includes metrics or logs, stdout may include metric export payloads or log
+records with different JSON shapes; mixed-signal stdout is useful for
+inspection and debugging, but should not be piped directly to `motel import`.
 
 ### emit
 
