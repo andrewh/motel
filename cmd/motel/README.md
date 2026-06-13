@@ -380,7 +380,10 @@ metric data.
 | `interval`   | string | Emit on a timer instead of per span, e.g. `10s`. Requires `value`; not valid for gauges (see below) |
 | `walk`       | string | Gauge only: mean-reversion timescale for a random walk, e.g. `30s` (see below) |
 | `min`, `max` | float  | Gauge only: clamp observed values to these bounds |
+| `errors_only` | bool | Counter only: record only completed error spans |
 | `attributes` | map    | Per-measurement attribute generators — same syntax as span attributes |
+
+`errors_only` is valid only on counters and cannot be combined with `interval`.
 
 Metric names that match a known OTel semantic convention metric are checked
 by `motel validate`: a `type` or `unit` that disagrees with the convention
@@ -391,7 +394,7 @@ from the span being observed.
 
 | Type | Span-derived recording |
 |------|----------------------|
-| `counter` | `+1` per completed span |
+| `counter` | `+1` per completed span; with `errors_only: true`, only error spans increment the counter |
 | `updowncounter` | `+1` on span start, `−1` on span end — tracks active-span count |
 | `histogram` | span duration, converted to the configured `unit` |
 | `gauge` | not valid — gauge requires `value` |
@@ -401,7 +404,7 @@ normal distribution on each observation.
 
 | Type | Topology-defined recording |
 |------|---------------------------|
-| `counter` | sampled float added per completed span (clamped ≥ 0) |
+| `counter` | sampled float added per completed span (clamped ≥ 0); with `errors_only: true`, only error spans add a value |
 | `updowncounter` | sampled float added per completed span |
 | `histogram` | sampled float recorded per completed span |
 | `gauge` | sampled float reported on each collection cycle |
@@ -485,6 +488,7 @@ metrics:
     type: counter
   - name: motel.span.errors
     type: counter
+    errors_only: true
 ```
 
 ### logs

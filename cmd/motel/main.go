@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // pprof endpoint is opt-in via --pprof flag
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -129,7 +130,7 @@ func runCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318 or http://localhost:4318)")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "simulation duration, e.g. 10s, 5m, 1h (default 1m)")
 	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
@@ -299,7 +300,7 @@ func emitCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "span attribute in key=value format (repeatable)")
 	cmd.Flags().IntVar(&count, "count", 1, "number of traces to emit")
 	cmd.Flags().StringVar(&rate, "rate", "10/s", "trace rate when count > 1 (e.g. 10/s, 100/m)")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318 or http://localhost:4318)")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
 	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
 
@@ -509,28 +510,67 @@ const (
 	defaultGRPCPort     = "4317"
 )
 
-func resolveEndpoint(endpoint, protocol string) string {
-	if endpoint == "" {
-		endpoint = "localhost"
-	}
-	if _, _, err := net.SplitHostPort(endpoint); err == nil {
-		return endpoint
-	}
-	port := defaultHTTPPort
+type resolvedEndpoint struct {
+	hostPort    string
+	endpointURL string
+}
+
+func defaultPort(protocol string) string {
 	if protocol == "grpc" {
-		port = defaultGRPCPort
+		return defaultGRPCPort
 	}
-	return net.JoinHostPort(endpoint, port)
+	return defaultHTTPPort
+}
+
+func isEndpointURL(endpoint string) bool {
+	return strings.Contains(endpoint, "://")
+}
+
+func resolveEndpoint(endpoint, protocol string) (resolvedEndpoint, error) {
+	if endpoint == "" {
+		return resolvedEndpoint{hostPort: net.JoinHostPort("localhost", defaultPort(protocol))}, nil
+	}
+
+	if isEndpointURL(endpoint) {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return resolvedEndpoint{}, fmt.Errorf("invalid endpoint URL %q: %w", endpoint, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return resolvedEndpoint{}, fmt.Errorf("endpoint URL %q: scheme must be http or https", endpoint)
+		}
+		if u.Host == "" {
+			return resolvedEndpoint{}, fmt.Errorf("endpoint URL %q: host is required", endpoint)
+		}
+		hostPort := u.Host
+		if _, _, err := net.SplitHostPort(hostPort); err != nil {
+			host := u.Hostname()
+			if host == "" {
+				return resolvedEndpoint{}, fmt.Errorf("endpoint URL %q: host is required", endpoint)
+			}
+			hostPort = net.JoinHostPort(host, defaultPort(protocol))
+			u.Host = hostPort
+		}
+		return resolvedEndpoint{hostPort: hostPort, endpointURL: u.String()}, nil
+	}
+
+	if _, _, err := net.SplitHostPort(endpoint); err == nil {
+		return resolvedEndpoint{hostPort: endpoint}, nil
+	}
+	return resolvedEndpoint{hostPort: net.JoinHostPort(endpoint, defaultPort(protocol))}, nil
 }
 
 func dialEndpoint(endpoint, protocol string) (string, error) {
-	host := resolveEndpoint(endpoint, protocol)
-	conn, err := net.DialTimeout("tcp", host, connectCheckTimeout)
+	resolved, err := resolveEndpoint(endpoint, protocol)
 	if err != nil {
-		return host, err
+		return endpoint, err
+	}
+	conn, err := net.DialTimeout("tcp", resolved.hostPort, connectCheckTimeout)
+	if err != nil {
+		return resolved.hostPort, err
 	}
 	_ = conn.Close()
-	return host, nil
+	return resolved.hostPort, nil
 }
 
 func checkEndpoint(endpoint, protocol, configPath string) error {
@@ -779,17 +819,29 @@ func createTraceExporter(ctx context.Context, opts runOptions) (sdktrace.SpanExp
 	if opts.stdout {
 		return stdouttrace.New(stdouttrace.WithWriter(os.Stdout))
 	}
+	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	if err != nil {
+		return nil, err
+	}
 	switch opts.protocol {
 	case "grpc":
 		var grpcOpts []otlptracegrpc.Option
 		if opts.endpoint != "" {
-			grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(opts.endpoint), otlptracegrpc.WithInsecure())
+			if resolved.endpointURL != "" {
+				grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpointURL(resolved.endpointURL))
+			} else {
+				grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(resolved.hostPort), otlptracegrpc.WithInsecure())
+			}
 		}
 		return otlptracegrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlptracehttp.Option
 		if opts.endpoint != "" {
-			httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(opts.endpoint), otlptracehttp.WithInsecure())
+			if resolved.endpointURL != "" {
+				httpOpts = append(httpOpts, otlptracehttp.WithEndpointURL(resolved.endpointURL))
+			} else {
+				httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(resolved.hostPort), otlptracehttp.WithInsecure())
+			}
 		}
 		return otlptracehttp.New(ctx, httpOpts...)
 	default:
@@ -843,17 +895,29 @@ func createMetricExporter(ctx context.Context, opts runOptions) (sdkmetric.Expor
 	if opts.stdout {
 		return stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
 	}
+	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	if err != nil {
+		return nil, err
+	}
 	switch opts.protocol {
 	case "grpc":
 		var grpcOpts []otlpmetricgrpc.Option
 		if opts.endpoint != "" {
-			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(opts.endpoint), otlpmetricgrpc.WithInsecure())
+			if resolved.endpointURL != "" {
+				grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpointURL(resolved.endpointURL))
+			} else {
+				grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(resolved.hostPort), otlpmetricgrpc.WithInsecure())
+			}
 		}
 		return otlpmetricgrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlpmetrichttp.Option
 		if opts.endpoint != "" {
-			httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(opts.endpoint), otlpmetrichttp.WithInsecure())
+			if resolved.endpointURL != "" {
+				httpOpts = append(httpOpts, otlpmetrichttp.WithEndpointURL(resolved.endpointURL))
+			} else {
+				httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(resolved.hostPort), otlpmetrichttp.WithInsecure())
+			}
 		}
 		return otlpmetrichttp.New(ctx, httpOpts...)
 	default:
@@ -900,17 +964,29 @@ func createLogExporter(ctx context.Context, opts runOptions) (sdklog.Exporter, e
 	if opts.stdout {
 		return stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
 	}
+	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	if err != nil {
+		return nil, err
+	}
 	switch opts.protocol {
 	case "grpc":
 		var grpcOpts []otlploggrpc.Option
 		if opts.endpoint != "" {
-			grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(opts.endpoint), otlploggrpc.WithInsecure())
+			if resolved.endpointURL != "" {
+				grpcOpts = append(grpcOpts, otlploggrpc.WithEndpointURL(resolved.endpointURL))
+			} else {
+				grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(resolved.hostPort), otlploggrpc.WithInsecure())
+			}
 		}
 		return otlploggrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlploghttp.Option
 		if opts.endpoint != "" {
-			httpOpts = append(httpOpts, otlploghttp.WithEndpoint(opts.endpoint), otlploghttp.WithInsecure())
+			if resolved.endpointURL != "" {
+				httpOpts = append(httpOpts, otlploghttp.WithEndpointURL(resolved.endpointURL))
+			} else {
+				httpOpts = append(httpOpts, otlploghttp.WithEndpoint(resolved.hostPort), otlploghttp.WithInsecure())
+			}
 		}
 		return otlploghttp.New(ctx, httpOpts...)
 	default:
