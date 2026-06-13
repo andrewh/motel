@@ -176,6 +176,7 @@ Reads trace spans and generates a YAML topology. If no file is given, reads from
 The `auto` format detector examines the JSON structure to determine whether the input is stdouttrace JSON (one span per line), OTLP JSON (batched export format), or Jaeger JSON such as Grafana Explore Tempo downloads.
 
 Output is written to stdout as a YAML topology with a commented header noting how many traces and spans were analysed.
+Confidence diagnostics are written to stderr when inferred operations, downstream call probabilities, or call-style votes are based on weak evidence. Redirecting stdout still produces valid YAML suitable for `motel validate`.
 
 ### preview
 
