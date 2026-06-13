@@ -35,6 +35,15 @@ func (e *captureMetricExporter) Export(_ context.Context, rm *metricdata.Resourc
 	return nil
 }
 
+func (e *captureMetricExporter) findMetric(name string) *metricdata.Metrics {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exported == nil {
+		return nil
+	}
+	return findMetric(*e.exported, name)
+}
+
 func (e *captureMetricExporter) ForceFlush(context.Context) error { return nil }
 
 func (e *captureMetricExporter) Shutdown(context.Context) error { return nil }
