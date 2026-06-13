@@ -114,7 +114,7 @@ If you already have trace data — from a staging environment, production sampli
 
 You need spans in one of two formats:
 
-- **stdouttrace** — one JSON span per line, as produced by `motel run --stdout` or the OpenTelemetry Go SDK's stdout exporter
+- **stdouttrace** — one JSON span per line, as produced by trace-only `motel run --stdout` or the OpenTelemetry Go SDK's stdout exporter
 - **OTLP JSON** — the standard OTLP export format with `resourceSpans` arrays
 
 Export spans from your collector, or capture them directly:

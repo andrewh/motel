@@ -200,14 +200,14 @@ When migrating from one backend to another, use motel to send identical traffic 
 
 ### 1. Send the same traffic to both backends
 
-Run motel twice with the same topology and duration — once against each backend:
+Run motel twice with the same topology, duration, and seed — once against each backend:
 
 ```sh
 motel run --endpoint http://old-backend:4318 --protocol http/protobuf \
-  --duration 30s backend-test.yaml
+  --duration 30s --seed 4242 backend-test.yaml
 
 motel run --endpoint http://new-backend:4318 --protocol http/protobuf \
-  --duration 30s backend-test.yaml
+  --duration 30s --seed 4242 backend-test.yaml
 ```
 
 ### 2. Compare
@@ -219,7 +219,7 @@ Check both backends for:
 - Similar trace visualisation (waterfall view, service maps)
 - Error spans displayed and filterable
 
-The trace IDs will differ between runs, but the structure, timing distributions, and attribute values should be consistent. What matters is that both backends handle the same shape of data identically.
+The trace IDs will differ between runs, but the fixed seed makes simulation decisions reproducible within the same motel version, so structure, timing distributions, and attribute values should be easier to compare. Seeded runs are for repeatable comparisons, not a cross-version stable output contract. What matters is that both backends handle the same shape of data identically.
 
 ### 3. Use scenarios to stress-test
 

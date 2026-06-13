@@ -321,9 +321,11 @@ Time-windowed overrides to operation behaviour and traffic.
 | `override` | map    | Per-operation overrides keyed by `service.operation`, or per-service overrides keyed by service name |
 | `traffic`  | object | Traffic pattern override for this window |
 
-Each operation override can set `duration`, `error_rate`, `attributes`, and
-`metrics`. Overlapping scenarios merge overrides by priority — higher-priority
-values win per field, attributes and metrics merge per key.
+Each operation override can set `duration`, `error_rate`, `attributes`,
+`metrics`, and `logs`. Service-level overrides can set `metrics` and `logs`.
+Overlapping scenarios merge overrides by priority — higher-priority values win
+per scalar field, attributes and metrics merge per key, log additions
+accumulate, and any active log disable wins.
 
 ```yaml
 scenarios:
@@ -361,6 +363,45 @@ scenarios:
         metrics:
           gateway.cpu.utilisation:
             value: 0.95 +/- 0.02
+```
+
+A `logs` override changes log output only while the scenario is active.
+`logs.add` appends scenario-only log records using the same record syntax as
+topology `logs`. `logs.disable: true` mutes base topology logs and derived
+error/slow logs at that scope for the scenario window.
+If a service otherwise relies on derived error/slow logs, active scenario log
+additions replace that derived fallback while they are active; add equivalent
+error or slow records when you want to keep them.
+
+Service-scope overrides are keyed by service name and apply to every span from
+that service. Operation-scope overrides are keyed by `service.operation` and
+apply only to that operation. When multiple scenarios are active, added logs
+from all active scenarios emit together, ordered by scenario priority, and a
+disable from any active scenario mutes base logs for that scope.
+
+```yaml
+scenarios:
+  - name: incident logging
+    at: +30s
+    duration: 5m
+    override:
+      checkout.authorize:
+        logs:
+          disable: true
+          add:
+            - severity: ERROR
+              body: "authorization degraded for {operation.name}"
+              condition: error
+              at: end
+              attributes:
+                incident.id:
+                  value: INC-42
+      checkout:
+        logs:
+          add:
+            - severity: WARN
+              body: "checkout service in incident mode"
+              probability: 0.1
 ```
 
 ### metrics
@@ -564,6 +605,10 @@ logs:
     body: "slow operation {service.name} {operation.name}"
     condition: slow
 ```
+
+Scenario [log overrides](#scenarios) can add incident-specific log records or
+mute base topology and derived logs for a service or operation during a
+scenario window.
 
 ## Derived Signals
 
