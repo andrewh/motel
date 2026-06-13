@@ -2105,6 +2105,12 @@ func TestValidateConfigMetrics(t *testing.T) {
 		require.NoError(t, ValidateConfig(cfg))
 	})
 
+	t.Run("valid errors-only counter", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "error.count", Type: "counter", ErrorsOnly: true}}, nil)
+		require.NoError(t, ValidateConfig(cfg))
+	})
+
 	t.Run("valid topology-defined gauge", func(t *testing.T) {
 		t.Parallel()
 		cfg := baseConfig([]MetricConfig{{Name: "cpu", Type: "gauge", Value: "0.5 +/- 0.1"}}, nil)
@@ -2153,6 +2159,14 @@ func TestValidateConfigMetrics(t *testing.T) {
 		err := ValidateConfig(cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "gauge metrics require a value")
+	})
+
+	t.Run("errors-only non-counter rejected", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseConfig([]MetricConfig{{Name: "error.duration", Type: "histogram", ErrorsOnly: true}}, nil)
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "errors_only is only valid for counter metrics")
 	})
 
 	t.Run("duplicate metric name across service and operation", func(t *testing.T) {

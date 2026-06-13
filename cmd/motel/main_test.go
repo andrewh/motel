@@ -487,11 +487,36 @@ func TestCheckEndpoint(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("reachable URL endpoint succeeds", func(t *testing.T) {
+		t.Parallel()
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer ln.Close() //nolint:errcheck // best-effort close in test
+
+		err = checkEndpoint("http://"+ln.Addr().String()+"/v1/traces", "http/protobuf", "test.yaml")
+		require.NoError(t, err)
+	})
+
 	t.Run("endpoint without port gets default", func(t *testing.T) {
 		t.Parallel()
 		err := checkEndpoint("192.0.2.1", "http/protobuf", "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "192.0.2.1:4318")
+	})
+
+	t.Run("URL endpoint without port gets default", func(t *testing.T) {
+		t.Parallel()
+		got, err := resolveEndpoint("https://collector.example.com/custom", "http/protobuf")
+		require.NoError(t, err)
+		assert.Equal(t, "collector.example.com:4318", got.hostPort)
+		assert.Equal(t, "https://collector.example.com:4318/custom", got.endpointURL)
+	})
+
+	t.Run("unsupported URL scheme is rejected", func(t *testing.T) {
+		t.Parallel()
+		_, err := resolveEndpoint("ftp://collector.example.com:4318", "http/protobuf")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "scheme must be http or https")
 	})
 
 	t.Run("run command fails fast without collector", func(t *testing.T) {

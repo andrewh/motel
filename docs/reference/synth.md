@@ -52,7 +52,7 @@ motel run <topology.yaml | URL> [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--duration` | duration | `1m` | Simulation duration |
-| `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318`) |
+| `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318` or `http://localhost:4318`) |
 | `--protocol` | string | `http/protobuf` | OTLP protocol (`http/protobuf` or `grpc`) |
 | `--signals` | string | `traces` | Comma-separated signals: `traces`, `metrics`, `logs` |
 | `--slow-threshold` | duration | `1s` | Spans exceeding this duration emit a slow-span log record. Warns and has no effect unless `logs` is included in `--signals` |
@@ -106,7 +106,7 @@ motel emit --service <name> --operation <name> [flags]
 | `--attr` | string | | Span attribute in `key=value` format (repeatable) |
 | `--count` | int | 1 | Number of traces to emit |
 | `--rate` | string | `10/s` | Trace rate when count > 1 (e.g. `10/s`, `100/m`) |
-| `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318`) |
+| `--endpoint` | string | | OTLP endpoint (e.g. `localhost:4318` or `http://localhost:4318`) |
 | `--protocol` | string | `http/protobuf` | OTLP protocol (`http/protobuf` or `grpc`) |
 | `--stdout` | bool | false | Emit signals to stdout as JSON |
 
