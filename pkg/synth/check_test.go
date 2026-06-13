@@ -932,6 +932,79 @@ func TestCheck_ScenarioProducesWorstCase(t *testing.T) {
 	}
 }
 
+func TestCheck_PercentileAssertionUsesWorstScenario(t *testing.T) {
+	topo, scenarios := scenarioCheckTopo(t)
+	limit := 1
+
+	results := Check(topo, CheckOptions{
+		MaxDepth:  10,
+		MaxFanOut: 100,
+		MaxSpans:  10000,
+		Samples:   100,
+		Seed:      42,
+		Scenarios: scenarios,
+		Assertions: CheckThresholds{
+			P99Depth: &limit,
+		},
+	})
+
+	var p99DepthResult *CheckResult
+	for i := range results {
+		if results[i].Name == CheckNameP99Depth {
+			p99DepthResult = &results[i]
+		}
+	}
+	if p99DepthResult == nil {
+		t.Fatal("missing p99-depth result")
+	}
+	if p99DepthResult.Pass {
+		t.Fatalf("p99 depth check should fail under scenario: actual=%d", p99DepthResult.Actual)
+	}
+	if p99DepthResult.Actual != 2 {
+		t.Fatalf("expected scenario p99 depth 2, got %d", p99DepthResult.Actual)
+	}
+	if len(p99DepthResult.Scenarios) != 1 || p99DepthResult.Scenarios[0] != "deepen" {
+		t.Fatalf("expected p99 worst case attributed to scenario %q, got %v", "deepen", p99DepthResult.Scenarios)
+	}
+	if p99DepthResult.Distribution == nil {
+		t.Fatal("expected p99 result to include supporting distribution")
+	}
+	if p99DepthResult.Distribution.P99 != 2 {
+		t.Fatalf("expected supporting distribution p99 2, got %d", p99DepthResult.Distribution.P99)
+	}
+}
+
+func TestCheck_StaticAssertionsProvideLimits(t *testing.T) {
+	topo, _ := scenarioCheckTopo(t)
+	maxDepth := 1
+	maxFanOut := 100
+	maxSpans := 10000
+
+	results := Check(topo, CheckOptions{
+		Assertions: CheckThresholds{
+			MaxDepth:  &maxDepth,
+			MaxFanOut: &maxFanOut,
+			MaxSpans:  &maxSpans,
+		},
+	})
+
+	var depthResult *CheckResult
+	for i := range results {
+		if results[i].Name == CheckNameMaxDepth {
+			depthResult = &results[i]
+		}
+	}
+	if depthResult == nil {
+		t.Fatal("missing max-depth result")
+	}
+	if !depthResult.Pass {
+		t.Fatalf("depth check should pass using assertion limit: actual=%d limit=%d", depthResult.Actual, depthResult.Limit)
+	}
+	if depthResult.Limit != maxDepth {
+		t.Fatalf("expected assertion depth limit %d, got %d", maxDepth, depthResult.Limit)
+	}
+}
+
 func TestCheck_BaselineWinsWithoutScenarios(t *testing.T) {
 	topo, _ := scenarioCheckTopo(t)
 

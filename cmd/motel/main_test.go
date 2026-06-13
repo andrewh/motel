@@ -23,9 +23,13 @@ import (
 )
 
 func writeTestConfig(t *testing.T, content string) string {
+	return writeTestFile(t, "config.yaml", content)
+}
+
+func writeTestFile(t *testing.T, name, content string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
+	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
 }
@@ -608,6 +612,104 @@ traffic:
 		assert.Contains(t, out.String(), "p95:")
 		assert.Contains(t, out.String(), "p99:")
 		assert.Contains(t, out.String(), "samples)")
+	})
+
+	t.Run("checks file thresholds pass", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		checksPath := writeTestFile(t, "checks.yaml", `
+version: 1
+checks:
+  max_depth: 1
+  max_fan_out: 1
+  max_spans: 2
+  p99_depth: 1
+  p95_spans: 2
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--seed", "42", "--checks", checksPath, path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "PASS  max-depth: 1 (limit: 1)")
+		assert.Contains(t, out.String(), "PASS  max-fan-out: 1 (limit: 1)")
+		assert.Contains(t, out.String(), "PASS  max-spans: 2 static worst-case")
+		assert.Contains(t, out.String(), "PASS  p99-depth: 1 (limit: 1)")
+		assert.Contains(t, out.String(), "PASS  p95-spans: 2 (limit: 2)")
+	})
+
+	t.Run("checks file static threshold fails", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		checksPath := writeTestFile(t, "checks.yaml", `
+version: 1
+checks:
+  max_depth: 0
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--checks", checksPath, path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "one or more checks failed")
+		assert.Contains(t, out.String(), "FAIL  max-depth: 1 (limit: 0)")
+	})
+
+	t.Run("checks file percentile threshold fails", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		checksPath := writeTestFile(t, "checks.yaml", `
+version: 1
+checks:
+  p99_depth: 0
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--seed", "42", "--checks", checksPath, path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "one or more checks failed")
+		assert.Contains(t, out.String(), "FAIL  p99-depth: 1 (limit: 0)")
+	})
+
+	t.Run("limit flags override checks file", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		checksPath := writeTestFile(t, "checks.yaml", `
+version: 1
+checks:
+  max_depth: 0
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--checks", checksPath, "--max-depth", "1", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "PASS  max-depth: 1 (limit: 1)")
+	})
+
+	t.Run("percentile checks require sampling", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, validConfig)
+		checksPath := writeTestFile(t, "checks.yaml", `
+version: 1
+checks:
+  p95_depth: 1
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"check", "--samples", "0", "--checks", checksPath, path})
+
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "percentile checks require --samples greater than 0")
 	})
 
 	t.Run("with seed for reproducibility", func(t *testing.T) {

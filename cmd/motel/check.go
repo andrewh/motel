@@ -17,6 +17,7 @@ func checkCmd() *cobra.Command {
 		samples          int
 		seed             uint64
 		semconvDir       string
+		checksPath       string
 		skipScenarios    bool
 	)
 
@@ -29,7 +30,9 @@ func checkCmd() *cobra.Command {
 			"Scenarios defined in the topology are explored automatically: every\n" +
 			"distinct combination of co-active scenarios is checked alongside the\n" +
 			"baseline, and each check reports the combination that produces the\n" +
-			"worst case. Use --skip-scenarios to check the baseline topology only.",
+			"worst case. Use --skip-scenarios to check the baseline topology only.\n\n" +
+			"Use --checks to load thresholds from a separate YAML checks file or URL.\n" +
+			"Explicit command-line limit flags override values from that file.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("missing topology file or URL\n\nUsage: motel check <topology.yaml | URL>")
@@ -39,6 +42,29 @@ func checkCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if maxDepth < 0 || maxFanOut < 0 || maxSpans < 0 || maxSpansPerTrace < 0 || samples < 0 {
 				return fmt.Errorf("limit and sample flags must be non-negative")
+			}
+
+			var assertions synth.CheckAssertions
+			if checksPath != "" {
+				loaded, err := synth.LoadCheckAssertions(checksPath)
+				if err != nil {
+					return err
+				}
+				assertions = *loaded
+				if assertions.Checks.HasPercentile() && samples == 0 {
+					return fmt.Errorf("percentile checks require --samples greater than 0")
+				}
+
+				flags := cmd.Flags()
+				if flags.Changed("max-depth") {
+					assertions.Checks.MaxDepth = checkLimitPtr(maxDepth)
+				}
+				if flags.Changed("max-fan-out") {
+					assertions.Checks.MaxFanOut = checkLimitPtr(maxFanOut)
+				}
+				if flags.Changed("max-spans") {
+					assertions.Checks.MaxSpans = checkLimitPtr(maxSpans)
+				}
 			}
 
 			cfg, err := synth.LoadConfig(args[0])
@@ -69,6 +95,7 @@ func checkCmd() *cobra.Command {
 				Samples:          samples,
 				Seed:             seed,
 				Scenarios:        scenarios,
+				Assertions:       assertions.Checks,
 			}
 
 			results := synth.Check(topo, opts)
@@ -83,17 +110,17 @@ func checkCmd() *cobra.Command {
 				}
 
 				switch r.Name {
-				case "max-depth":
+				case synth.CheckNameMaxDepth:
 					_, _ = fmt.Fprintf(w, "%s  %s: %d (limit: %d)\n", status, r.Name, r.Actual, r.Limit)
 					if len(r.Path) > 0 {
 						_, _ = fmt.Fprintf(w, "      path: %s\n", strings.Join(r.Path, " \u2192 "))
 					}
-				case "max-fan-out":
+				case synth.CheckNameMaxFanOut:
 					_, _ = fmt.Fprintf(w, "%s  %s: %d (limit: %d)\n", status, r.Name, r.Actual, r.Limit)
 					if r.Ref != "" {
 						_, _ = fmt.Fprintf(w, "      worst: %s\n", r.Ref)
 					}
-				case "max-spans":
+				case synth.CheckNameMaxSpans:
 					line := fmt.Sprintf("%s  %s: %d static worst-case", status, r.Name, r.Actual)
 					if r.Sampled != nil {
 						line += fmt.Sprintf(", %d observed/%d samples", *r.Sampled, r.SamplesRun)
@@ -129,7 +156,10 @@ func checkCmd() *cobra.Command {
 	cmd.Flags().Uint64Var(&seed, "seed", 0, "random seed for reproducibility (0 = random)")
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, fmt.Sprintf("maximum spans per sampled trace (0 = default %d)", synth.DefaultMaxSpansPerTrace))
 	cmd.Flags().StringVar(&semconvDir, "semconv", "", "directory of additional semantic convention YAML files")
+	cmd.Flags().StringVar(&checksPath, "checks", "", "YAML checks file or URL with structural thresholds")
 	cmd.Flags().BoolVar(&skipScenarios, "skip-scenarios", false, "check the baseline topology only, ignoring scenarios")
 
 	return cmd
 }
+
+func checkLimitPtr(v int) *int { return &v }

@@ -138,9 +138,20 @@ Set to 0 to skip sampling.
 \fIN\fR
 Random seed for reproducibility. When 0 (default), a random seed is used.
 .TP
+.B \-\-max\-spans\-per\-trace
+\fIN\fR
+Maximum spans per sampled trace; 0 means the default of 10000.
+.TP
 .B \-\-semconv
 \fIdir\fR
 Directory of additional semantic convention YAML files to load.
+.TP
+.B \-\-checks
+\fIfile\fR|\fIURL\fR
+YAML checks file or HTTP/HTTPS URL with structural thresholds.
+.TP
+.B \-\-skip\-scenarios
+Check the baseline topology only, ignoring scenarios.
 .SS preview
 Render the traffic rate over time as an SVG chart. Useful for visualising how
 traffic and scenarios interact before running a simulation.
