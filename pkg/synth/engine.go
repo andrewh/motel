@@ -19,6 +19,8 @@ import (
 // DefaultMaxSpansPerTrace is the safety bound for span generation per trace.
 const DefaultMaxSpansPerTrace = 10_000
 
+const zeroRateIdleInterval = 10 * time.Millisecond
+
 // spanContextRegistry stores the most recent span context for each operation ref.
 // Used to attach cross-trace span links from consumer operations to producer operations.
 // Concurrent Store calls produce last-writer-wins semantics — "most recent" is
@@ -172,7 +174,10 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 
 		rate := trafficPattern.Rate(elapsed)
 		if rate <= 0 {
-			time.Sleep(10 * time.Millisecond)
+			if waitZeroRate(ctx) {
+				e.finaliseStats(&stats, startTime)
+				return &stats, nil
+			}
 			continue
 		}
 
@@ -206,6 +211,18 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 			return &stats, nil
 		case <-time.After(interval):
 		}
+	}
+}
+
+func waitZeroRate(ctx context.Context) bool {
+	timer := time.NewTimer(zeroRateIdleInterval)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 
@@ -302,7 +319,12 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 
 		rate := trafficPattern.Rate(elapsed)
 		if rate <= 0 {
-			time.Sleep(10 * time.Millisecond)
+			if waitZeroRate(ctx) {
+				wg.Wait()
+				e.mergeRealtimeStats(&stats, &rstats)
+				e.finaliseStats(&stats, startTime)
+				return &stats, nil
+			}
 			continue
 		}
 

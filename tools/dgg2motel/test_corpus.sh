@@ -22,8 +22,9 @@ if [ ! -x "$MOTEL" ]; then
 fi
 
 temp_topo=""
-cleanup() { [ -n "$temp_topo" ] && rm -f "$temp_topo"; true; }
-trap cleanup EXIT INT TERM
+cleanup() { [ -n "$temp_topo" ] && rm -f "$temp_topo"; temp_topo=""; true; }
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
 
 check_pass=0
 check_fail=0
@@ -56,18 +57,15 @@ for f in "${files[@]}"; do
     # motel run
     topo="$f"
     if [ -n "$RATE" ]; then
-        temp_topo=$(mktemp /tmp/dgg-topo-XXXXXX.yaml)
+        temp_topo=$(mktemp "${TMPDIR:-/tmp}/dgg-topo-XXXXXX.yaml")
         sed "s|rate: .*|rate: $RATE|" "$f" > "$temp_topo"
         topo="$temp_topo"
     fi
 
+    rc=0
     output=$(timeout 10 "$MOTEL" run --stdout --duration "$DURATION" "$topo" 2>&1) || rc=$?
-    rc=${rc:-0}
 
-    if [ -n "$temp_topo" ]; then
-        rm -f "$temp_topo"
-        temp_topo=""
-    fi
+    cleanup
 
     if [ "$rc" -eq 124 ]; then
         echo "RUN TIMEOUT: $rel"

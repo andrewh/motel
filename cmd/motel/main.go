@@ -42,6 +42,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	otelsc "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 var (
@@ -255,6 +256,11 @@ func emitCmd() *cobra.Command {
 			}
 			defer shutdownTraces()
 
+			tracers, err := tracerSource(topo, traceProviders)
+			if err != nil {
+				return err
+			}
+
 			engineDuration := unlimitedDuration
 			maxTraces := count
 			if duration > 0 {
@@ -265,21 +271,9 @@ func emitCmd() *cobra.Command {
 			}
 
 			engine := &synth.Engine{
-				Topology: topo,
-				Traffic:  traffic,
-				Tracers: func(name string) trace.Tracer {
-					tp := traceProviders[name]
-					if tp == nil {
-						panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
-					}
-					return tp.Tracer("github.com/andrewh/motel",
-						trace.WithInstrumentationVersion(version),
-						trace.WithSchemaURL(otelsc.SchemaURL),
-						trace.WithInstrumentationAttributes(
-							attribute.Bool("motel.synthetic", true),
-						),
-					)
-				},
+				Topology:  topo,
+				Traffic:   traffic,
+				Tracers:   tracers,
 				Rng:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // synthetic data, not security-sensitive
 				Duration:  engineDuration,
 				MaxTraces: maxTraces,
@@ -554,10 +548,23 @@ func checkEndpoint(endpoint, protocol, configPath string) error {
 
 func runGenerate(ctx context.Context, configPath string, opts runOptions) error {
 	if opts.pprofAddr != "" {
+		pprofListener, listenErr := net.Listen("tcp", opts.pprofAddr)
+		if listenErr != nil {
+			return fmt.Errorf("starting pprof server: %w", listenErr)
+		}
+
+		pprofServer := &http.Server{Addr: opts.pprofAddr, Handler: http.DefaultServeMux}
 		go func() {
-			fmt.Fprintf(os.Stderr, "pprof server listening on %s\n", opts.pprofAddr)
-			if err := http.ListenAndServe(opts.pprofAddr, nil); err != nil { //nolint:gosec // pprof server is opt-in via flag
+			fmt.Fprintf(os.Stderr, "pprof server listening on %s\n", pprofListener.Addr())
+			if err := pprofServer.Serve(pprofListener); err != nil && err != http.ErrServerClosed { //nolint:gosec // pprof server is opt-in via flag
 				fmt.Fprintf(os.Stderr, "pprof server error: %v\n", err)
+			}
+		}()
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			if err := pprofServer.Shutdown(shutdownCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "pprof server shutdown error: %v\n", err)
 			}
 		}()
 	}
@@ -631,6 +638,11 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 	defer shutdownTraces()
 
+	tracers, err := tracerSource(topo, traceProviders)
+	if err != nil {
+		return err
+	}
+
 	var observers []synth.SpanObserver
 
 	if enabledSignals["metrics"] {
@@ -670,22 +682,10 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	engine := &synth.Engine{
-		Topology:  topo,
-		Traffic:   traffic,
-		Scenarios: scenarios,
-		Tracers: func(name string) trace.Tracer {
-			tp := traceProviders[name]
-			if tp == nil {
-				panic(fmt.Sprintf("BUG: no tracer provider for service %q", name))
-			}
-			return tp.Tracer("github.com/andrewh/motel",
-				trace.WithInstrumentationVersion(version),
-				trace.WithSchemaURL(otelsc.SchemaURL),
-				trace.WithInstrumentationAttributes(
-					attribute.Bool("motel.synthetic", true),
-				),
-			)
-		},
+		Topology:         topo,
+		Traffic:          traffic,
+		Scenarios:        scenarios,
+		Tracers:          tracers,
 		Rng:              newRunRng(opts.seed, rngStreamEngine),
 		Duration:         duration,
 		Observers:        observers,
@@ -706,6 +706,30 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	return json.NewEncoder(os.Stderr).Encode(stats)
+}
+
+func tracerSource(topo *synth.Topology, providers map[string]*sdktrace.TracerProvider) (synth.TracerSource, error) {
+	for name := range topo.Services {
+		if providers[name] == nil {
+			return nil, fmt.Errorf("missing tracer provider for service %q", name)
+		}
+	}
+
+	missingProvider := noop.NewTracerProvider()
+	return func(name string) trace.Tracer {
+		provider := providers[name]
+		if provider == nil {
+			return missingProvider.Tracer("github.com/andrewh/motel")
+		}
+
+		return provider.Tracer("github.com/andrewh/motel",
+			trace.WithInstrumentationVersion(version),
+			trace.WithSchemaURL(otelsc.SchemaURL),
+			trace.WithInstrumentationAttributes(
+				attribute.Bool("motel.synthetic", true),
+			),
+		)
+	}, nil
 }
 
 // createTraceProviders creates one TracerProvider per service sharing a single exporter

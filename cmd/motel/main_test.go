@@ -19,6 +19,7 @@ import (
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func writeTestConfig(t *testing.T, content string) string {
@@ -47,6 +48,33 @@ services:
 traffic:
   rate: 100/s
 `
+
+func TestTracerSourceMissingProvider(t *testing.T) {
+	t.Parallel()
+
+	topo := &synth.Topology{Services: map[string]*synth.Service{
+		"gateway": {Name: "gateway"},
+	}}
+
+	_, err := tracerSource(topo, map[string]*sdktrace.TracerProvider{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing tracer provider")
+	assert.Contains(t, err.Error(), "gateway")
+}
+
+func TestTracerSourceReturnsTracer(t *testing.T) {
+	t.Parallel()
+
+	tp := sdktrace.NewTracerProvider()
+	t.Cleanup(func() { require.NoError(t, tp.Shutdown(context.Background())) })
+	topo := &synth.Topology{Services: map[string]*synth.Service{
+		"gateway": {Name: "gateway"},
+	}}
+
+	tracers, err := tracerSource(topo, map[string]*sdktrace.TracerProvider{"gateway": tp})
+	require.NoError(t, err)
+	assert.NotNil(t, tracers("gateway"))
+}
 
 func TestValidateCommand(t *testing.T) {
 	t.Parallel()
