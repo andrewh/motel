@@ -143,21 +143,7 @@ func computeWindow(trees []*TraceTree) float64 {
 
 // validateRoundTrip checks that the generated YAML parses and validates correctly.
 func validateRoundTrip(yamlBytes []byte) error {
-	f, err := os.CreateTemp("", "synth-infer-*.yaml")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	defer os.Remove(f.Name()) //nolint:errcheck // best-effort cleanup of temp file
-
-	if _, err := f.Write(yamlBytes); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("closing temp file: %w", err)
-	}
-
-	cfg, err := synth.LoadConfig(f.Name())
+	cfg, err := synth.ParseConfig(yamlBytes)
 	if err != nil {
 		return err
 	}

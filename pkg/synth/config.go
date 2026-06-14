@@ -358,13 +358,8 @@ func unwrapHTTPError(err error) error {
 	return err
 }
 
-// LoadConfig reads and parses a YAML topology from a file path or URL.
-func LoadConfig(source string) (*Config, error) {
-	data, err := readSource(source)
-	if err != nil {
-		return nil, fmt.Errorf("reading config: %w", err)
-	}
-
+// ParseConfig parses YAML topology data and normalizes it into a Config.
+func ParseConfig(data []byte) (*Config, error) {
 	var raw rawConfig
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
@@ -429,6 +424,16 @@ func LoadConfig(source string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// LoadConfig reads and parses a YAML topology from a file path or URL.
+func LoadConfig(source string) (*Config, error) {
+	data, err := readSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+
+	return ParseConfig(data)
 }
 
 // ValidateConfig checks a configuration for structural correctness.

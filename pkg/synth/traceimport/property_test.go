@@ -5,7 +5,6 @@ package traceimport
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -412,22 +411,9 @@ func TestProperty_MarshalConfig_ProducesValidTopology(t *testing.T) {
 			t.Fatalf("MarshalConfig: %v", err)
 		}
 
-		// Write to temp file for LoadConfig (it reads from disk)
-		f, err := os.CreateTemp("", "property-test-*.yaml")
+		cfg, err := synth.ParseConfig(yamlBytes)
 		if err != nil {
-			t.Fatalf("creating temp file: %v", err)
-		}
-		defer os.Remove(f.Name())
-
-		if _, err := f.Write(yamlBytes); err != nil {
-			f.Close()
-			t.Fatalf("writing temp file: %v", err)
-		}
-		f.Close()
-
-		cfg, err := synth.LoadConfig(f.Name())
-		if err != nil {
-			t.Fatalf("LoadConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
+			t.Fatalf("ParseConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
 		}
 		if err := synth.ValidateConfig(cfg); err != nil {
 			t.Fatalf("ValidateConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
@@ -451,21 +437,9 @@ func TestProperty_MarshalConfig_ContainsAllServices(t *testing.T) {
 			t.Fatalf("MarshalConfig: %v", err)
 		}
 
-		f, err := os.CreateTemp("", "property-test-*.yaml")
+		cfg, err := synth.ParseConfig(yamlBytes)
 		if err != nil {
-			t.Fatalf("creating temp file: %v", err)
-		}
-		defer os.Remove(f.Name())
-
-		if _, err := f.Write(yamlBytes); err != nil {
-			f.Close()
-			t.Fatalf("writing temp file: %v", err)
-		}
-		f.Close()
-
-		cfg, err := synth.LoadConfig(f.Name())
-		if err != nil {
-			t.Fatalf("LoadConfig: %v", err)
+			t.Fatalf("ParseConfig: %v", err)
 		}
 
 		// Every service in stats should appear in the config

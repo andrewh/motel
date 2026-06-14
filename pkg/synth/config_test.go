@@ -20,6 +20,64 @@ func writeTestConfig(t *testing.T, content string) string {
 	return path
 }
 
+func TestParseConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("normalizes service and operation maps", func(t *testing.T) {
+		t.Parallel()
+		cfg, err := ParseConfig([]byte(`
+version: 1
+services:
+  user-service:
+    operations:
+      list:
+        duration: 20ms +/- 5ms
+  gateway:
+    operations:
+      POST /users:
+        duration: 35ms +/- 10ms
+      GET /users:
+        duration: 30ms +/- 10ms
+        calls:
+          - user-service.list
+traffic:
+  rate: 50/s
+`))
+		require.NoError(t, err)
+		assert.Equal(t, 1, cfg.Version)
+		assert.Equal(t, "50/s", cfg.Traffic.Rate)
+		require.Len(t, cfg.Services, 2)
+		assert.Equal(t, "gateway", cfg.Services[0].Name)
+		assert.Equal(t, "user-service", cfg.Services[1].Name)
+		require.Len(t, cfg.Services[0].Operations, 2)
+		assert.Equal(t, "GET /users", cfg.Services[0].Operations[0].Name)
+		assert.Equal(t, "POST /users", cfg.Services[0].Operations[1].Name)
+		assert.Equal(t, []CallConfig{{Target: "user-service.list"}}, cfg.Services[0].Operations[0].Calls)
+	})
+
+	t.Run("requires version", func(t *testing.T) {
+		t.Parallel()
+		_, err := ParseConfig([]byte(`
+services:
+  gateway:
+    operations:
+      GET /users:
+        duration: 30ms +/- 10ms
+traffic:
+  rate: 100/s
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required field: version")
+	})
+
+	t.Run("reports invalid YAML", func(t *testing.T) {
+		t.Parallel()
+		_, err := ParseConfig([]byte(`{{{invalid yaml`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parsing config")
+	})
+}
+
 func TestLoadConfig(t *testing.T) {
 	t.Parallel()
 
