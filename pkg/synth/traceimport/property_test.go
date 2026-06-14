@@ -81,6 +81,14 @@ func genDurations(t *rapid.T) []time.Duration {
 	return ds
 }
 
+func recordDurations(ds []time.Duration) OpStats {
+	var op OpStats
+	for _, d := range ds {
+		op.RecordDuration(d, 1)
+	}
+	return op
+}
+
 // --- Tree invariants ---
 
 func TestProperty_BuildTrees_AllSpansPresent(t *testing.T) {
@@ -206,7 +214,7 @@ func TestProperty_Stats_ErrorCountBounded(t *testing.T) {
 	})
 }
 
-func TestProperty_Stats_DurationsLengthMatchesCount(t *testing.T) {
+func TestProperty_Stats_DurationCountMatchesCount(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		spans := genTree(t)
 		trees := BuildTrees(spans, nil)
@@ -215,15 +223,15 @@ func TestProperty_Stats_DurationsLengthMatchesCount(t *testing.T) {
 
 		for svcName, svcStats := range collector.Services {
 			for opName, opStats := range svcStats.Ops {
-				if len(opStats.Durations) != opStats.TotalCount {
-					t.Fatalf("%s.%s: durations length %d != total count %d", svcName, opName, len(opStats.Durations), opStats.TotalCount)
+				if opStats.DurationCount != opStats.TotalCount {
+					t.Fatalf("%s.%s: duration count %d != total count %d", svcName, opName, opStats.DurationCount, opStats.TotalCount)
 				}
 			}
 		}
 	})
 }
 
-func TestProperty_Stats_DurationsPositive(t *testing.T) {
+func TestProperty_Stats_DurationMeanPositive(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		spans := genTree(t)
 		trees := BuildTrees(spans, nil)
@@ -232,10 +240,8 @@ func TestProperty_Stats_DurationsPositive(t *testing.T) {
 
 		for svcName, svcStats := range collector.Services {
 			for opName, opStats := range svcStats.Ops {
-				for i, d := range opStats.Durations {
-					if d < 0 {
-						t.Fatalf("%s.%s: duration[%d] = %v is negative", svcName, opName, i, d)
-					}
+				if opStats.DurationCount > 0 && opStats.meanDuration() < 0 {
+					t.Fatalf("%s.%s: mean duration %v is negative", svcName, opName, opStats.meanDuration())
 				}
 			}
 		}
@@ -290,10 +296,11 @@ func TestProperty_Stats_CallCountsMatchChildren(t *testing.T) {
 
 // --- Duration arithmetic ---
 
-func TestProperty_MeanDuration_BetweenMinMax(t *testing.T) {
+func TestProperty_DurationMean_BetweenMinMax(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ds := genDurations(t)
-		mean := MeanDuration(ds)
+		op := recordDurations(ds)
+		mean := op.meanDuration()
 
 		min, max := ds[0], ds[0]
 		for _, d := range ds[1:] {
@@ -310,51 +317,49 @@ func TestProperty_MeanDuration_BetweenMinMax(t *testing.T) {
 	})
 }
 
-func TestProperty_MeanDuration_Idempotent(t *testing.T) {
+func TestProperty_DurationMean_Idempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ds := genDurations(t)
-		m1 := MeanDuration(ds)
-		m2 := MeanDuration(ds)
+		op := recordDurations(ds)
+		m1 := op.meanDuration()
+		m2 := op.meanDuration()
 		if m1 != m2 {
-			t.Fatalf("MeanDuration not idempotent: %v != %v", m1, m2)
+			t.Fatalf("duration mean not idempotent: %v != %v", m1, m2)
 		}
 	})
 }
 
-func TestProperty_MeanDuration_Uniform(t *testing.T) {
+func TestProperty_DurationMean_Uniform(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		d := time.Duration(rapid.Int64Range(int64(time.Microsecond), int64(10*time.Second)).Draw(t, "d"))
 		n := rapid.IntRange(1, 100).Draw(t, "n")
-		ds := make([]time.Duration, n)
-		for i := range ds {
-			ds[i] = d
-		}
-		mean := MeanDuration(ds)
+		var op OpStats
+		op.RecordDuration(d, n)
+		mean := op.meanDuration()
 		if mean != d {
 			t.Fatalf("mean of %d identical %v values = %v", n, d, mean)
 		}
 	})
 }
 
-func TestProperty_StdDevDuration_NonNegative(t *testing.T) {
+func TestProperty_DurationStdDev_NonNegative(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ds := genDurations(t)
-		sd := StdDevDuration(ds)
+		op := recordDurations(ds)
+		sd := op.stdDevDuration()
 		if sd < 0 {
 			t.Fatalf("stddev = %v is negative", sd)
 		}
 	})
 }
 
-func TestProperty_StdDevDuration_ZeroForUniform(t *testing.T) {
+func TestProperty_DurationStdDev_ZeroForUniform(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		d := time.Duration(rapid.Int64Range(int64(time.Microsecond), int64(10*time.Second)).Draw(t, "d"))
 		n := rapid.IntRange(2, 100).Draw(t, "n")
-		ds := make([]time.Duration, n)
-		for i := range ds {
-			ds[i] = d
-		}
-		sd := StdDevDuration(ds)
+		var op OpStats
+		op.RecordDuration(d, n)
+		sd := op.stdDevDuration()
 		if sd != 0 {
 			t.Fatalf("stddev of %d identical %v values = %v, expected 0", n, d, sd)
 		}

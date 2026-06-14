@@ -133,6 +133,13 @@ func TestParseSpans_AutoDetect(t *testing.T) {
 	assert.Equal(t, "op", spans[0].Operation)
 }
 
+func TestParseSpans_AutoDetectSingleLineJSONRespectsInputLimit(t *testing.T) {
+	input := `{"resourceSpans":[]}` + strings.Repeat(" ", 32)
+	_, err := parseAutoSpans(strings.NewReader(input), len(`{"resourceSpans":[]}`)-1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "input exceeds maximum size")
+}
+
 func TestDetectFormat_PrettyPrintedOTLP(t *testing.T) {
 	input := "{\n  \"resourceSpans\": []\n}"
 	format, err := detectFormat([]byte(input))

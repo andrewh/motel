@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,10 +40,12 @@ var requiredMetaSummaryColumns = []string{
 }
 
 type metaParentRow struct {
-	parentName      string
-	children        []string
-	concurrencyRate float64
-	profile         string
+	parentName        string
+	children          []string
+	numCalls          int
+	numReturningCalls int
+	concurrencyRate   float64
+	profile           string
 }
 
 func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
@@ -66,6 +69,7 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 
 	collector := NewStatsCollector()
 	rowCount := 0
+	sampleCount := 0
 	spanCount := 0
 	rowNumber := 1
 
@@ -89,24 +93,26 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 			continue
 		}
 
-		recordMetaInvocation(collector, row)
+		weight := row.observationWeight()
+		recordMetaInvocation(collector, row, weight)
 		rowCount++
-		spanCount += 1 + len(row.children)
+		sampleCount += weight
+		spanCount += weight * (1 + len(row.children))
 	}
 
 	if rowCount == 0 {
 		return nil, errors.New("no Meta summary rows matched the requested filters")
 	}
-	if rowCount < opts.MinTraces {
-		_, _ = fmt.Fprintf(opts.Warnings, "warning: only %d Meta parent invocations available (requested minimum: %d); results may be inaccurate\n",
-			rowCount, opts.MinTraces)
+	if sampleCount < opts.MinTraces {
+		_, _ = fmt.Fprintf(opts.Warnings, "warning: only %d weighted Meta parent samples available from %d rows (requested minimum: %d); results may be inaccurate\n",
+			sampleCount, rowCount, opts.MinTraces)
 	}
-	if rowCount == 1 {
-		_, _ = fmt.Fprintf(opts.Warnings, "warning: only 1 Meta parent invocation available; duration distributions will be exact values. Use more rows for statistical accuracy.\n")
+	if sampleCount == 1 {
+		_, _ = fmt.Fprintf(opts.Warnings, "warning: only 1 weighted Meta parent sample available; duration distributions will be exact values. Use more rows for statistical accuracy.\n")
 	}
 	reportConfidenceDiagnostics(collector, opts.MinTraces, opts.Warnings)
 
-	yamlBytes, err := MarshalConfig(collector, nil, rowCount, spanCount, 0)
+	yamlBytes, err := MarshalConfig(collector, nil, sampleCount, spanCount, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -153,10 +159,12 @@ func parseMetaParentRow(record []string, cols map[string]int) (metaParentRow, er
 	if err != nil {
 		return metaParentRow{}, err
 	}
-	if _, err := parseMetaIntColumn(record, cols, metaColumnNumCalls); err != nil {
+	numCalls, err := parseMetaCountColumn(record, cols, metaColumnNumCalls)
+	if err != nil {
 		return metaParentRow{}, err
 	}
-	if _, err := parseMetaIntColumn(record, cols, metaColumnNumReturningCalls); err != nil {
+	numReturningCalls, err := parseMetaCountColumn(record, cols, metaColumnNumReturningCalls)
+	if err != nil {
 		return metaParentRow{}, err
 	}
 	concurrencyRate, err := parseMetaFloatColumn(record, cols, metaColumnConcurrencyRate)
@@ -168,10 +176,12 @@ func parseMetaParentRow(record []string, cols map[string]int) (metaParentRow, er
 		return metaParentRow{}, err
 	}
 	return metaParentRow{
-		parentName:      parentName,
-		children:        children,
-		concurrencyRate: concurrencyRate,
-		profile:         profile,
+		parentName:        parentName,
+		children:          children,
+		numCalls:          numCalls,
+		numReturningCalls: numReturningCalls,
+		concurrencyRate:   concurrencyRate,
+		profile:           profile,
 	}, nil
 }
 
@@ -186,16 +196,29 @@ func metaColumnValue(record []string, cols map[string]int, name string) (string,
 	return strings.TrimSpace(record[idx]), nil
 }
 
-func parseMetaIntColumn(record []string, cols map[string]int, name string) (int, error) {
+func parseMetaCountColumn(record []string, cols map[string]int, name string) (int, error) {
 	value, err := metaColumnValue(record, cols, name)
 	if err != nil {
 		return 0, err
 	}
-	n, err := strconv.Atoi(value)
+	if n, err := strconv.Atoi(value); err == nil {
+		if n < 0 {
+			return 0, fmt.Errorf("%s %q must be non-negative", name, value)
+		}
+		return n, nil
+	}
+	n, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s %q: %w", name, value, err)
 	}
-	return n, nil
+	if n < 0 || math.Trunc(n) != n {
+		return 0, fmt.Errorf("%s %q must be a non-negative integer", name, value)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if n > float64(maxInt) {
+		return 0, fmt.Errorf("%s %q exceeds maximum integer size", name, value)
+	}
+	return int(n), nil
 }
 
 func parseMetaFloatColumn(record []string, cols map[string]int, name string) (float64, error) {
@@ -231,19 +254,30 @@ func parseMetaChildrenSet(value string) ([]string, error) {
 	return children, nil
 }
 
-func recordMetaInvocation(collector *StatsCollector, row metaParentRow) {
+func (r metaParentRow) observationWeight() int {
+	if r.numCalls > 0 {
+		return r.numCalls
+	}
+	return 1
+}
+
+func recordMetaInvocation(collector *StatsCollector, row metaParentRow, weight int) {
 	parentService := metaServiceName(row.parentName)
 	parentStats := collector.getService(parentService)
 	parentOp := collector.getOp(parentStats, metaOperationName)
-	parentOp.RecordDuration(metaParentDuration+time.Duration(len(row.children))*metaChildDuration, false)
-	parentOp.TotalCount++
+	// Meta summary rows have no latency, so these are nominal placeholders.
+	parentOp.RecordDuration(metaParentDuration+time.Duration(len(row.children))*metaChildDuration, weight)
+	parentOp.TotalCount += weight
+	if row.numCalls > row.numReturningCalls {
+		parentOp.ErrorCount += row.numCalls - row.numReturningCalls
+	}
 
 	if len(row.children) >= 2 {
 		vote := collector.getCallStyle(parentStats, metaOperationName)
 		if row.concurrencyRate > 0 {
-			vote.Parallel++
+			vote.Parallel += weight
 		} else {
-			vote.Sequential++
+			vote.Sequential += weight
 		}
 	}
 
@@ -258,15 +292,16 @@ func recordMetaInvocation(collector *StatsCollector, row metaParentRow) {
 			call = &CallStats{}
 			parentOp.Calls[childRef] = call
 		}
-		call.Count++
+		call.Count += weight
 
 		childOp := collector.getOp(collector.getService(childService), metaOperationName)
-		childOp.RecordDuration(metaChildDuration, false)
-		childOp.TotalCount++
+		childOp.RecordDuration(metaChildDuration, weight)
+		childOp.TotalCount += weight
 	}
 }
 
 func metaServiceName(ingressID string) string {
+	// This display name is intentionally lossy; collisions merge ingress stats.
 	var b strings.Builder
 	b.WriteString("meta-")
 	lastHyphen := false

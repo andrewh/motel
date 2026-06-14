@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -46,25 +45,26 @@ const (
 // maxInputSize is the maximum input size to prevent OOM on large trace exports.
 const maxInputSize = 256 * 1024 * 1024 // 256 MB
 const maxStdouttraceLineSize = 10 * 1024 * 1024
+const bytesPerMegabyte = 1024 * 1024
 
 // ParseSpans reads spans from the given reader in the specified format.
 // FormatAuto inspects the first JSON object to determine the format.
 // Whole-document JSON inputs are limited to 256 MB to prevent OOM on large trace
-// exports. Line-delimited stdouttrace inputs are scanned incrementally.
+// exports. Explicit line-delimited stdouttrace inputs are scanned incrementally.
 func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 	switch format {
 	case FormatStdouttrace:
 		return parseStdouttraceReader(r)
 	case FormatAuto:
-		return parseAutoSpans(r)
+		return parseAutoSpans(r, maxInputSize)
 	case FormatOTLP:
-		data, err := readLimitedInput(r)
+		data, err := readLimitedInput(r, maxInputSize)
 		if err != nil {
 			return nil, err
 		}
 		return parseOTLP(data)
 	case FormatJaeger:
-		data, err := readLimitedInput(r)
+		data, err := readLimitedInput(r, maxInputSize)
 		if err != nil {
 			return nil, err
 		}
@@ -76,17 +76,8 @@ func ParseSpans(r io.Reader, format Format) ([]Span, error) {
 	}
 }
 
-func parseAutoSpans(r io.Reader) ([]Span, error) {
-	br := bufio.NewReader(r)
-	prefix, firstLine, err := readDetectionPrefix(br)
-	if err != nil {
-		return nil, err
-	}
-	if firstLineFormat(firstLine) == FormatStdouttrace {
-		return parseStdouttraceReader(io.MultiReader(bytes.NewReader(prefix), br))
-	}
-
-	data, err := readLimitedInput(io.MultiReader(bytes.NewReader(prefix), br))
+func parseAutoSpans(r io.Reader, maxSize int) ([]Span, error) {
+	data, err := readLimitedInput(r, maxSize)
 	if err != nil {
 		return nil, err
 	}
@@ -106,13 +97,13 @@ func parseAutoSpans(r io.Reader) ([]Span, error) {
 	}
 }
 
-func readLimitedInput(r io.Reader) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxInputSize+1))
+func readLimitedInput(r io.Reader, maxSize int) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, int64(maxSize)+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading input: %w", err)
 	}
-	if len(data) > maxInputSize {
-		return nil, fmt.Errorf("input exceeds maximum size of %d MB; stdouttrace and meta-summary inputs can be streamed with explicit --format", maxInputSize/(1024*1024))
+	if len(data) > maxSize {
+		return nil, fmt.Errorf("input exceeds maximum size of %s; stdouttrace and meta-summary inputs can be streamed with explicit --format", formatInputSize(maxSize))
 	}
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
@@ -121,44 +112,11 @@ func readLimitedInput(r io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-func readDetectionPrefix(br *bufio.Reader) ([]byte, []byte, error) {
-	var prefix []byte
-	for {
-		line, err := br.ReadBytes('\n')
-		if len(line) > 0 {
-			prefix = append(prefix, line...)
-			trimmed := bytes.TrimSpace(line)
-			if len(trimmed) > 0 {
-				return prefix, trimmed, nil
-			}
-		}
-		if errors.Is(err, io.EOF) {
-			if len(bytes.TrimSpace(prefix)) == 0 {
-				return nil, nil, fmt.Errorf("no spans found in input")
-			}
-			return prefix, bytes.TrimSpace(prefix), nil
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("reading input: %w", err)
-		}
+func formatInputSize(size int) string {
+	if size >= bytesPerMegabyte {
+		return fmt.Sprintf("%d MB", size/bytesPerMegabyte)
 	}
-}
-
-func firstLineFormat(firstLine []byte) Format {
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(firstLine, &probe); err != nil {
-		return ""
-	}
-	if _, ok := probe["SpanContext"]; ok {
-		return FormatStdouttrace
-	}
-	if _, ok := probe["resourceSpans"]; ok {
-		return FormatOTLP
-	}
-	if isJaegerData(probe["data"]) {
-		return FormatJaeger
-	}
-	return ""
+	return fmt.Sprintf("%d bytes", size)
 }
 
 // detectFormat examines the input to determine the format.
