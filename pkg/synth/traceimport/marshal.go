@@ -57,7 +57,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 		for _, opName := range sortedStringKeys(svcStats.Ops) {
 			opStats := svcStats.Ops[opName]
 			op := inferredOperation{
-				Duration:  FormatDuration(opStats.Durations),
+				Duration:  opStats.formatDuration(),
 				ErrorRate: FormatErrorRate(opStats.ErrorCount, opStats.TotalCount),
 			}
 

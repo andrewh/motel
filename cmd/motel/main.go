@@ -380,14 +380,16 @@ func validateCmd() *cobra.Command {
 
 func importCmd() *cobra.Command {
 	var (
-		format    string
-		minTraces int
+		format           string
+		minTraces        int
+		metaProfile      string
+		metaIncludeEmpty bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "import [file]",
 		Short: "Import a topology config from trace data",
-		Long:  "Reads trace spans (stdouttrace, OTLP JSON, or Jaeger JSON) and generates a synth YAML topology config.",
+		Long:  "Reads trace spans or supported summary data and generates a synth YAML topology config.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var r io.Reader = os.Stdin
@@ -401,9 +403,11 @@ func importCmd() *cobra.Command {
 			}
 
 			yamlBytes, err := traceimport.Import(r, traceimport.Options{
-				Format:    traceimport.Format(format),
-				MinTraces: minTraces,
-				Warnings:  cmd.ErrOrStderr(),
+				Format:           traceimport.Format(format),
+				MinTraces:        minTraces,
+				Warnings:         cmd.ErrOrStderr(),
+				MetaProfile:      metaProfile,
+				MetaIncludeEmpty: metaIncludeEmpty,
 			})
 			if err != nil {
 				if strings.Contains(err.Error(), "no spans found") {
@@ -417,8 +421,10 @@ func importCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, otlp, or jaeger (Jaeger JSON, including Grafana Explore Tempo downloads)")
+	cmd.Flags().StringVar(&format, "format", "auto", "input format: auto, stdouttrace, otlp, jaeger, or meta-summary (Meta ATC 2023 parent-data.csv)")
 	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
+	cmd.Flags().StringVar(&metaProfile, "profile", "", "profile filter for --format meta-summary: ads, fetch, or raas")
+	cmd.Flags().BoolVar(&metaIncludeEmpty, "include-empty", false, "include empty children_set rows for --format meta-summary")
 
 	return cmd
 }

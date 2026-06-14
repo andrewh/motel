@@ -166,14 +166,21 @@ Infer a topology from existing trace data.
 motel import [file] [flags]
 ```
 
-Reads trace spans and generates a YAML topology. If no file is given, reads from stdin.
+Reads trace spans or supported summary data and generates a YAML topology. If no file is given, reads from stdin.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--format` | string | `auto` | Input format: `auto`, `stdouttrace`, `otlp`, or `jaeger` |
+| `--format` | string | `auto` | Input format: `auto`, `stdouttrace`, `otlp`, `jaeger`, or `meta-summary` |
+| `--include-empty` | bool | false | Include empty `children_set` rows for `--format meta-summary` |
 | `--min-traces` | int | 1 | Minimum traces for statistical accuracy (warns if fewer) |
+| `--profile` | string |  | Profile filter for `--format meta-summary`: `ads`, `fetch`, or `raas` |
 
 The `auto` format detector examines the JSON structure to determine whether the input is stdouttrace JSON (one span per line), OTLP JSON (batched export format), or Jaeger JSON such as Grafana Explore Tempo downloads.
+Use `--format meta-summary` to import the Meta ATC 2023
+`summary_data_atc23/data/parent-data.csv.gz` file directly. This path streams
+plain CSV or gzip input, applies the optional `--profile` filter, and infers
+call probabilities and sequential/parallel call style from `children_set` and
+`concurrency_rate`.
 
 Output is written to stdout as a YAML topology with a commented header noting how many traces and spans were analysed.
 When `--min-traces` is greater than 1, confidence diagnostics are written to stderr when inferred operations, downstream call probabilities, or call-style votes are based on weak evidence relative to that sample target. Redirecting stdout still produces valid YAML suitable for `motel validate`.

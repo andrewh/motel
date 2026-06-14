@@ -11,10 +11,13 @@ import (
 
 // OpStats accumulates statistics for a single (service, operation) pair.
 type OpStats struct {
-	Durations  []time.Duration
-	ErrorCount int
-	TotalCount int
-	Calls      map[string]*CallStats // key: "targetService.targetOp"
+	Durations     []time.Duration
+	DurationCount int
+	DurationMean  float64
+	DurationM2    float64
+	ErrorCount    int
+	TotalCount    int
+	Calls         map[string]*CallStats // key: "targetService.targetOp"
 }
 
 // CallStats tracks how often a downstream call appears.
@@ -60,7 +63,7 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 	op := c.getOp(svc, node.Span.Operation)
 
 	duration := node.Span.EndTime.Sub(node.Span.StartTime)
-	op.Durations = append(op.Durations, duration)
+	op.RecordDuration(duration, true)
 	op.TotalCount++
 	if node.Span.IsError {
 		op.ErrorCount++
@@ -97,6 +100,42 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 	for _, child := range node.Children {
 		c.walkNode(child)
 	}
+}
+
+func (o *OpStats) RecordDuration(d time.Duration, keepSample bool) {
+	o.DurationCount++
+	value := float64(d)
+	delta := value - o.DurationMean
+	o.DurationMean += delta / float64(o.DurationCount)
+	o.DurationM2 += delta * (value - o.DurationMean)
+	if keepSample {
+		o.Durations = append(o.Durations, d)
+	}
+}
+
+func (o *OpStats) meanDuration() time.Duration {
+	if o.DurationCount > 0 {
+		mean := time.Duration(o.DurationMean)
+		if mean <= 0 {
+			return time.Microsecond
+		}
+		return mean
+	}
+	return MeanDuration(o.Durations)
+}
+
+func (o *OpStats) stdDevDuration() time.Duration {
+	if o.DurationCount > 1 {
+		return time.Duration(math.Sqrt(o.DurationM2 / float64(o.DurationCount-1)))
+	}
+	if o.DurationCount == 1 {
+		return 0
+	}
+	return StdDevDuration(o.Durations)
+}
+
+func (o *OpStats) formatDuration() string {
+	return formatDurationStats(o.meanDuration(), o.stdDevDuration())
 }
 
 func (c *StatsCollector) getService(name string) *ServiceStats {
@@ -203,7 +242,10 @@ func StdDevDuration(durations []time.Duration) time.Duration {
 func FormatDuration(durations []time.Duration) string {
 	mean := MeanDuration(durations)
 	stddev := StdDevDuration(durations)
+	return formatDurationStats(mean, stddev)
+}
 
+func formatDurationStats(mean time.Duration, stddev time.Duration) string {
 	meanStr := roundDuration(mean).String()
 	if stddev == 0 || float64(stddev) < float64(mean)*0.01 {
 		return meanStr

@@ -11,8 +11,10 @@ motel \- synthetic OpenTelemetry generator
 \fItopology.yaml\fR | \fIURL\fR
 .PP
 .B motel import
-[\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR]
+[\fB\-\-format\fR \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR|\fIjaeger\fR|\fImeta\-summary\fR]
+[\fB\-\-include\-empty\fR]
 [\fB\-\-min\-traces\fR \fIN\fR]
+[\fB\-\-profile\fR \fIprofile\fR]
 [\fIfile\fR]
 .PP
 .B motel check
@@ -104,12 +106,20 @@ Infer a topology from existing trace data. Reads from \fIfile\fR or stdin if
 no file is given. Output is a YAML topology written to stdout.
 .TP
 .B \-\-format
-\fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR
-Input format (default: auto). The auto detector examines the first line.
+\fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR|\fIjaeger\fR|\fImeta\-summary\fR
+Input format (default: auto). The auto detector examines the first JSON object.
+Use \fImeta\-summary\fR for Meta ATC 2023 parent-data.csv or parent-data.csv.gz.
+.TP
+.B \-\-include\-empty
+Include empty children_set rows for \fB\-\-format meta\-summary\fR.
 .TP
 .B \-\-min\-traces
 \fIN\fR
 Minimum traces for statistical accuracy; warns if fewer (default: 1).
+.TP
+.B \-\-profile
+\fIprofile\fR
+Profile filter for \fB\-\-format meta\-summary\fR: ads, fetch, or raas.
 .SS check
 Run structural checks on a topology. Computes worst\-case trace depth,
 fan\-out per span, and total spans per trace using static graph analysis,

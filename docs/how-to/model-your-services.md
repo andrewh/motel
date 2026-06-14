@@ -139,6 +139,13 @@ motel import traces.jsonl
 cat traces.jsonl | motel import
 ```
 
+For the Meta ATC 2023 public summary dataset, import `parent-data.csv.gz`
+directly instead of expanding it to synthetic spans:
+
+```sh
+motel import --format meta-summary --profile ads parent-data.csv.gz > meta-topology.yaml
+```
+
 The output is a YAML topology written to stdout. Redirect it to a file:
 
 ```sh

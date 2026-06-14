@@ -6,10 +6,10 @@ paper. The public repository is useful for this, but it does not publish raw
 span exports. It publishes summary CSVs and a notebook that reproduces the
 paper's figures.
 
-This note records the current import path: convert a representative subset of
-`parent-data.csv.gz` into motel's `stdouttrace` JSON, import it, validate the
-resulting topology, and compare the imported topology against the metrics in
-the released summary data.
+This note records two import paths: a native `meta-summary` mode that streams
+`parent-data.csv.gz` directly into a topology, and the older
+`tools/meta2stdouttrace` converter that materializes a representative subset as
+`stdouttrace` JSON for compatibility testing.
 
 ## Source Data
 
@@ -34,6 +34,26 @@ a parent ingress id. The row has a `children_set`, but no original trace id,
 span id, parent span id, timestamp, or duration. Because of that, the public
 data cannot be imported as raw traces directly.
 
+## Native Import
+
+`motel import --format meta-summary` reads `parent-data.csv` or
+`parent-data.csv.gz` directly. Each selected parent invocation contributes one
+parent operation sample and one child operation sample per entry in
+`children_set`:
+
+- the parent and child ingress ids become `meta-*` services with an `invoke`
+  operation
+- downstream call probability is inferred from how often each child appears
+  for a parent ingress id
+- `concurrency_rate > 0` votes for parallel call style; otherwise multi-child
+  rows vote for sequential call style
+- `--profile ads|fetch|raas` filters rows by the released profile column
+- empty `children_set` rows are skipped unless `--include-empty` is set
+
+This path does not reconstruct complete multi-hop traces because the public
+parent rows do not include trace identifiers linking parent invocations back
+into workflows.
+
 ## Converter
 
 `tools/meta2stdouttrace` turns `parent-data.csv.gz` into `stdouttrace` JSON.
@@ -47,11 +67,9 @@ Each selected parent invocation becomes one synthetic trace:
   `meta.num_returning_calls`, and `meta.concurrency_rate` are preserved as span
   attributes
 
-This is an ingestion harness, not a reconstruction of the original Meta traces.
+This remains useful as an ingestion harness for the generic stdouttrace parser.
 It proves that `motel import` can ingest a converted subset of the released
-public data and infer a valid topology from the parent-child observations. It
-does not reproduce the paper's full workflow depth because the released
-parent-data rows are not linked back into complete traces.
+public data and infer a valid topology from the parent-child observations.
 
 ## Reproduction
 
@@ -63,7 +81,16 @@ curl -L -o /tmp/motel-meta/parent-data.csv.gz \
   https://raw.githubusercontent.com/facebookresearch/distributed_traces/main/summary_data_atc23/data/parent-data.csv.gz
 ```
 
-Generate a deterministic 1,000-invocation Ads-profile sample:
+Build motel and import the Ads profile directly from the compressed CSV:
+
+```sh
+make build
+build/motel import --format meta-summary --profile ads --min-traces 100 \
+  /tmp/motel-meta/parent-data.csv.gz \
+  > /tmp/motel-meta/ads-parent-summary.yaml
+```
+
+For a smaller compatibility sample, generate deterministic `stdouttrace` JSON:
 
 ```sh
 go run ./tools/meta2stdouttrace \
@@ -73,10 +100,9 @@ go run ./tools/meta2stdouttrace \
   > /tmp/motel-meta/ads-parent-sample.jsonl
 ```
 
-Build motel and import the sample:
+Then import the sample:
 
 ```sh
-make build
 build/motel import --format stdouttrace --min-traces 100 \
   /tmp/motel-meta/ads-parent-sample.jsonl \
   > /tmp/motel-meta/ads-parent-sample.yaml
@@ -128,12 +154,9 @@ the span records needed by `motel import`.
 
 ## Follow-Up Work
 
-- Add a native summary-data path that produces a topology directly from
-  `parent-data.csv.gz`, preserving parent call probabilities without first
-  materializing synthetic span JSON.
-- Add an importer mode or separate tool for large streaming inputs. The current
-  trace importer reads the whole input and caps it at 256 MB, while a full
-  synthetic expansion of 40.2 million parent invocations would be much larger.
+- Extend bounded-memory import beyond the Meta summary path. Explicit
+  `stdouttrace` input is scanned incrementally, but OTLP and Jaeger JSON still
+  require whole-document parsing and retain the 256 MB safety cap.
 - Investigate whether Meta can publish raw trace exports or trace identifiers
   that link `parent-data.csv.gz` rows back into complete workflows. That would
   allow `motel import` to validate the paper's depth and span-count

@@ -15,9 +15,11 @@ import (
 
 // Options controls import behaviour.
 type Options struct {
-	Format    Format
-	MinTraces int
-	Warnings  io.Writer // defaults to os.Stderr
+	Format           Format
+	MinTraces        int
+	Warnings         io.Writer // defaults to os.Stderr
+	MetaProfile      string
+	MetaIncludeEmpty bool
 }
 
 // Import reads trace spans, analyses them, and produces a synth YAML config.
@@ -27,6 +29,9 @@ func Import(r io.Reader, opts Options) ([]byte, error) {
 	}
 	if opts.MinTraces == 0 {
 		opts.MinTraces = 1
+	}
+	if opts.Format == FormatMetaSummary {
+		return importMetaSummary(r, opts)
 	}
 
 	// Step 1: Parse spans
