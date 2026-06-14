@@ -4,7 +4,6 @@ package traceimport
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/andrewh/motel/pkg/synth"
@@ -34,7 +33,7 @@ func FuzzParseSpans(f *testing.F) {
 
 // FuzzMarshalRoundTrip uses coverage-guided fuzzing to explore the full
 // import pipeline: generate spans → build trees → collect stats → marshal YAML
-// → load config → validate. Any generated input must produce valid output.
+// → parse config → validate. Any generated input must produce valid output.
 func FuzzMarshalRoundTrip(f *testing.F) {
 	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		spans := genMultiTraceSpans(t)
@@ -51,21 +50,9 @@ func FuzzMarshalRoundTrip(f *testing.F) {
 			t.Fatalf("MarshalConfig: %v", err)
 		}
 
-		tmpFile, err := os.CreateTemp("", "fuzz-test-*.yaml")
+		cfg, err := synth.ParseConfig(yamlBytes)
 		if err != nil {
-			t.Fatalf("creating temp file: %v", err)
-		}
-		defer os.Remove(tmpFile.Name())
-
-		if _, err := tmpFile.Write(yamlBytes); err != nil {
-			tmpFile.Close()
-			t.Fatalf("writing temp file: %v", err)
-		}
-		tmpFile.Close()
-
-		cfg, err := synth.LoadConfig(tmpFile.Name())
-		if err != nil {
-			t.Fatalf("LoadConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
+			t.Fatalf("ParseConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)
 		}
 		if err := synth.ValidateConfig(cfg); err != nil {
 			t.Fatalf("ValidateConfig failed on generated YAML:\n%s\nerror: %v", yamlBytes, err)

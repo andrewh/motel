@@ -753,7 +753,8 @@ func TestMetricObserverIntervalCounter(t *testing.T) {
 	require.NoError(t, err)
 
 	stop := obs.Start()
-	t.Cleanup(stop)
+	var stopOnce sync.Once
+	t.Cleanup(func() { stopOnce.Do(stop) })
 
 	// No spans observed — emission is driven purely by the timer.
 	require.Eventually(t, func() bool {
@@ -767,6 +768,7 @@ func TestMetricObserverIntervalCounter(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "interval counter should accumulate without any spans")
 
 	// Span observation must not double-record interval instruments.
+	stopOnce.Do(stop)
 	before := func() float64 {
 		rm := collectMetrics(t, reader)
 		m := findMetric(rm, "gc.count")
