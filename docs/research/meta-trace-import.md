@@ -43,10 +43,12 @@ parent operation sample and one child operation sample per entry in
 
 - the parent and child ingress ids become `meta-*` services with an `invoke`
   operation
-- downstream call probability is inferred from how often each child appears
-  for a parent ingress id
+- `num_calls` weights downstream call probability so high-volume
+  `(parent_name, children_set)` rows contribute more than rare rows
+- `num_returning_calls` estimates the parent operation `error_rate` from calls
+  that did not return
 - `concurrency_rate > 0` votes for parallel call style; otherwise multi-child
-  rows vote for sequential call style
+  rows vote for sequential call style, again weighted by `num_calls`
 - `--profile ads|fetch|raas` filters rows by the released profile column
 - empty `children_set` rows are skipped unless `--include-empty` is set
 
@@ -292,8 +294,9 @@ Use the `trace-data.csv.gz` numbers to compare published full-workflow depth,
 width, trace size, and services per trace against the one-hop topology inferred
 from `parent-data.csv.gz`. Use the `parent-data.csv.gz` summary and
 `motel check` output to inspect local parent fan-out and generated trace size.
-The generated topology is expected to preserve parent-child probabilities from
-the summary data, but it cannot recover the original multi-hop workflows.
+The generated topology is expected to preserve `num_calls`-weighted
+parent-child probabilities from the summary data, but it cannot recover the
+original multi-hop workflows.
 
 ## Comparison
 

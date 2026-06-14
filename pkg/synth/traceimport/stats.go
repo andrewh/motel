@@ -11,7 +11,6 @@ import (
 
 // OpStats accumulates statistics for a single (service, operation) pair.
 type OpStats struct {
-	Durations     []time.Duration
 	DurationCount int
 	DurationMean  float64
 	DurationM2    float64
@@ -63,7 +62,7 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 	op := c.getOp(svc, node.Span.Operation)
 
 	duration := node.Span.EndTime.Sub(node.Span.StartTime)
-	op.RecordDuration(duration, true)
+	op.RecordDuration(duration, 1)
 	op.TotalCount++
 	if node.Span.IsError {
 		op.ErrorCount++
@@ -102,15 +101,16 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 	}
 }
 
-func (o *OpStats) RecordDuration(d time.Duration, keepSample bool) {
-	o.DurationCount++
-	value := float64(d)
-	delta := value - o.DurationMean
-	o.DurationMean += delta / float64(o.DurationCount)
-	o.DurationM2 += delta * (value - o.DurationMean)
-	if keepSample {
-		o.Durations = append(o.Durations, d)
+func (o *OpStats) RecordDuration(d time.Duration, weight int) {
+	if weight <= 0 {
+		return
 	}
+	value := float64(d)
+	nextCount := o.DurationCount + weight
+	delta := value - o.DurationMean
+	o.DurationMean += delta * float64(weight) / float64(nextCount)
+	o.DurationM2 += delta * (value - o.DurationMean) * float64(weight)
+	o.DurationCount = nextCount
 }
 
 func (o *OpStats) meanDuration() time.Duration {
@@ -121,7 +121,7 @@ func (o *OpStats) meanDuration() time.Duration {
 		}
 		return mean
 	}
-	return MeanDuration(o.Durations)
+	return 0
 }
 
 func (o *OpStats) stdDevDuration() time.Duration {
@@ -131,7 +131,7 @@ func (o *OpStats) stdDevDuration() time.Duration {
 	if o.DurationCount == 1 {
 		return 0
 	}
-	return StdDevDuration(o.Durations)
+	return 0
 }
 
 func (o *OpStats) formatDuration() string {
@@ -204,45 +204,6 @@ func isSequential(children []*SpanNode) bool {
 		}
 	}
 	return true
-}
-
-// MeanDuration computes the mean of a duration slice.
-// Uses float64 accumulator to avoid int64 overflow on large inputs.
-func MeanDuration(durations []time.Duration) time.Duration {
-	if len(durations) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, d := range durations {
-		sum += float64(d)
-	}
-	mean := time.Duration(sum / float64(len(durations)))
-	if mean <= 0 {
-		return time.Microsecond
-	}
-	return mean
-}
-
-// StdDevDuration computes the sample standard deviation of a duration slice.
-func StdDevDuration(durations []time.Duration) time.Duration {
-	if len(durations) < 2 {
-		return 0
-	}
-	mean := float64(MeanDuration(durations))
-	var sumSq float64
-	for _, d := range durations {
-		diff := float64(d) - mean
-		sumSq += diff * diff
-	}
-	return time.Duration(math.Sqrt(sumSq / float64(len(durations)-1)))
-}
-
-// FormatDuration produces a human-friendly distribution string.
-// Returns "Xms +/- Yms" when stddev is significant, or "Xms" when negligible.
-func FormatDuration(durations []time.Duration) string {
-	mean := MeanDuration(durations)
-	stddev := StdDevDuration(durations)
-	return formatDurationStats(mean, stddev)
 }
 
 func formatDurationStats(mean time.Duration, stddev time.Duration) string {

@@ -9,35 +9,44 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMeanDuration(t *testing.T) {
-	durations := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond}
-	assert.Equal(t, 20*time.Millisecond, MeanDuration(durations))
-}
+func TestOpStatsDurationStats(t *testing.T) {
+	var op OpStats
+	op.RecordDuration(10*time.Millisecond, 1)
+	op.RecordDuration(20*time.Millisecond, 1)
+	op.RecordDuration(30*time.Millisecond, 1)
 
-func TestMeanDuration_Empty(t *testing.T) {
-	assert.Equal(t, time.Duration(0), MeanDuration(nil))
-}
-
-func TestStdDevDuration(t *testing.T) {
-	durations := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond}
-	stddev := StdDevDuration(durations)
+	assert.Equal(t, 3, op.DurationCount)
+	assert.Equal(t, 20*time.Millisecond, op.meanDuration())
+	stddev := op.stdDevDuration()
 	assert.InDelta(t, 10*time.Millisecond, stddev, float64(time.Millisecond))
 }
 
-func TestStdDevDuration_Single(t *testing.T) {
-	assert.Equal(t, time.Duration(0), StdDevDuration([]time.Duration{5 * time.Millisecond}))
+func TestOpStatsDurationStats_Weighted(t *testing.T) {
+	var op OpStats
+	op.RecordDuration(10*time.Millisecond, 2)
+	op.RecordDuration(40*time.Millisecond, 1)
+
+	assert.Equal(t, 3, op.DurationCount)
+	assert.Equal(t, 20*time.Millisecond, op.meanDuration())
+	assert.Contains(t, op.formatDuration(), "+/-")
 }
 
-func TestFormatDuration_WithVariance(t *testing.T) {
-	durations := []time.Duration{20 * time.Millisecond, 30 * time.Millisecond, 40 * time.Millisecond}
-	result := FormatDuration(durations)
+func TestOpStatsFormatDuration_WithVariance(t *testing.T) {
+	var op OpStats
+	op.RecordDuration(20*time.Millisecond, 1)
+	op.RecordDuration(30*time.Millisecond, 1)
+	op.RecordDuration(40*time.Millisecond, 1)
+
+	result := op.formatDuration()
 	assert.Contains(t, result, "+/-")
 	assert.Contains(t, result, "ms")
 }
 
-func TestFormatDuration_Fixed(t *testing.T) {
-	durations := []time.Duration{10 * time.Millisecond}
-	result := FormatDuration(durations)
+func TestOpStatsFormatDuration_Fixed(t *testing.T) {
+	var op OpStats
+	op.RecordDuration(10*time.Millisecond, 1)
+
+	result := op.formatDuration()
 	assert.NotContains(t, result, "+/-")
 }
 

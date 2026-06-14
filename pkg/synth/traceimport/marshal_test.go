@@ -14,8 +14,8 @@ func TestMarshalConfig_Basic(t *testing.T) {
 	collector := NewStatsCollector()
 	svc := collector.getService("api")
 	op := collector.getOp(svc, "GET /users")
-	op.Durations = []time.Duration{30 * time.Millisecond, 40 * time.Millisecond}
-	op.TotalCount = 2
+	recordTestDuration(op, 30*time.Millisecond, 1)
+	recordTestDuration(op, 40*time.Millisecond, 1)
 
 	attrs := map[string]map[string]string{
 		"api": {"env": "prod"},
@@ -37,8 +37,7 @@ func TestMarshalConfig_Header(t *testing.T) {
 	collector := NewStatsCollector()
 	svc := collector.getService("api")
 	op := collector.getOp(svc, "handle")
-	op.Durations = []time.Duration{10 * time.Millisecond}
-	op.TotalCount = 1
+	recordTestDuration(op, 10*time.Millisecond, 1)
 
 	data, err := MarshalConfig(collector, nil, 4, 10, 1.42)
 	require.NoError(t, err)
@@ -53,16 +52,14 @@ func TestMarshalConfig_RoundTrip(t *testing.T) {
 	// Build a small topology: gateway -> backend
 	gw := collector.getService("gateway")
 	gwOp := collector.getOp(gw, "handle")
-	gwOp.Durations = []time.Duration{50 * time.Millisecond}
-	gwOp.TotalCount = 1
+	recordTestDuration(gwOp, 50*time.Millisecond, 1)
 	gwOp.Calls = map[string]*CallStats{
 		"backend.process": {Count: 1},
 	}
 
 	be := collector.getService("backend")
 	beOp := collector.getOp(be, "process")
-	beOp.Durations = []time.Duration{20 * time.Millisecond}
-	beOp.TotalCount = 1
+	recordTestDuration(beOp, 20*time.Millisecond, 1)
 
 	data, err := MarshalConfig(collector, nil, 1, 2, 0)
 	require.NoError(t, err)
@@ -76,16 +73,14 @@ func TestMarshalConfig_WithProbability(t *testing.T) {
 	collector := NewStatsCollector()
 	svc := collector.getService("api")
 	op := collector.getOp(svc, "handle")
-	op.Durations = []time.Duration{10 * time.Millisecond}
-	op.TotalCount = 10
+	recordTestDuration(op, 10*time.Millisecond, 10)
 	op.Calls = map[string]*CallStats{
 		"cache.get": {Count: 5},
 	}
 
 	cache := collector.getService("cache")
 	cacheOp := collector.getOp(cache, "get")
-	cacheOp.Durations = []time.Duration{1 * time.Millisecond}
-	cacheOp.TotalCount = 5
+	recordTestDuration(cacheOp, time.Millisecond, 5)
 
 	data, err := MarshalConfig(collector, nil, 10, 15, 1.0)
 	require.NoError(t, err)
@@ -99,8 +94,7 @@ func TestMarshalConfig_SequentialCallStyle(t *testing.T) {
 	collector := NewStatsCollector()
 	svc := collector.getService("api")
 	op := collector.getOp(svc, "handle")
-	op.Durations = []time.Duration{10 * time.Millisecond}
-	op.TotalCount = 1
+	recordTestDuration(op, 10*time.Millisecond, 1)
 	svc.CallStyles["handle"] = &CallStyleVote{Sequential: 5, Parallel: 1}
 
 	data, err := MarshalConfig(collector, nil, 1, 1, 0)
@@ -108,4 +102,9 @@ func TestMarshalConfig_SequentialCallStyle(t *testing.T) {
 
 	yaml := string(data)
 	assert.Contains(t, yaml, "call_style: sequential")
+}
+
+func recordTestDuration(op *OpStats, d time.Duration, count int) {
+	op.RecordDuration(d, count)
+	op.TotalCount += count
 }

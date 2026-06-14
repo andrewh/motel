@@ -184,7 +184,7 @@ func TestImport_MinTracesWarning(t *testing.T) {
 func TestImport_MetaSummaryGzipProfileFilter(t *testing.T) {
 	csvData := strings.Join([]string{
 		"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
-		`root,"{'childA', 'childB'}",2,2,1,ads`,
+		`root,"{'childA', 'childB'}",10.0,8.0,1,ads`,
 		`root,"{'childA'}",1,1,0,ads`,
 		`root,"{'fetchOnly'}",1,1,0,fetch`,
 		"leaf,set(),0,0,0,ads",
@@ -208,7 +208,8 @@ func TestImport_MetaSummaryGzipProfileFilter(t *testing.T) {
 	assert.Contains(t, yaml, "meta-root:")
 	assert.Contains(t, yaml, "meta-childa.invoke")
 	assert.Contains(t, yaml, "meta-childb.invoke")
-	assert.Contains(t, yaml, "probability: 0.5")
+	assert.Contains(t, yaml, "probability: 0.91")
+	assert.Contains(t, yaml, "error_rate: 18%")
 	assert.NotContains(t, yaml, "meta-fetchonly")
 	assert.NotContains(t, yaml, "meta-leaf")
 }
@@ -216,7 +217,7 @@ func TestImport_MetaSummaryGzipProfileFilter(t *testing.T) {
 func TestImport_MetaSummarySequentialCallStyle(t *testing.T) {
 	csvData := strings.Join([]string{
 		"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
-		`root,"{'childA', 'childB'}",2,2,0,ads`,
+		`root,"{'childA', 'childB'}",1,1,0,ads`,
 	}, "\n")
 
 	var warnings bytes.Buffer
@@ -228,5 +229,5 @@ func TestImport_MetaSummarySequentialCallStyle(t *testing.T) {
 
 	yaml := string(yamlBytes)
 	assert.Contains(t, yaml, "call_style: sequential")
-	assert.Contains(t, warnings.String(), "only 1 Meta parent invocation")
+	assert.Contains(t, warnings.String(), "only 1 weighted Meta parent sample")
 }
