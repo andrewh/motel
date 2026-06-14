@@ -32,6 +32,8 @@ but from production traces rather than a model.
   request workflow structure. Released public trace data.
   [USENIX](https://www.usenix.org/conference/atc23/presentation/huye) |
   [PDF](https://www.usenix.org/system/files/atc23-huye.pdf)
+  See [meta-trace-import.md](meta-trace-import.md) for the current motel import
+  workflow against the released summary data.
 
 - Luo et al., "Characterizing Microservice Dependency and Performance: Alibaba
   Trace Analysis," _ACM Symposium on Cloud Computing (SoCC)_, 2021. Earlier

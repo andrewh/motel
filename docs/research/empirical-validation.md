@@ -64,6 +64,8 @@ Huye et al. characterise Meta's request workflows as wide and shallow at the
 aggregation tier; Du et al. quantify children set sizes of up to 50 at Meta
 (versus 1–10 at Alibaba). The modelled topology is a feed-style workflow with
 an aggregator fanning out to 40 ranking leaves plus cache and metadata calls.
+For the public ATC 2023 summary data import workflow, see
+[meta-trace-import.md](meta-trace-import.md).
 
 | Published metric   | Reported value           | Modelled in topology | check agrees |
 | ------------------ | ------------------------ | -------------------- | ------------ |
