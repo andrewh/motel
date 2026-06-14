@@ -111,7 +111,7 @@ build/motel import --format stdouttrace --min-traces 100 \
 Confidence warnings are expected with a 1,000-row subset because many inferred
 operations and call probabilities have fewer than 100 samples.
 
-Validate and analyze the imported topology:
+Validate and analyze the subset topology:
 
 ```sh
 build/motel validate /tmp/motel-meta/ads-parent-sample.yaml
@@ -132,6 +132,168 @@ PASS  max-fan-out: 22 (limit: 100)
 PASS  max-spans: 23 static worst-case, 23 observed/1000 samples (limit: 10000)
       p50: 3  p95: 8  p99: 23  max: 23  (1000 samples)
 ```
+
+## Full-Size Local Workflow
+
+The native `meta-summary` path is intended for the full
+`parent-data.csv.gz`, not just the 1,000-row compatibility sample. The
+compressed file is small enough to download quickly, but it expands to about
+1.16 GB and contains 40.2 million rows, so keep the dataset and generated YAML
+under a scratch directory and redirect warnings and analysis output to files.
+
+Download the summary files used by the import and comparison steps:
+
+```sh
+mkdir -p /tmp/motel-meta
+base=https://raw.githubusercontent.com/facebookresearch/distributed_traces/main/summary_data_atc23/data
+for file in \
+  parent-data.csv.gz \
+  trace-data.csv.gz \
+  service-characteristics.csv \
+  service-endpoints.csv \
+  service-history.csv \
+  inferred-path-data.csv
+do
+  curl -L -o "/tmp/motel-meta/$file" "$base/$file"
+done
+```
+
+Build the current motel binary:
+
+```sh
+make build
+```
+
+Import each published profile from the complete parent invocation CSV:
+
+```sh
+for profile in ads fetch raas
+do
+  build/motel import --format meta-summary --profile "$profile" \
+    /tmp/motel-meta/parent-data.csv.gz \
+    > "/tmp/motel-meta/${profile}-parent-summary.yaml" \
+    2> "/tmp/motel-meta/${profile}-parent-summary.warnings.txt"
+done
+```
+
+To import all profiles into one topology, omit `--profile`:
+
+```sh
+build/motel import --format meta-summary \
+  /tmp/motel-meta/parent-data.csv.gz \
+  > /tmp/motel-meta/all-parent-summary.yaml \
+  2> /tmp/motel-meta/all-parent-summary.warnings.txt
+```
+
+By default, empty `children_set` rows are skipped so the generated topology
+focuses on observed parent-to-child calls. Add `--include-empty` when you also
+want parent ingress ids that only appear with no children.
+
+Validate and check every generated topology:
+
+```sh
+for topology in /tmp/motel-meta/*-parent-summary.yaml
+do
+  name=$(basename "$topology" .yaml)
+  build/motel validate "$topology" \
+    > "/tmp/motel-meta/${name}.validate.txt"
+  build/motel check --seed 42 --samples 1000 \
+    --max-depth 20 --max-fan-out 200000 --max-spans 200000 \
+    "$topology" \
+    > "/tmp/motel-meta/${name}.check.txt"
+done
+```
+
+The relaxed check limits make this an analysis run rather than an assertion
+that the topology is small. Use `--samples 0` for a faster static-only pass, or
+`--sample-strategy swarm` when you want to exercise rare call branches more
+aggressively than random sampling.
+
+Summarize the released trace-level and service-level CSVs alongside motel's
+generated topology checks:
+
+```sh
+python3 - <<'PY'
+import csv
+import gzip
+from collections import defaultdict
+from pathlib import Path
+
+root = Path("/tmp/motel-meta")
+
+def int_value(row, key):
+    value = row.get(key, "")
+    return int(float(value)) if value else 0
+
+def child_count(value):
+    value = value.strip()
+    if not value or value == "set()":
+        return 0
+    return value.count(",") + 1
+
+trace_stats = defaultdict(lambda: {
+    "rows": 0,
+    "max_depth": 0,
+    "max_width": 0,
+    "max_trace_size": 0,
+    "max_services": 0,
+})
+with gzip.open(root / "trace-data.csv.gz", "rt", newline="") as f:
+    for row in csv.DictReader(f):
+        stats = trace_stats[row["profile"]]
+        stats["rows"] += 1
+        stats["max_depth"] = max(stats["max_depth"], int_value(row, "call_depth"))
+        stats["max_width"] = max(stats["max_width"], int_value(row, "max_width"))
+        stats["max_trace_size"] = max(
+            stats["max_trace_size"], int_value(row, "trace_size"))
+        stats["max_services"] = max(
+            stats["max_services"], int_value(row, "num_services"))
+
+parent_stats = defaultdict(lambda: {
+    "rows": 0,
+    "nonempty_rows": 0,
+    "max_children_set": 0,
+})
+with gzip.open(root / "parent-data.csv.gz", "rt", newline="") as f:
+    for row in csv.DictReader(f):
+        count = child_count(row["children_set"])
+        stats = parent_stats[row["profile"]]
+        stats["rows"] += 1
+        if count:
+            stats["nonempty_rows"] += 1
+        stats["max_children_set"] = max(stats["max_children_set"], count)
+
+service_rows = 0
+service_stats = {"max_fan_out_all": 0, "max_fan_in_all": 0, "max_instances": 0}
+with open(root / "service-characteristics.csv", newline="") as f:
+    for row in csv.DictReader(f):
+        service_rows += 1
+        service_stats["max_fan_out_all"] = max(
+            service_stats["max_fan_out_all"], int_value(row, "num_fan_out_all"))
+        service_stats["max_fan_in_all"] = max(
+            service_stats["max_fan_in_all"], int_value(row, "num_fan_in_all"))
+        service_stats["max_instances"] = max(
+            service_stats["max_instances"], int_value(row, "num_instances"))
+
+print("trace-data.csv.gz")
+for profile, stats in sorted(trace_stats.items()):
+    print(profile, stats)
+
+print("\nparent-data.csv.gz")
+for profile, stats in sorted(parent_stats.items()):
+    print(profile, stats)
+
+print("\nservice-characteristics.csv")
+print({"rows": service_rows, **service_stats})
+PY
+```
+
+Use the `trace-data.csv.gz` numbers to compare published full-workflow depth,
+width, trace size, and services per trace against the one-hop topology inferred
+from `parent-data.csv.gz`. Use the `parent-data.csv.gz` summary and
+`motel check` output to inspect local parent fan-out and generated trace size.
+The generated topology is expected to preserve parent-child probabilities from
+the summary data, but it cannot recover the original multi-hop workflows.
 
 ## Comparison
 

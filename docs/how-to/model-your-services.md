@@ -146,6 +146,9 @@ directly instead of expanding it to synthetic spans:
 motel import --format meta-summary --profile ads parent-data.csv.gz > meta-topology.yaml
 ```
 
+For full-size local import and comparison commands, see
+[Importing the Meta ATC 2023 Trace Summary Data](../research/meta-trace-import.md).
+
 The output is a YAML topology written to stdout. Redirect it to a file:
 
 ```sh
