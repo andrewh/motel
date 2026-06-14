@@ -103,7 +103,12 @@ func main() {
 			return nil
 		}
 
-		rel, _ := filepath.Rel(*dirFlag, path)
+		rel, err := filepath.Rel(*dirFlag, path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skip %s: %v\n", path, err)
+			skipped++
+			return nil
+		}
 		outPath := filepath.Join(*outFlag, strings.TrimSuffix(rel, ".json")+".yaml")
 		if err := writeFile(outPath, yaml); err != nil {
 			return err

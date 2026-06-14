@@ -265,11 +265,10 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				op.Links = append(op.Links, linkOp)
 			}
 			for _, callCfg := range opCfg.Calls {
-				targetSvc, targetOp, err := resolveRef(topo, callCfg.Target)
+				_, targetOp, err := resolveRef(topo, callCfg.Target)
 				if err != nil {
 					return nil, fmt.Errorf("service %q operation %q: %w", svcCfg.Name, opCfg.Name, err)
 				}
-				_ = targetSvc
 				call := Call{
 					Operation:   targetOp,
 					Probability: callCfg.Probability,
