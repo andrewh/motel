@@ -41,8 +41,9 @@ data cannot be imported as raw traces directly.
 parent operation sample and one child operation sample per entry in
 `children_set`:
 
-- the parent and child ingress ids become `meta-*` services with an `invoke`
-  operation
+- the parent and child ingress ids become `meta-<slug>-<hash>` services with
+  an `invoke` operation, and the exact upstream id is preserved as the
+  `meta.ingress_id` resource attribute
 - `num_calls` weights downstream call probability so high-volume
   `(parent_name, children_set)` rows contribute more than rare rows
 - `num_returning_calls` estimates the parent operation `error_rate` from calls

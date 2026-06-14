@@ -109,6 +109,9 @@ no file is given. Output is a YAML topology written to stdout.
 \fIauto\fR|\fIstdouttrace\fR|\fIotlp\fR|\fIjaeger\fR|\fImeta\-summary\fR
 Input format (default: auto). The auto detector examines the first JSON object.
 Use \fImeta\-summary\fR for Meta ATC 2023 parent-data.csv or parent-data.csv.gz.
+Meta ingress ids are emitted as collision-resistant \fImeta-<slug>-<hash>\fR
+service names, with the exact upstream id preserved in the
+\fImeta.ingress_id\fR resource attribute.
 .TP
 .B \-\-include\-empty
 Include empty children_set rows for \fB\-\-format meta\-summary\fR.

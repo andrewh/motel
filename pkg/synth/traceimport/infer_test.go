@@ -205,13 +205,15 @@ func TestImport_MetaSummaryGzipProfileFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	yaml := string(yamlBytes)
-	assert.Contains(t, yaml, "meta-root:")
-	assert.Contains(t, yaml, "meta-childa.invoke")
-	assert.Contains(t, yaml, "meta-childb.invoke")
+	assert.Contains(t, yaml, metaServiceName("root")+":")
+	assert.Contains(t, yaml, metaServiceName("childA")+".invoke")
+	assert.Contains(t, yaml, metaServiceName("childB")+".invoke")
 	assert.Contains(t, yaml, "probability: 0.91")
 	assert.Contains(t, yaml, "error_rate: 18%")
-	assert.NotContains(t, yaml, "meta-fetchonly")
-	assert.NotContains(t, yaml, "meta-leaf")
+	assert.Contains(t, yaml, "meta.ingress_id: root")
+	assert.Contains(t, yaml, "meta.ingress_id: childA")
+	assert.NotContains(t, yaml, metaServiceName("fetchOnly"))
+	assert.NotContains(t, yaml, metaServiceName("leaf"))
 }
 
 func TestImport_MetaSummarySequentialCallStyle(t *testing.T) {
@@ -230,4 +232,37 @@ func TestImport_MetaSummarySequentialCallStyle(t *testing.T) {
 	yaml := string(yamlBytes)
 	assert.Contains(t, yaml, "call_style: sequential")
 	assert.Contains(t, warnings.String(), "only 1 weighted Meta parent sample")
+}
+
+func TestImport_MetaSummaryPreservesDistinctIngressIDs(t *testing.T) {
+	csvData := strings.Join([]string{
+		"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
+		`Service.A,"{'leaf'}",1,1,0,ads`,
+		`service-a,"{'leaf'}",1,1,0,ads`,
+	}, "\n")
+
+	yamlBytes, err := Import(strings.NewReader(csvData), Options{
+		Format: FormatMetaSummary,
+	})
+	require.NoError(t, err)
+
+	firstName := metaServiceName("Service.A")
+	secondName := metaServiceName("service-a")
+	require.NotEqual(t, firstName, secondName)
+
+	yaml := string(yamlBytes)
+	assert.Contains(t, yaml, firstName+":")
+	assert.Contains(t, yaml, secondName+":")
+	assert.Contains(t, yaml, "meta.ingress_id: Service.A")
+	assert.Contains(t, yaml, "meta.ingress_id: service-a")
+}
+
+func TestMetaServiceNameUsesStableCollisionResistantSuffix(t *testing.T) {
+	firstName := metaServiceName("Service.A")
+	secondName := metaServiceName("service-a")
+
+	assert.NotEqual(t, firstName, secondName)
+	assert.Regexp(t, `^meta-service-a-[0-9a-f]{16}$`, firstName)
+	assert.Regexp(t, `^meta-service-a-[0-9a-f]{16}$`, secondName)
+	assert.Equal(t, firstName, metaServiceName("Service.A"))
 }
