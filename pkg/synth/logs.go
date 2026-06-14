@@ -309,7 +309,7 @@ func interpolateBody(body string, logAttrs map[string]any, info SpanInfo) string
 		}
 		for _, kv := range info.Attrs {
 			if string(kv.Key) == key {
-				return kv.Value.Emit()
+				return kv.Value.String()
 			}
 		}
 		switch key {
