@@ -972,6 +972,29 @@ func TestImportCommand(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, stderr.String(), "only 1 trace")
 	})
+
+	t.Run("meta summary format", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "parent-data.csv")
+		input := strings.Join([]string{
+			"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
+			`root,"{'childA', 'childB'}",2,2,1,ads`,
+			`root,"{'fetchOnly'}",1,1,0,fetch`,
+		}, "\n")
+		require.NoError(t, os.WriteFile(path, []byte(input), 0o600))
+
+		root := rootCmd()
+		root.SetArgs([]string{"import", "--format", "meta-summary", "--profile", "ads", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+
+		err := root.Execute()
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "meta-root:")
+		assert.Contains(t, out.String(), "meta-childa.invoke")
+		assert.NotContains(t, out.String(), "meta-fetchonly")
+	})
 }
 
 func TestRunStdoutImportRoundTrip(t *testing.T) {

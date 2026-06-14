@@ -4,6 +4,7 @@ package traceimport
 
 import (
 	"bytes"
+	"compress/gzip"
 	"os"
 	"strings"
 	"testing"
@@ -178,4 +179,54 @@ func TestImport_MinTracesWarning(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, warnings.String(), "only 1 trace")
 	assert.Contains(t, warnings.String(), "requested minimum: 5")
+}
+
+func TestImport_MetaSummaryGzipProfileFilter(t *testing.T) {
+	csvData := strings.Join([]string{
+		"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
+		`root,"{'childA', 'childB'}",2,2,1,ads`,
+		`root,"{'childA'}",1,1,0,ads`,
+		`root,"{'fetchOnly'}",1,1,0,fetch`,
+		"leaf,set(),0,0,0,ads",
+	}, "\n")
+
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	_, err := gz.Write([]byte(csvData))
+	require.NoError(t, err)
+	require.NoError(t, gz.Close())
+
+	var warnings bytes.Buffer
+	yamlBytes, err := Import(&compressed, Options{
+		Format:      FormatMetaSummary,
+		MetaProfile: "ads",
+		Warnings:    &warnings,
+	})
+	require.NoError(t, err)
+
+	yaml := string(yamlBytes)
+	assert.Contains(t, yaml, "meta-root:")
+	assert.Contains(t, yaml, "meta-childa.invoke")
+	assert.Contains(t, yaml, "meta-childb.invoke")
+	assert.Contains(t, yaml, "probability: 0.5")
+	assert.NotContains(t, yaml, "meta-fetchonly")
+	assert.NotContains(t, yaml, "meta-leaf")
+}
+
+func TestImport_MetaSummarySequentialCallStyle(t *testing.T) {
+	csvData := strings.Join([]string{
+		"parent_name,children_set,num_calls,num_returning_calls,concurrency_rate,profile",
+		`root,"{'childA', 'childB'}",2,2,0,ads`,
+	}, "\n")
+
+	var warnings bytes.Buffer
+	yamlBytes, err := Import(strings.NewReader(csvData), Options{
+		Format:   FormatMetaSummary,
+		Warnings: &warnings,
+	})
+	require.NoError(t, err)
+
+	yaml := string(yamlBytes)
+	assert.Contains(t, yaml, "call_style: sequential")
+	assert.Contains(t, warnings.String(), "only 1 Meta parent invocation")
 }
