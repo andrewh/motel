@@ -39,11 +39,10 @@ with rapid, generating topologies with motel's engine.
             (second in-memory exporter)               over both sets
 ```
 
-The proof-of-concept lives in
-[`pkg/pipelinetest`](../../pkg/pipelinetest) (the reusable I/O harness) and
-[`pkg/synth/pipeline_test.go`](../../pkg/synth/pipeline_test.go) (the
-invariants). It passes the trivial conservation invariant over 100 generated
-topologies and demonstrates that the harness detects a lossy pipeline.
+The proof-of-concept lives in `pkg/pipelinetest` (the reusable I/O harness) and
+`pkg/synth/pipeline_test.go` (the invariants). It passes the trivial
+conservation invariant over 100 generated topologies and demonstrates that the
+harness detects a lossy pipeline.
 
 ## Scope: library, not a subcommand
 
@@ -137,8 +136,8 @@ Config-varying tests pay one subprocess start per config.
 
 ## Proof of concept
 
-Three tests in [`pkg/synth/pipeline_test.go`](../../pkg/synth/pipeline_test.go)
-exercise the architecture against a real `otelcol` v0.128.0:
+Three tests in `pkg/synth/pipeline_test.go` exercise the architecture against a
+real `otelcol` v0.128.0:
 
 - **`TestPipeline_AllSpansRoundTrip`** — generates 20 traces from a fixed
   topology through a pass-through pipeline (`otlp` → `otlphttp`, no processors)
@@ -165,8 +164,8 @@ go test ./pkg/synth/ -run TestPipeline -v
 ```
 
 The sink decode path also has a standalone unit test
-([`pkg/pipelinetest/sink_test.go`](../../pkg/pipelinetest/sink_test.go)) that
-needs no collector, so the harness has always-on coverage.
+(`pkg/pipelinetest/sink_test.go`) that needs no collector, so the harness has
+always-on coverage.
 
 ## Productionisation note
 
