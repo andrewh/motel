@@ -54,6 +54,10 @@ docs/tutorials/     # Getting started tutorial
 ## Commits and Releases
 
 - Single task per commit, no AI attribution in commit messages
+- Use conventional commits for commit subjects
+- Single-line commit messages are forbidden except for truly trivial changes
+- Every non-trivial commit message body must reference and ideally explain every change in the commit
+- Wrap commit message body text at 80 columns
 - Tag and release only for user-visible features or bug fixes, not for lint/docs/refactoring
 - GoReleaser runs via CI on tag push — updates GitHub release and Homebrew tap automatically
 
