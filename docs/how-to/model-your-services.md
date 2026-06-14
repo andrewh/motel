@@ -127,7 +127,7 @@ motel run --stdout --duration 30s topology.yaml > traces.jsonl
 cat exported-traces.json
 ```
 
-More traces produce better statistical accuracy. The import command warns if you have fewer traces than `--min-traces` (default: 1), and it also prints confidence diagnostics when individual operations, downstream calls, or call-style votes are based on small samples.
+More traces produce better statistical accuracy. The import command warns if the input has fewer traces than `--min-traces` (default: 1). When you raise `--min-traces`, import also uses that value as the sample target for per-operation, downstream-call, and call-style confidence diagnostics.
 
 ### 2. Run import
 
@@ -158,7 +158,7 @@ The inferred topology is a starting point, not a finished product. Review it for
 - **Duration distributions** — import calculates mean and standard deviation from the observed spans. Check that these match your expectations.
 - **Error rates** — derived from the proportion of error spans. Small sample sizes produce noisy estimates.
 - **Call style** — import votes on parallel vs sequential based on child span timing overlap. Verify this matches your service's actual behaviour.
-- **Confidence diagnostics** — warnings list operations below the requested sample count, downstream calls observed only a few times, and weak or mixed call-style votes. Treat these as review prompts, not validation failures.
+- **Confidence diagnostics** — warnings list operations below the requested sample target, downstream calls observed fewer times than the target, and weak or mixed call-style votes. Treat these as review prompts, not validation failures.
 - **Missing services** — import can only infer what it sees. If some call paths are rare, they may not appear in a small sample.
 
 Validate the inferred topology and generate traces from it:

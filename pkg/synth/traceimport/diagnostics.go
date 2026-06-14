@@ -3,13 +3,9 @@ package traceimport
 import (
 	"fmt"
 	"io"
-	"sort"
 )
 
-const (
-	lowConfidenceCallObservations = 3
-	lowConfidenceCallStyleVotes   = 3
-)
+const mixedCallStyleVoteRatio = 0.2
 
 func reportConfidenceDiagnostics(collector *StatsCollector, minSamples int, w io.Writer) {
 	if collector == nil || w == nil {
@@ -19,18 +15,18 @@ func reportConfidenceDiagnostics(collector *StatsCollector, minSamples int, w io
 		minSamples = 1
 	}
 
-	for _, svcName := range sortedServiceNames(collector.Services) {
+	for _, svcName := range sortedStringKeys(collector.Services) {
 		svc := collector.Services[svcName]
-		for _, opName := range sortedOpNames(svc.Ops) {
+		for _, opName := range sortedStringKeys(svc.Ops) {
 			op := svc.Ops[opName]
 			ref := svcName + "." + opName
 			if op.TotalCount < minSamples {
-				_, _ = fmt.Fprintf(w, "warning: import confidence: %s has %d samples below requested minimum %d; duration and error_rate estimates may be noisy (errors=%d)\n",
+				_, _ = fmt.Fprintf(w, "warning: import confidence: %s has %d operation samples below requested target %d from --min-traces; duration and error_rate estimates may be noisy (errors=%d)\n",
 					ref, op.TotalCount, minSamples, op.ErrorCount)
 			}
-			for _, target := range sortedCallTargets(op.Calls) {
+			for _, target := range sortedStringKeys(op.Calls) {
 				cs := op.Calls[target]
-				if cs.Count <= lowConfidenceCallObservations {
+				if minSamples > 1 && cs.Count < minSamples && cs.Count < op.TotalCount {
 					_, _ = fmt.Fprintf(w, "warning: import confidence: %s -> %s observed %d times across %d parent samples; inferred call probability needs review\n",
 						ref, target, cs.Count, op.TotalCount)
 				}
@@ -40,7 +36,7 @@ func reportConfidenceDiagnostics(collector *StatsCollector, minSamples int, w io
 				continue
 			}
 			totalVotes := vote.Parallel + vote.Sequential
-			if totalVotes <= lowConfidenceCallStyleVotes || vote.Parallel > 0 && vote.Sequential > 0 {
+			if minSamples > 1 && (totalVotes < minSamples || hasMixedCallStyleEvidence(vote)) {
 				style := "parallel"
 				if vote.Sequential > vote.Parallel {
 					style = "sequential"
@@ -52,29 +48,14 @@ func reportConfidenceDiagnostics(collector *StatsCollector, minSamples int, w io
 	}
 }
 
-func sortedServiceNames(services map[string]*ServiceStats) []string {
-	names := make([]string, 0, len(services))
-	for name := range services {
-		names = append(names, name)
+func hasMixedCallStyleEvidence(vote *CallStyleVote) bool {
+	total := vote.Parallel + vote.Sequential
+	if total == 0 || vote.Parallel == 0 || vote.Sequential == 0 {
+		return false
 	}
-	sort.Strings(names)
-	return names
-}
-
-func sortedOpNames(ops map[string]*OpStats) []string {
-	names := make([]string, 0, len(ops))
-	for name := range ops {
-		names = append(names, name)
+	minority := vote.Parallel
+	if vote.Sequential < minority {
+		minority = vote.Sequential
 	}
-	sort.Strings(names)
-	return names
-}
-
-func sortedCallTargets(calls map[string]*CallStats) []string {
-	targets := make([]string, 0, len(calls))
-	for target := range calls {
-		targets = append(targets, target)
-	}
-	sort.Strings(targets)
-	return targets
+	return float64(minority)/float64(total) >= mixedCallStyleVoteRatio
 }
