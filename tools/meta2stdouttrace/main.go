@@ -24,6 +24,26 @@ const (
 	defaultStartTime      = "2022-12-21T00:00:00Z"
 	rootParentSpanID      = "0000000000000000"
 	operationName         = "invoke"
+	spanIDTraceShift      = 32
+	rootSpanOrdinal       = uint64(0)
+)
+
+const (
+	columnParentName        = "parent_name"
+	columnChildrenSet       = "children_set"
+	columnNumCalls          = "num_calls"
+	columnNumReturningCalls = "num_returning_calls"
+	columnConcurrencyRate   = "concurrency_rate"
+	columnProfile           = "profile"
+)
+
+const (
+	attrMetaIngressID         = "meta.ingress_id"
+	attrMetaProfile           = "meta.profile"
+	attrMetaNumCalls          = "meta.num_calls"
+	attrMetaNumReturningCalls = "meta.num_returning_calls"
+	attrMetaConcurrencyRate   = "meta.concurrency_rate"
+	attrServiceName           = "service.name"
 )
 
 type options struct {
@@ -37,9 +57,9 @@ type options struct {
 type parentRow struct {
 	parentName        string
 	children          []string
-	numCalls          string
-	numReturningCalls string
-	concurrencyRate   string
+	numCalls          int
+	numReturningCalls int
+	concurrencyRate   float64
 	profile           string
 }
 
@@ -128,7 +148,14 @@ func run(w io.Writer, opts options) error {
 		return fmt.Errorf("read header: %w", err)
 	}
 	cols := indexHeader(header)
-	required := []string{"parent_name", "children_set", "num_calls", "num_returning_calls", "concurrency_rate", "profile"}
+	required := []string{
+		columnParentName,
+		columnChildrenSet,
+		columnNumCalls,
+		columnNumReturningCalls,
+		columnConcurrencyRate,
+		columnProfile,
+	}
 	for _, name := range required {
 		if _, ok := cols[name]; !ok {
 			return fmt.Errorf("missing required column %q", name)
@@ -139,14 +166,14 @@ func run(w io.Writer, opts options) error {
 	emitted := 0
 	rowNumber := 1
 	for {
+		rowNumber++
 		record, err := reader.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("read row %d: %w", rowNumber+1, err)
+			return fmt.Errorf("read row %d: %w", rowNumber, err)
 		}
-		rowNumber++
 
 		row, err := parseParentRow(record, cols)
 		if err != nil {
@@ -217,18 +244,48 @@ func indexHeader(header []string) map[string]int {
 }
 
 func parseParentRow(record []string, cols map[string]int) (parentRow, error) {
-	children, err := parseChildrenSet(record[cols["children_set"]])
+	children, err := parseChildrenSet(record[cols[columnChildrenSet]])
+	if err != nil {
+		return parentRow{}, err
+	}
+	numCalls, err := parseIntColumn(record, cols, columnNumCalls)
+	if err != nil {
+		return parentRow{}, err
+	}
+	numReturningCalls, err := parseIntColumn(record, cols, columnNumReturningCalls)
+	if err != nil {
+		return parentRow{}, err
+	}
+	concurrencyRate, err := parseFloatColumn(record, cols, columnConcurrencyRate)
 	if err != nil {
 		return parentRow{}, err
 	}
 	return parentRow{
-		parentName:        record[cols["parent_name"]],
+		parentName:        record[cols[columnParentName]],
 		children:          children,
-		numCalls:          record[cols["num_calls"]],
-		numReturningCalls: record[cols["num_returning_calls"]],
-		concurrencyRate:   record[cols["concurrency_rate"]],
-		profile:           record[cols["profile"]],
+		numCalls:          numCalls,
+		numReturningCalls: numReturningCalls,
+		concurrencyRate:   concurrencyRate,
+		profile:           record[cols[columnProfile]],
 	}, nil
+}
+
+func parseIntColumn(record []string, cols map[string]int, name string) (int, error) {
+	value := record[cols[name]]
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s %q: %w", name, value, err)
+	}
+	return n, nil
+}
+
+func parseFloatColumn(record []string, cols map[string]int, name string) (float64, error) {
+	value := record[cols[name]]
+	n, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s %q: %w", name, value, err)
+	}
+	return n, nil
 }
 
 func parseChildrenSet(value string) ([]string, error) {
@@ -253,8 +310,9 @@ func parseChildrenSet(value string) ([]string, error) {
 }
 
 func invocationEvents(row parentRow, index int, start time.Time) []stdouttraceEvent {
-	traceID := fmt.Sprintf("%032x", index+1)
-	rootSpanID := fmt.Sprintf("%016x", (index+1)<<16)
+	traceOrdinal := uint64(index) + 1
+	traceID := fmt.Sprintf("%032x", traceOrdinal)
+	rootSpanID := spanID(traceOrdinal, rootSpanOrdinal)
 	rootService := serviceName(row.parentName)
 	parentDuration := defaultParentDuration + time.Duration(len(row.children))*defaultChildDuration
 
@@ -265,13 +323,13 @@ func invocationEvents(row parentRow, index int, start time.Time) []stdouttraceEv
 		StartTime:   start,
 		EndTime:     start.Add(parentDuration),
 		Attributes: []sdkAttr{
-			stringAttr("meta.ingress_id", row.parentName),
-			stringAttr("meta.profile", row.profile),
-			stringAttr("meta.num_calls", row.numCalls),
-			stringAttr("meta.num_returning_calls", row.numReturningCalls),
-			stringAttr("meta.concurrency_rate", row.concurrencyRate),
+			stringAttr(attrMetaIngressID, row.parentName),
+			stringAttr(attrMetaProfile, row.profile),
+			stringAttr(attrMetaNumCalls, strconv.Itoa(row.numCalls)),
+			stringAttr(attrMetaNumReturningCalls, strconv.Itoa(row.numReturningCalls)),
+			stringAttr(attrMetaConcurrencyRate, strconv.FormatFloat(row.concurrencyRate, 'g', -1, 64)),
 		},
-		Resource:             []sdkAttr{stringAttr("service.name", rootService)},
+		Resource:             []sdkAttr{stringAttr(attrServiceName, rootService)},
 		Status:               sdkStatus{Code: "Unset"},
 		InstrumentationScope: sdkScope{Name: rootService},
 	}}
@@ -285,15 +343,15 @@ func invocationEvents(row parentRow, index int, start time.Time) []stdouttraceEv
 		childService := serviceName(child)
 		events = append(events, stdouttraceEvent{
 			Name:        operationName,
-			SpanContext: spanContext{TraceID: traceID, SpanID: fmt.Sprintf("%016x", ((index+1)<<16)+i+1)},
+			SpanContext: spanContext{TraceID: traceID, SpanID: spanID(traceOrdinal, uint64(i)+1)},
 			Parent:      spanContext{TraceID: traceID, SpanID: rootSpanID},
 			StartTime:   childStart,
 			EndTime:     childStart.Add(defaultChildDuration),
 			Attributes: []sdkAttr{
-				stringAttr("meta.ingress_id", child),
-				stringAttr("meta.profile", row.profile),
+				stringAttr(attrMetaIngressID, child),
+				stringAttr(attrMetaProfile, row.profile),
 			},
-			Resource:             []sdkAttr{stringAttr("service.name", childService)},
+			Resource:             []sdkAttr{stringAttr(attrServiceName, childService)},
 			Status:               sdkStatus{Code: "Unset"},
 			InstrumentationScope: sdkScope{Name: childService},
 		})
@@ -301,9 +359,12 @@ func invocationEvents(row parentRow, index int, start time.Time) []stdouttraceEv
 	return events
 }
 
-func isConcurrent(value string) bool {
-	rate, err := strconv.ParseFloat(value, 64)
-	return err == nil && rate > 0
+func spanID(traceOrdinal uint64, childOrdinal uint64) string {
+	return fmt.Sprintf("%016x", traceOrdinal<<spanIDTraceShift|childOrdinal)
+}
+
+func isConcurrent(rate float64) bool {
+	return rate > 0
 }
 
 func serviceName(ingressID string) string {
