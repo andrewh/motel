@@ -88,6 +88,7 @@ nav:
       - docs/research/empirical-validation.md
       - docs/research/related-work.md
       - docs/research/palette-trace-benchmarking.md
+      - docs/research/collector-pipeline-testing.md
   - Reference:
       - CLI reference: docs/reference/synth.md
       - DSL reference: cmd/motel/README.md
