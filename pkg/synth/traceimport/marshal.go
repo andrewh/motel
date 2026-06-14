@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"sort"
 
 	"github.com/andrewh/motel/pkg/synth"
 	"gopkg.in/yaml.v3"
@@ -45,14 +44,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 		Traffic:  make(map[string]string),
 	}
 
-	// Sort service names for deterministic output
-	svcNames := make([]string, 0, len(collector.Services))
-	for name := range collector.Services {
-		svcNames = append(svcNames, name)
-	}
-	sort.Strings(svcNames)
-
-	for _, svcName := range svcNames {
+	for _, svcName := range sortedStringKeys(collector.Services) {
 		svcStats := collector.Services[svcName]
 		svc := inferredService{
 			Operations: make(map[string]inferredOperation),
@@ -62,13 +54,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 			svc.ResourceAttributes = attrs
 		}
 
-		opNames := make([]string, 0, len(svcStats.Ops))
-		for name := range svcStats.Ops {
-			opNames = append(opNames, name)
-		}
-		sort.Strings(opNames)
-
-		for _, opName := range opNames {
+		for _, opName := range sortedStringKeys(svcStats.Ops) {
 			opStats := svcStats.Ops[opName]
 			op := inferredOperation{
 				Duration:  FormatDuration(opStats.Durations),
@@ -84,13 +70,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 
 			// Calls
 			if len(opStats.Calls) > 0 {
-				callTargets := make([]string, 0, len(opStats.Calls))
-				for target := range opStats.Calls {
-					callTargets = append(callTargets, target)
-				}
-				sort.Strings(callTargets)
-
-				for _, target := range callTargets {
+				for _, target := range sortedStringKeys(opStats.Calls) {
 					cs := opStats.Calls[target]
 					prob := 1.0
 					if opStats.TotalCount > 0 {
