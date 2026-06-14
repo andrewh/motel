@@ -3,7 +3,9 @@ package traceimport
 import (
 	"bufio"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -23,11 +25,15 @@ const (
 	metaColumnConcurrencyRate   = "concurrency_rate"
 	metaColumnProfile           = "profile"
 
-	metaOperationName  = "invoke"
-	metaParentDuration = 5 * time.Millisecond
-	metaChildDuration  = time.Millisecond
-	gzipMagicByte0     = 0x1f
-	gzipMagicByte1     = 0x8b
+	metaOperationName       = "invoke"
+	metaServicePrefix       = "meta-"
+	metaIngressIDAttribute  = "meta.ingress_id"
+	metaNameHashBytes       = 8
+	metaFallbackServiceSlug = "ingress"
+	metaParentDuration      = 5 * time.Millisecond
+	metaChildDuration       = time.Millisecond
+	gzipMagicByte0          = 0x1f
+	gzipMagicByte1          = 0x8b
 )
 
 var requiredMetaSummaryColumns = []string{
@@ -46,6 +52,11 @@ type metaParentRow struct {
 	numReturningCalls int
 	concurrencyRate   float64
 	profile           string
+}
+
+type metaNameMapper struct {
+	names map[string]string
+	attrs map[string]map[string]string
 }
 
 func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
@@ -68,6 +79,7 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 	}
 
 	collector := NewStatsCollector()
+	names := newMetaNameMapper()
 	rowCount := 0
 	sampleCount := 0
 	spanCount := 0
@@ -94,7 +106,7 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 		}
 
 		weight := row.observationWeight()
-		recordMetaInvocation(collector, row, weight)
+		recordMetaInvocation(collector, names, row, weight)
 		rowCount++
 		sampleCount += weight
 		spanCount += weight * (1 + len(row.children))
@@ -112,7 +124,7 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 	}
 	reportConfidenceDiagnostics(collector, opts.MinTraces, opts.Warnings)
 
-	yamlBytes, err := MarshalConfig(collector, nil, sampleCount, spanCount, 0)
+	yamlBytes, err := MarshalConfig(collector, names.serviceAttributes(), sampleCount, spanCount, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +273,31 @@ func (r metaParentRow) observationWeight() int {
 	return 1
 }
 
-func recordMetaInvocation(collector *StatsCollector, row metaParentRow, weight int) {
-	parentService := metaServiceName(row.parentName)
+func newMetaNameMapper() *metaNameMapper {
+	return &metaNameMapper{
+		names: make(map[string]string),
+		attrs: make(map[string]map[string]string),
+	}
+}
+
+func (m *metaNameMapper) serviceName(ingressID string) string {
+	if name, ok := m.names[ingressID]; ok {
+		return name
+	}
+	name := metaServiceName(ingressID)
+	m.names[ingressID] = name
+	m.attrs[name] = map[string]string{
+		metaIngressIDAttribute: ingressID,
+	}
+	return name
+}
+
+func (m *metaNameMapper) serviceAttributes() map[string]map[string]string {
+	return m.attrs
+}
+
+func recordMetaInvocation(collector *StatsCollector, names *metaNameMapper, row metaParentRow, weight int) {
+	parentService := names.serviceName(row.parentName)
 	parentStats := collector.getService(parentService)
 	parentOp := collector.getOp(parentStats, metaOperationName)
 	// Meta summary rows have no latency, so these are nominal placeholders.
@@ -282,7 +317,7 @@ func recordMetaInvocation(collector *StatsCollector, row metaParentRow, weight i
 	}
 
 	for _, child := range row.children {
-		childService := metaServiceName(child)
+		childService := names.serviceName(child)
 		childRef := childService + "." + metaOperationName
 		if parentOp.Calls == nil {
 			parentOp.Calls = make(map[string]*CallStats)
@@ -301,9 +336,12 @@ func recordMetaInvocation(collector *StatsCollector, row metaParentRow, weight i
 }
 
 func metaServiceName(ingressID string) string {
-	// This display name is intentionally lossy; collisions merge ingress stats.
+	digest := sha256.Sum256([]byte(ingressID))
+	return metaServicePrefix + metaServiceSlug(ingressID) + "-" + hex.EncodeToString(digest[:metaNameHashBytes])
+}
+
+func metaServiceSlug(ingressID string) string {
 	var b strings.Builder
-	b.WriteString("meta-")
 	lastHyphen := false
 	for _, r := range strings.ToLower(ingressID) {
 		switch {
@@ -315,5 +353,9 @@ func metaServiceName(ingressID string) string {
 			lastHyphen = true
 		}
 	}
-	return strings.TrimSuffix(b.String(), "-")
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return metaFallbackServiceSlug
+	}
+	return slug
 }

@@ -180,7 +180,9 @@ Use `--format meta-summary` to import the Meta ATC 2023
 `summary_data_atc23/data/parent-data.csv.gz` file directly. This path streams
 plain CSV or gzip input, applies the optional `--profile` filter, and infers
 call probabilities and sequential/parallel call style from `children_set` and
-`concurrency_rate`.
+`concurrency_rate`. Meta ingress ids are emitted as collision-resistant
+`meta-<slug>-<hash>` service names, with the exact upstream id preserved in the
+`meta.ingress_id` resource attribute.
 
 Output is written to stdout as a YAML topology with a commented header noting how many traces and spans were analysed.
 When `--min-traces` is greater than 1, confidence diagnostics are written to stderr when inferred operations, downstream call probabilities, or call-style votes are based on weak evidence relative to that sample target. Redirecting stdout still produces valid YAML suitable for `motel validate`.

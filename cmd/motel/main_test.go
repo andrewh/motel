@@ -991,9 +991,11 @@ func TestImportCommand(t *testing.T) {
 
 		err := root.Execute()
 		require.NoError(t, err)
-		assert.Contains(t, out.String(), "meta-root:")
-		assert.Contains(t, out.String(), "meta-childa.invoke")
-		assert.NotContains(t, out.String(), "meta-fetchonly")
+		assert.Contains(t, out.String(), "meta-root-")
+		assert.Contains(t, out.String(), "meta-childa-")
+		assert.Contains(t, out.String(), "meta.ingress_id: root")
+		assert.Contains(t, out.String(), "meta.ingress_id: childA")
+		assert.NotContains(t, out.String(), "meta.ingress_id: fetchOnly")
 	})
 }
 
