@@ -119,10 +119,13 @@ structural properties like depth or span count.
 - Palette: "Generating Representative Macrobenchmark Microservice Systems from
   Distributed Traces," _ACM SIGOPS APSys_, 2025. Builds a Graphical Causal
   Model from production traces that captures branching probabilities, execution
-  order, and execution times, then generates synthetic systems. The closest
-  work to motel's simulation approach. Key difference: Palette _learns_ its
-  model from traces, while motel takes a hand-authored topology as input.
-  [arXiv](https://arxiv.org/abs/2506.06448)
+  order, and execution times, then generates synthetic systems through
+  Blueprint. The closest work to motel's import and simulation approach. Key
+  difference: Palette targets deployable benchmark systems with a PFA/GCM
+  runtime, while motel imports traces into topology YAML for synthetic
+  telemetry generation.
+  [arXiv](https://arxiv.org/abs/2506.06448) |
+  [comparison](palette-trace-benchmarking.md)
 
 - MSTG: "A Flexible and Scalable Microservices Infrastructure Generator," 2024. Generates running microservice deployments from a configuration file
   describing a topology. More about infrastructure simulation than trace
