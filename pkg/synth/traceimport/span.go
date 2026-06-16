@@ -130,7 +130,7 @@ func detectFormat(data []byte) (Format, error) {
 		if _, ok := probe["SpanContext"]; ok {
 			return FormatStdouttrace, nil
 		}
-		if _, ok := probe["resourceSpans"]; ok {
+		if isOTLPProbe(probe) {
 			return FormatOTLP, nil
 		}
 		if isJaegerData(probe["data"]) {
@@ -142,7 +142,7 @@ func detectFormat(data []byte) (Format, error) {
 	// Try the full input as a single JSON document.
 	if hasMore {
 		if err := json.Unmarshal(data, &probe); err == nil {
-			if _, ok := probe["resourceSpans"]; ok {
+			if isOTLPProbe(probe) {
 				return FormatOTLP, nil
 			}
 			if _, ok := probe["SpanContext"]; ok {
@@ -154,7 +154,15 @@ func detectFormat(data []byte) (Format, error) {
 		}
 	}
 
-	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace), resourceSpans (OTLP), nor data[].spans[].operationName (Jaeger/Tempo)")
+	return "", fmt.Errorf("cannot detect format: input has neither SpanContext (stdouttrace), resourceSpans/batches (OTLP), nor data[].spans[].operationName (Jaeger/Tempo)")
+}
+
+func isOTLPProbe(probe map[string]json.RawMessage) bool {
+	if _, ok := probe["resourceSpans"]; ok {
+		return true
+	}
+	_, ok := probe["batches"]
+	return ok
 }
 
 // stdouttraceEvent mirrors the Go SDK's stdouttrace JSON output.
@@ -517,9 +525,41 @@ type otlpTraces struct {
 	ResourceSpans []otlpResourceSpans `json:"resourceSpans"`
 }
 
+func (t *otlpTraces) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ResourceSpans []otlpResourceSpans `json:"resourceSpans"`
+		Batches       []otlpResourceSpans `json:"batches"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	t.ResourceSpans = wire.ResourceSpans
+	if t.ResourceSpans == nil {
+		t.ResourceSpans = wire.Batches
+	}
+	return nil
+}
+
 type otlpResourceSpans struct {
 	Resource   otlpResource     `json:"resource"`
 	ScopeSpans []otlpScopeSpans `json:"scopeSpans"`
+}
+
+func (rs *otlpResourceSpans) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Resource                    otlpResource     `json:"resource"`
+		ScopeSpans                  []otlpScopeSpans `json:"scopeSpans"`
+		InstrumentationLibrarySpans []otlpScopeSpans `json:"instrumentationLibrarySpans"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	rs.Resource = wire.Resource
+	rs.ScopeSpans = wire.ScopeSpans
+	if rs.ScopeSpans == nil {
+		rs.ScopeSpans = wire.InstrumentationLibrarySpans
+	}
+	return nil
 }
 
 type otlpResource struct {
@@ -529,6 +569,26 @@ type otlpResource struct {
 type otlpScopeSpans struct {
 	Scope otlpScope  `json:"scope"`
 	Spans []otlpSpan `json:"spans"`
+}
+
+func (ss *otlpScopeSpans) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Scope                  *otlpScope `json:"scope"`
+		InstrumentationLibrary *otlpScope `json:"instrumentationLibrary"`
+		Spans                  []otlpSpan `json:"spans"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Scope != nil {
+		ss.Scope = *wire.Scope
+	} else if wire.InstrumentationLibrary != nil {
+		ss.Scope = *wire.InstrumentationLibrary
+	} else {
+		ss.Scope = otlpScope{}
+	}
+	ss.Spans = wire.Spans
+	return nil
 }
 
 type otlpScope struct {
