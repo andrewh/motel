@@ -124,6 +124,60 @@ func TestParseOTLP_Error(t *testing.T) {
 	assert.True(t, spans[0].IsError)
 }
 
+func TestParseOTLP_AttributeValueTypes(t *testing.T) {
+	input := `{
+		"resourceSpans": [{
+			"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "api"}}]},
+			"scopeSpans": [{"scope": {"name": "api"}, "spans": [{
+				"traceId": "AQIDBAUGBwgJCgsMDQ4PEA==",
+				"spanId": "AQIDBAUGBwg=",
+				"name": "GET /users",
+				"startTimeUnixNano": "1700000000000000000",
+				"endTimeUnixNano": "1700000000030000000",
+				"status": {},
+				"attributes": [
+					{"key": "http.method", "value": {"stringValue": "GET"}},
+					{"key": "http.status_code", "value": {"intValue": "200"}},
+					{"key": "http.resent", "value": {"boolValue": true}},
+					{"key": "sampling.priority", "value": {"doubleValue": 0.5}}
+				]
+			}]}]
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+
+	attrs := spans[0].Attributes
+	assert.Equal(t, "GET", attrs["http.method"])
+	assert.Equal(t, "200", attrs["http.status_code"])
+	assert.Equal(t, "true", attrs["http.resent"])
+	assert.Equal(t, "0.5", attrs["sampling.priority"])
+}
+
+func TestParseOTLP_StatusCodeAsEnumName(t *testing.T) {
+	input := `{
+		"resourceSpans": [{
+			"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "api"}}]},
+			"scopeSpans": [{"scope": {"name": "api"}, "spans": [{
+				"traceId": "AQIDBAUGBwgJCgsMDQ4PEA==",
+				"spanId": "AQIDBAUGBwg=",
+				"name": "fail",
+				"startTimeUnixNano": "1700000000000000000",
+				"endTimeUnixNano": "1700000000030000000",
+				"status": {"code": "STATUS_CODE_ERROR"},
+				"attributes": []
+			}]}]
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.True(t, spans[0].IsError)
+}
+
 func TestParseSpans_AutoDetect(t *testing.T) {
 	stdouttrace := `{"Name":"op","SpanContext":{"TraceID":"aaa","SpanID":"bbb"},"Parent":{"TraceID":"aaa","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`
 

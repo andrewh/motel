@@ -5,16 +5,14 @@ package traceimport
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
-
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // Span is the format-independent representation of a trace span.
@@ -283,9 +281,8 @@ func parseStdouttraceReader(r io.Reader) ([]Span, error) {
 }
 
 func parseOTLP(data []byte) ([]Span, error) {
-	var req coltracepb.ExportTraceServiceRequest
-	opts := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if err := opts.Unmarshal(data, &req); err != nil {
+	var req otlpTraces
+	if err := json.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("parsing OTLP: %w", err)
 	}
 
@@ -293,15 +290,15 @@ func parseOTLP(data []byte) ([]Span, error) {
 	for _, rs := range req.ResourceSpans {
 		// Extract service.name from resource attributes
 		serviceName := ""
-		for _, attr := range rs.Resource.GetAttributes() {
-			if attr.Key == serviceNameKey {
-				serviceName = attr.Value.GetStringValue()
+		for _, attr := range rs.Resource.Attributes {
+			if attr.Key == serviceNameKey && attr.Value.StringValue != nil {
+				serviceName = *attr.Value.StringValue
 			}
 		}
 		serviceName = realServiceName(serviceName)
 
 		for _, ss := range rs.ScopeSpans {
-			scopeName := ss.Scope.GetName()
+			scopeName := ss.Scope.Name
 
 			for _, span := range ss.Spans {
 				svc := serviceName
@@ -309,30 +306,29 @@ func parseOTLP(data []byte) ([]Span, error) {
 					svc = scopeName
 				}
 
-				parentID := hex.EncodeToString(span.ParentSpanId)
-				if isZeroID(parentID) || len(span.ParentSpanId) == 0 {
+				parentBytes := decodeOTLPID(span.ParentSpanID)
+				parentID := hex.EncodeToString(parentBytes)
+				if isZeroID(parentID) || len(parentBytes) == 0 {
 					parentID = ""
 				}
-
-				isError := span.Status != nil && span.Status.Code == tracepb.Status_STATUS_CODE_ERROR
 
 				attrs := make(map[string]string)
 				for _, attr := range span.Attributes {
 					if excludedAttributes[attr.Key] {
 						continue
 					}
-					attrs[attr.Key] = attrValueString(attr.Value)
+					attrs[attr.Key] = attr.Value.asString()
 				}
 
 				spans = append(spans, Span{
-					TraceID:    hex.EncodeToString(span.TraceId),
-					SpanID:     hex.EncodeToString(span.SpanId),
+					TraceID:    hex.EncodeToString(decodeOTLPID(span.TraceID)),
+					SpanID:     hex.EncodeToString(decodeOTLPID(span.SpanID)),
 					ParentID:   parentID,
 					Service:    svc,
 					Operation:  span.Name,
-					StartTime:  time.Unix(0, int64(span.StartTimeUnixNano)), //nolint:gosec // nanosecond timestamps are always positive
-					EndTime:    time.Unix(0, int64(span.EndTimeUnixNano)),   //nolint:gosec // nanosecond timestamps are always positive
-					IsError:    isError,
+					StartTime:  time.Unix(0, int64(span.StartTimeUnixNano.uint64())), //nolint:gosec // nanosecond timestamps are always positive
+					EndTime:    time.Unix(0, int64(span.EndTimeUnixNano.uint64())),   //nolint:gosec // nanosecond timestamps are always positive
+					IsError:    span.Status.Code.isError(),
 					Attributes: attrs,
 				})
 			}
@@ -514,17 +510,117 @@ func jaegerTagString(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// attrValueString extracts a string representation from an OTLP AnyValue.
-// For non-string values, proto oneofs format as "type_key:value" so we
-// extract just the value portion.
-func attrValueString(v interface{ GetStringValue() string }) string {
-	s := v.GetStringValue()
-	if s != "" {
-		return s
+// OTLP/JSON wire types. OTLP import decodes the proto3 JSON mapping with
+// encoding/json rather than the generated protobuf messages, so that it does
+// not pull in the protobuf reflection runtime (which is large in a WASM build).
+type otlpTraces struct {
+	ResourceSpans []otlpResourceSpans `json:"resourceSpans"`
+}
+
+type otlpResourceSpans struct {
+	Resource   otlpResource     `json:"resource"`
+	ScopeSpans []otlpScopeSpans `json:"scopeSpans"`
+}
+
+type otlpResource struct {
+	Attributes []otlpKeyValue `json:"attributes"`
+}
+
+type otlpScopeSpans struct {
+	Scope otlpScope  `json:"scope"`
+	Spans []otlpSpan `json:"spans"`
+}
+
+type otlpScope struct {
+	Name string `json:"name"`
+}
+
+type otlpSpan struct {
+	TraceID           string         `json:"traceId"`
+	SpanID            string         `json:"spanId"`
+	ParentSpanID      string         `json:"parentSpanId"`
+	Name              string         `json:"name"`
+	StartTimeUnixNano otlpInt        `json:"startTimeUnixNano"`
+	EndTimeUnixNano   otlpInt        `json:"endTimeUnixNano"`
+	Status            otlpStatus     `json:"status"`
+	Attributes        []otlpKeyValue `json:"attributes"`
+}
+
+type otlpStatus struct {
+	Code otlpStatusCode `json:"code"`
+}
+
+type otlpKeyValue struct {
+	Key   string       `json:"key"`
+	Value otlpAnyValue `json:"value"`
+}
+
+// otlpAnyValue mirrors the OTLP AnyValue. Only scalar variants feed topology
+// inference; arrayValue and kvlistValue are intentionally not represented.
+type otlpAnyValue struct {
+	StringValue *string  `json:"stringValue"`
+	IntValue    *otlpInt `json:"intValue"`
+	BoolValue   *bool    `json:"boolValue"`
+	DoubleValue *float64 `json:"doubleValue"`
+}
+
+// asString renders the AnyValue as the inference engine's string form. Scalar
+// values match the previous protojson-based formatting.
+func (v otlpAnyValue) asString() string {
+	switch {
+	case v.StringValue != nil:
+		return *v.StringValue
+	case v.IntValue != nil:
+		return string(*v.IntValue)
+	case v.BoolValue != nil:
+		return strconv.FormatBool(*v.BoolValue)
+	case v.DoubleValue != nil:
+		return strconv.FormatFloat(*v.DoubleValue, 'g', -1, 64)
+	default:
+		return ""
 	}
-	str := fmt.Sprintf("%v", v)
-	if _, after, ok := strings.Cut(str, ":"); ok {
-		return strings.TrimSpace(after)
+}
+
+// otlpInt is a 64-bit integer that OTLP/JSON encodes as either a JSON number
+// or, per the proto3 JSON mapping for 64-bit integers, a decimal string.
+type otlpInt string
+
+func (n *otlpInt) UnmarshalJSON(data []byte) error {
+	*n = otlpInt(bytes.Trim(data, `"`))
+	return nil
+}
+
+func (n otlpInt) uint64() uint64 {
+	v, _ := strconv.ParseUint(string(n), 10, 64)
+	return v
+}
+
+// otlpStatusCode accepts the OTLP status code as its proto3 JSON enum name
+// ("STATUS_CODE_ERROR") or its numeric value (2).
+type otlpStatusCode string
+
+func (c *otlpStatusCode) UnmarshalJSON(data []byte) error {
+	*c = otlpStatusCode(bytes.Trim(data, `"`))
+	return nil
+}
+
+func (c otlpStatusCode) isError() bool {
+	return c == "STATUS_CODE_ERROR" || c == "2"
+}
+
+// decodeOTLPID decodes an OTLP/JSON trace or span ID. proto3 JSON encodes bytes
+// as base64; emitters vary on alphabet and padding, so all four forms are tried.
+func decodeOTLPID(s string) []byte {
+	if s == "" {
+		return nil
 	}
-	return strings.TrimSpace(str)
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding,
+		base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			return b
+		}
+	}
+	return nil
 }
