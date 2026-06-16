@@ -59,22 +59,22 @@ type metaNameMapper struct {
 	attrs map[string]map[string]string
 }
 
-func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
+func importMetaSummary(r io.Reader, opts Options) (Result, error) {
 	reader, closeReader, err := metaInputReader(r)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	defer closeReader()
 
 	csvReader := csv.NewReader(reader)
 	header, err := csvReader.Read()
 	if err != nil {
-		return nil, fmt.Errorf("read Meta summary header: %w", err)
+		return Result{}, fmt.Errorf("read Meta summary header: %w", err)
 	}
 	cols := indexMetaHeader(header)
 	for _, name := range requiredMetaSummaryColumns {
 		if _, ok := cols[name]; !ok {
-			return nil, fmt.Errorf("missing required Meta summary column %q", name)
+			return Result{}, fmt.Errorf("missing required Meta summary column %q", name)
 		}
 	}
 
@@ -92,11 +92,11 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read Meta summary row %d: %w", rowNumber, err)
+			return Result{}, fmt.Errorf("read Meta summary row %d: %w", rowNumber, err)
 		}
 		row, err := parseMetaParentRow(record, cols)
 		if err != nil {
-			return nil, fmt.Errorf("parse Meta summary row %d: %w", rowNumber, err)
+			return Result{}, fmt.Errorf("parse Meta summary row %d: %w", rowNumber, err)
 		}
 		if opts.MetaProfile != "" && row.profile != opts.MetaProfile {
 			continue
@@ -113,7 +113,7 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 	}
 
 	if rowCount == 0 {
-		return nil, errors.New("no Meta summary rows matched the requested filters")
+		return Result{}, errors.New("no Meta summary rows matched the requested filters")
 	}
 	if sampleCount < opts.MinTraces {
 		_, _ = fmt.Fprintf(opts.Warnings, "warning: only %d weighted Meta parent samples available from %d rows (requested minimum: %d); results may be inaccurate\n",
@@ -126,12 +126,16 @@ func importMetaSummary(r io.Reader, opts Options) ([]byte, error) {
 
 	yamlBytes, err := MarshalConfig(collector, names.serviceAttributes(), sampleCount, spanCount, 0)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	if err := validateRoundTrip(yamlBytes); err != nil {
-		return nil, fmt.Errorf("round-trip validation failed (this is a bug): %w", err)
+		return Result{}, fmt.Errorf("round-trip validation failed (this is a bug): %w", err)
 	}
-	return yamlBytes, nil
+	return Result{
+		YAML:       yamlBytes,
+		TraceCount: sampleCount,
+		SpanCount:  spanCount,
+	}, nil
 }
 
 func metaInputReader(r io.Reader) (io.Reader, func() error, error) {

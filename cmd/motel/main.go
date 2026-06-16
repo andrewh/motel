@@ -402,7 +402,7 @@ func importCmd() *cobra.Command {
 				r = f
 			}
 
-			yamlBytes, err := traceimport.Import(r, traceimport.Options{
+			result, err := traceimport.Import(r, traceimport.Options{
 				Format:           traceimport.Format(format),
 				MinTraces:        minTraces,
 				Warnings:         cmd.ErrOrStderr(),
@@ -416,7 +416,7 @@ func importCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = cmd.OutOrStdout().Write(yamlBytes)
+			_, err = cmd.OutOrStdout().Write(result.YAML)
 			return err
 		},
 	}

@@ -22,8 +22,15 @@ type Options struct {
 	MetaIncludeEmpty bool
 }
 
-// Import reads trace spans, analyses them, and produces a synth YAML config.
-func Import(r io.Reader, opts Options) ([]byte, error) {
+// Result contains the inferred topology and source counts from an import.
+type Result struct {
+	YAML       []byte
+	TraceCount int
+	SpanCount  int
+}
+
+// Import reads trace spans, analyses them, and produces a synth YAML topology.
+func Import(r io.Reader, opts Options) (Result, error) {
 	if opts.Warnings == nil {
 		opts.Warnings = os.Stderr
 	}
@@ -37,7 +44,7 @@ func Import(r io.Reader, opts Options) ([]byte, error) {
 	// Step 1: Parse spans
 	spans, err := ParseSpans(r, opts.Format)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	// Step 2: Build trace trees
@@ -66,15 +73,19 @@ func Import(r io.Reader, opts Options) ([]byte, error) {
 	// Step 6: Marshal to YAML
 	yamlBytes, err := MarshalConfig(collector, serviceAttrs, traceCount, len(spans), windowSecs)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	// Step 7: Round-trip validation
 	if err := validateRoundTrip(yamlBytes); err != nil {
-		return nil, fmt.Errorf("round-trip validation failed (this is a bug): %w", err)
+		return Result{}, fmt.Errorf("round-trip validation failed (this is a bug): %w", err)
 	}
 
-	return yamlBytes, nil
+	return Result{
+		YAML:       yamlBytes,
+		TraceCount: traceCount,
+		SpanCount:  len(spans),
+	}, nil
 }
 
 // inferServiceAttributes finds attributes with the same value on every span of a service.
