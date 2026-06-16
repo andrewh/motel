@@ -23,10 +23,20 @@ type Options struct {
 }
 
 // Result contains the inferred topology and source counts from an import.
+//
+// For span-based imports (OTLP, stdouttrace, auto) the counts are literal. For
+// Meta summary imports they are weighted estimates rather than observed values;
+// see the field comments.
 type Result struct {
-	YAML       []byte
+	// YAML is the inferred synth topology.
+	YAML []byte
+	// TraceCount is the number of source traces. For Meta summary imports it is
+	// the total weighted parent-sample count rather than a literal trace count.
 	TraceCount int
-	SpanCount  int
+	// SpanCount is the number of source spans. For Meta summary imports it is an
+	// estimate derived from the weighted call counts rather than a literal span
+	// count.
+	SpanCount int
 }
 
 // Import reads trace spans, analyses them, and produces a synth YAML topology.
