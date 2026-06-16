@@ -20,6 +20,10 @@ type Options struct {
 	Warnings         io.Writer // defaults to os.Stderr
 	MetaProfile      string
 	MetaIncludeEmpty bool
+	// RecordTo, when non-nil, receives a newline-delimited replay recording of
+	// the source traces alongside the inferred topology. Not supported for
+	// Meta summary imports, which carry no per-trace span data.
+	RecordTo io.Writer
 }
 
 // Result contains the inferred topology and source counts from an import.
@@ -48,6 +52,9 @@ func Import(r io.Reader, opts Options) (Result, error) {
 		opts.MinTraces = 1
 	}
 	if opts.Format == FormatMetaSummary {
+		if opts.RecordTo != nil {
+			return Result{}, fmt.Errorf("--record is not supported for meta-summary input (no per-trace span data)")
+		}
 		return importMetaSummary(r, opts)
 	}
 
@@ -59,6 +66,13 @@ func Import(r io.Reader, opts Options) (Result, error) {
 
 	// Step 2: Build trace trees
 	trees := BuildTrees(spans, opts.Warnings)
+
+	// Optional: write a replay recording sidecar of the source traces.
+	if opts.RecordTo != nil {
+		if err := WriteRecording(trees, opts.RecordTo); err != nil {
+			return Result{}, fmt.Errorf("writing recording: %w", err)
+		}
+	}
 
 	traceCount := len(trees)
 	if traceCount < opts.MinTraces {
