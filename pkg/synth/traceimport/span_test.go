@@ -3,6 +3,7 @@
 package traceimport
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -178,6 +179,127 @@ func TestParseOTLP_StatusCodeAsEnumName(t *testing.T) {
 	assert.True(t, spans[0].IsError)
 }
 
+func TestParseOTLP_QuotedFiniteDoubleAndSignedIntValue(t *testing.T) {
+	input := otlpSingleSpanInput(
+		"AQIDBAUGBwgJCgsMDQ4PEA==",
+		"AQIDBAUGBwg=",
+		"",
+		"1700000000000000000",
+		"1700000000030000000",
+		`[
+			{"key": "sampling.priority", "value": {"doubleValue": "0.5"}},
+			{"key": "count.delta", "value": {"intValue": "-3"}}
+		]`,
+	)
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+
+	attrs := spans[0].Attributes
+	assert.Equal(t, "0.5", attrs["sampling.priority"])
+	assert.Equal(t, "-3", attrs["count.delta"])
+}
+
+func TestParseOTLP_InvalidIDsAreRejected(t *testing.T) {
+	tests := []struct {
+		name         string
+		traceID      string
+		spanID       string
+		parentSpanID string
+	}{
+		{
+			name:    "trace ID",
+			traceID: "not-base64!",
+			spanID:  "AQIDBAUGBwg=",
+		},
+		{
+			name:    "span ID",
+			traceID: "AQIDBAUGBwgJCgsMDQ4PEA==",
+			spanID:  "not-base64!",
+		},
+		{
+			name:         "parent span ID",
+			traceID:      "AQIDBAUGBwgJCgsMDQ4PEA==",
+			spanID:       "AQIDBAUGBwg=",
+			parentSpanID: "not-base64!",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := otlpSingleSpanInput(
+				tt.traceID,
+				tt.spanID,
+				tt.parentSpanID,
+				"1700000000000000000",
+				"1700000000030000000",
+				"[]",
+			)
+
+			_, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid OTLP ID")
+		})
+	}
+}
+
+func TestParseOTLP_InvalidTimestampsAreRejected(t *testing.T) {
+	tests := []struct {
+		name  string
+		start string
+		end   string
+	}{
+		{
+			name:  "not a number",
+			start: "not-a-number",
+			end:   "1700000000030000000",
+		},
+		{
+			name:  "negative",
+			start: "-1",
+			end:   "1700000000030000000",
+		},
+		{
+			name:  "end not a number",
+			start: "1700000000000000000",
+			end:   "not-a-number",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := otlpSingleSpanInput(
+				"AQIDBAUGBwgJCgsMDQ4PEA==",
+				"AQIDBAUGBwg=",
+				"",
+				tt.start,
+				tt.end,
+				"[]",
+			)
+
+			_, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid OTLP uint64")
+		})
+	}
+}
+
+func TestParseOTLP_NonFiniteDoubleIsRejected(t *testing.T) {
+	input := otlpSingleSpanInput(
+		"AQIDBAUGBwgJCgsMDQ4PEA==",
+		"AQIDBAUGBwg=",
+		"",
+		"1700000000000000000",
+		"1700000000030000000",
+		`[{"key": "sampling.priority", "value": {"doubleValue": "NaN"}}]`,
+	)
+
+	_, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-finite")
+}
+
 func TestParseSpans_AutoDetect(t *testing.T) {
 	stdouttrace := `{"Name":"op","SpanContext":{"TraceID":"aaa","SpanID":"bbb"},"Parent":{"TraceID":"aaa","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:01Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`
 
@@ -206,6 +328,31 @@ func TestDetectFormat_PrettyPrintedStdouttrace(t *testing.T) {
 	format, err := detectFormat([]byte(input))
 	require.NoError(t, err)
 	assert.Equal(t, FormatStdouttrace, format)
+}
+
+func otlpSingleSpanInput(traceID, spanID, parentSpanID, start, end, attrs string) string {
+	parent := ""
+	if parentSpanID != "" {
+		parent = fmt.Sprintf(`"parentSpanId": %q,`, parentSpanID)
+	}
+	if attrs == "" {
+		attrs = "[]"
+	}
+	return fmt.Sprintf(`{
+		"resourceSpans": [{
+			"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "api"}}]},
+			"scopeSpans": [{"scope": {"name": "api"}, "spans": [{
+				"traceId": %q,
+				"spanId": %q,
+				%s
+				"name": "op",
+				"startTimeUnixNano": %q,
+				"endTimeUnixNano": %q,
+				"status": {},
+				"attributes": %s
+			}]}]
+		}]
+	}`, traceID, spanID, parent, start, end, attrs)
 }
 
 func TestDetectFormat_MultilineUnknown(t *testing.T) {
