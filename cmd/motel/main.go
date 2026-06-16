@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -91,6 +92,7 @@ func runCmd() *cobra.Command {
 		timeOffset       time.Duration
 		realtime         bool
 		seed             uint64
+		verbatim         bool
 	)
 
 	cmd := &cobra.Command{
@@ -126,6 +128,7 @@ func runCmd() *cobra.Command {
 				timeOffset:       timeOffset,
 				realtime:         realtime,
 				seed:             seed,
+				verbatim:         verbatim,
 			})
 		},
 	}
@@ -143,6 +146,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeOffset, "time-offset", 0, "shift span, metric, and log timestamps by this duration (e.g. -1h for past, 1h for future)")
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 	cmd.Flags().Uint64Var(&seed, "seed", 0, "seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions")
+	cmd.Flags().BoolVar(&verbatim, "verbatim", false, "replay mode: emit spans with their original recorded timestamps instead of shifting them to run time")
 
 	return cmd
 }
@@ -384,6 +388,7 @@ func importCmd() *cobra.Command {
 		minTraces        int
 		metaProfile      string
 		metaIncludeEmpty bool
+		recordPath       string
 	)
 
 	cmd := &cobra.Command{
@@ -402,12 +407,23 @@ func importCmd() *cobra.Command {
 				r = f
 			}
 
+			var recordTo io.Writer
+			if recordPath != "" {
+				rf, err := os.Create(recordPath)
+				if err != nil {
+					return fmt.Errorf("creating recording file: %w", err)
+				}
+				defer rf.Close() //nolint:errcheck // best-effort close; write errors surface via Import
+				recordTo = rf
+			}
+
 			result, err := traceimport.Import(r, traceimport.Options{
 				Format:           traceimport.Format(format),
 				MinTraces:        minTraces,
 				Warnings:         cmd.ErrOrStderr(),
 				MetaProfile:      metaProfile,
 				MetaIncludeEmpty: metaIncludeEmpty,
+				RecordTo:         recordTo,
 			})
 			if err != nil {
 				if strings.Contains(err.Error(), "no spans found") {
@@ -425,6 +441,7 @@ func importCmd() *cobra.Command {
 	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
 	cmd.Flags().StringVar(&metaProfile, "profile", "", "profile filter for --format meta-summary: ads, fetch, or raas")
 	cmd.Flags().BoolVar(&metaIncludeEmpty, "include-empty", false, "include empty children_set rows for --format meta-summary")
+	cmd.Flags().StringVar(&recordPath, "record", "", "also write a replay recording sidecar (newline-delimited JSON) to this path for use with 'mode: replay'")
 
 	return cmd
 }
@@ -453,6 +470,7 @@ type runOptions struct {
 	timeOffset       time.Duration
 	realtime         bool
 	seed             uint64
+	verbatim         bool
 }
 
 // RNG streams for seeded runs. Each consumer of randomness gets a fixed
@@ -622,6 +640,9 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	if err := synth.ValidateConfig(cfg); err != nil {
 		return err
 	}
+	if cfg.Mode == synth.ModeReplay {
+		return runReplay(ctx, configPath, cfg, opts)
+	}
 	topo, err := buildTopology(cfg, opts.semconvDir)
 	if err != nil {
 		return err
@@ -754,8 +775,102 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	return json.NewEncoder(os.Stderr).Encode(stats)
 }
 
+// runReplay re-emits a recorded trace sidecar referenced by a replay-mode
+// config. It discovers services from the recording, builds trace providers for
+// them, and streams the recording through the emission pipeline.
+func runReplay(ctx context.Context, configPath string, cfg *synth.Config, opts runOptions) error {
+	if opts.realtime {
+		return fmt.Errorf("--realtime is not yet supported with mode: replay")
+	}
+
+	enabledSignals, err := parseSignals(opts.signals)
+	if err != nil {
+		return err
+	}
+	if enabledSignals["metrics"] || enabledSignals["logs"] {
+		fmt.Fprintln(os.Stderr, "warning: replay mode emits traces only; metrics and logs signals are ignored")
+	}
+	if err := validateProtocol(opts.protocol); err != nil {
+		return err
+	}
+
+	// Resolve the recording path relative to the config file when relative.
+	recordingPath := cfg.Recording
+	if !filepath.IsAbs(recordingPath) {
+		if dir := filepath.Dir(configPath); dir != "" && dir != "." {
+			recordingPath = filepath.Join(dir, recordingPath)
+		}
+	}
+
+	info, err := synth.ScanRecording(recordingPath)
+	if err != nil {
+		return err
+	}
+	if len(info.Services) == 0 {
+		return fmt.Errorf("recording %q contains no spans", recordingPath)
+	}
+
+	if !opts.stdout {
+		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
+			return err
+		}
+	}
+
+	baseRes, err := resource.Merge(resource.Default(), resource.NewSchemaless(
+		attribute.String("motel.version", version),
+	))
+	if err != nil {
+		return fmt.Errorf("creating resource: %w", err)
+	}
+
+	serviceResources := make(map[string]*resource.Resource, len(info.Services))
+	for _, name := range info.Services {
+		svcRes, resErr := resource.Merge(baseRes, resource.NewSchemaless(
+			attribute.String("service.name", name),
+		))
+		if resErr != nil {
+			return fmt.Errorf("creating resource for service %s: %w", name, resErr)
+		}
+		serviceResources[name] = svcRes
+	}
+
+	traceProviders, shutdownTraces, err := createTraceProviders(ctx, opts, true, serviceResources)
+	if err != nil {
+		return fmt.Errorf("creating trace providers: %w", err)
+	}
+	defer shutdownTraces()
+
+	tracers, err := tracerSourceForServices(info.Services, traceProviders)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	replayOpts := synth.ReplayOptions{
+		Verbatim: opts.verbatim,
+		Start:    info.Start,
+		Anchor:   time.Now().Add(opts.timeOffset),
+	}
+	stats, err := synth.ReplayRecording(ctx, recordingPath, tracers, nil, replayOpts)
+	if err != nil {
+		return err
+	}
+
+	return json.NewEncoder(os.Stderr).Encode(stats)
+}
+
 func tracerSource(topo *synth.Topology, providers map[string]*sdktrace.TracerProvider) (synth.TracerSource, error) {
+	names := make([]string, 0, len(topo.Services))
 	for name := range topo.Services {
+		names = append(names, name)
+	}
+	return tracerSourceForServices(names, providers)
+}
+
+func tracerSourceForServices(names []string, providers map[string]*sdktrace.TracerProvider) (synth.TracerSource, error) {
+	for _, name := range names {
 		if providers[name] == nil {
 			return nil, fmt.Errorf("missing tracer provider for service %q", name)
 		}
