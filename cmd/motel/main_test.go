@@ -53,6 +53,24 @@ traffic:
   rate: 100/s
 `
 
+func TestRunReplayRejectsUnsupportedSignals(t *testing.T) {
+	t.Parallel()
+
+	cfg := &synth.Config{Mode: synth.ModeReplay, Recording: "recording.jsonl"}
+	err := runReplay(context.Background(), "topology.yaml", cfg, runOptions{signals: "metrics", stdout: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--signals is not supported in replay mode")
+}
+
+func TestRunReplayRejectsURLTopology(t *testing.T) {
+	t.Parallel()
+
+	cfg := &synth.Config{Mode: synth.ModeReplay, Recording: "recording.jsonl"}
+	err := runReplay(context.Background(), "https://example.com/topology.yaml", cfg, runOptions{signals: "traces", protocol: "http/protobuf", stdout: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "URL topology configs")
+}
+
 func TestTracerSourceMissingProvider(t *testing.T) {
 	t.Parallel()
 

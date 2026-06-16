@@ -190,8 +190,9 @@ func ReplayRecording(ctx context.Context, path string, tracers TracerSource, obs
 
 // buildReplayPlans converts a recorded trace into ordered SpanPlans. Spans are
 // indexed in tree order (parents before children) so emission can resolve the
-// parent context, and each child's window is clamped to sit within its parent
-// to preserve structure even when the source has clock skew.
+// parent context. Recorded timestamps are preserved after the replay shift; OTel
+// parent-child relationships do not require child timestamps to sit within the
+// parent span window.
 func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 	byID := make(map[string]*RecordedSpan, len(t.Spans))
 	for i := range t.Spans {
@@ -215,12 +216,9 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 
 	plans := make([]SpanPlan, 0, len(t.Spans))
 
-	var add func(s *RecordedSpan, parentIndex int, parentStart time.Time)
-	add = func(s *RecordedSpan, parentIndex int, parentStart time.Time) {
+	var add func(s *RecordedSpan, parentIndex int)
+	add = func(s *RecordedSpan, parentIndex int) {
 		startT := s.Start.Add(shift)
-		if parentIndex >= 0 && startT.Before(parentStart) {
-			startT = parentStart
-		}
 		endT := s.End.Add(shift)
 		if endT.Before(startT) {
 			endT = startT
@@ -253,12 +251,12 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 		kids := children[s.SpanID]
 		slices.SortFunc(kids, byStart)
 		for _, c := range kids {
-			add(c, idx, startT)
+			add(c, idx)
 		}
 	}
 
 	for _, r := range roots {
-		add(r, -1, time.Time{})
+		add(r, -1)
 	}
 	return plans
 }

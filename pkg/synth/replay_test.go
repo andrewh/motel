@@ -130,19 +130,21 @@ func TestBuildReplayPlansShift(t *testing.T) {
 	}
 }
 
-func TestBuildReplayPlansClampsSkew(t *testing.T) {
+func TestBuildReplayPlansPreservesChildTimestampsOutsideParentWindow(t *testing.T) {
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	rec := RecordedTrace{
 		TraceID: "t",
 		Spans: []RecordedSpan{
 			{SpanID: "p", Service: "s", Operation: "parent", Start: base, End: base.Add(50 * time.Millisecond)},
-			// Child appears to start before its parent (clock skew).
-			{SpanID: "c", ParentID: "p", Service: "s", Operation: "child", Start: base.Add(-5 * time.Millisecond), End: base.Add(20 * time.Millisecond)},
+			{SpanID: "c", ParentID: "p", Service: "s", Operation: "child", Start: base.Add(-5 * time.Millisecond), End: base.Add(60 * time.Millisecond)},
 		},
 	}
 	plans := buildReplayPlans(rec, 0)
-	if plans[1].StartTime.Before(plans[0].StartTime) {
-		t.Errorf("child start %v should be clamped to >= parent start %v", plans[1].StartTime, plans[0].StartTime)
+	if !plans[1].StartTime.Equal(rec.Spans[1].Start) {
+		t.Errorf("child start = %v, want recorded start %v", plans[1].StartTime, rec.Spans[1].Start)
+	}
+	if !plans[1].EndTime.Equal(rec.Spans[1].End) {
+		t.Errorf("child end = %v, want recorded end %v", plans[1].EndTime, rec.Spans[1].End)
 	}
 }
 

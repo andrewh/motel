@@ -775,6 +775,10 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	return json.NewEncoder(os.Stderr).Encode(stats)
 }
 
+func isURL(source string) bool {
+	return strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")
+}
+
 // runReplay re-emits a recorded trace sidecar referenced by a replay-mode
 // config. It discovers services from the recording, builds trace providers for
 // them, and streams the recording through the emission pipeline.
@@ -787,14 +791,17 @@ func runReplay(ctx context.Context, configPath string, cfg *synth.Config, opts r
 	if err != nil {
 		return err
 	}
-	if enabledSignals["metrics"] || enabledSignals["logs"] {
-		fmt.Fprintln(os.Stderr, "warning: replay mode emits traces only; metrics and logs signals are ignored")
+	if !enabledSignals["traces"] || enabledSignals["metrics"] || enabledSignals["logs"] {
+		return fmt.Errorf("--signals is not supported in replay mode; replay emits traces only")
 	}
 	if err := validateProtocol(opts.protocol); err != nil {
 		return err
 	}
 
-	// Resolve the recording path relative to the config file when relative.
+	if isURL(configPath) {
+		return fmt.Errorf("mode: replay is not supported with URL topology configs; use a local topology file so recording paths resolve unambiguously")
+	}
+
 	recordingPath := cfg.Recording
 	if !filepath.IsAbs(recordingPath) {
 		if dir := filepath.Dir(configPath); dir != "" && dir != "." {
