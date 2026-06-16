@@ -17,9 +17,11 @@ package synth
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"slices"
 	"time"
@@ -130,6 +132,9 @@ type ReplayOptions struct {
 	// (the default), timestamps are shifted so the recording's earliest span
 	// starts at the anchor time, preserving all intra- and inter-trace offsets.
 	Verbatim bool
+	// PreserveIDs emits spans with their recorded trace and span IDs. When
+	// false, the SDK generates fresh IDs to avoid collisions in trace stores.
+	PreserveIDs bool
 	// Anchor is the wall-clock time the earliest span maps to in relative mode.
 	// Ignored when Verbatim is true. Zero means time.Now().
 	Anchor time.Time
@@ -148,6 +153,79 @@ func (o ReplayOptions) shift() time.Duration {
 		anchor = time.Now()
 	}
 	return anchor.Sub(o.Start)
+}
+
+const traceIDHalfSize = 8
+
+type replayIDContextKey struct{}
+
+type replayIDs struct {
+	traceID trace.TraceID
+	spanID  trace.SpanID
+}
+
+// ReplayIDGenerator lets replay inject recorded IDs through span start context.
+// Without replay IDs in the context, it behaves like the SDK's default
+// generator and returns fresh non-zero IDs.
+type ReplayIDGenerator struct{}
+
+// NewReplayIDGenerator returns an ID generator for replay trace providers.
+func NewReplayIDGenerator() *ReplayIDGenerator {
+	return &ReplayIDGenerator{}
+}
+
+func contextWithReplayIDs(ctx context.Context, traceID trace.TraceID, spanID trace.SpanID) context.Context {
+	if !traceID.IsValid() || !spanID.IsValid() {
+		return ctx
+	}
+	return context.WithValue(ctx, replayIDContextKey{}, replayIDs{
+		traceID: traceID,
+		spanID:  spanID,
+	})
+}
+
+func replayIDsFromContext(ctx context.Context) (replayIDs, bool) {
+	ids, ok := ctx.Value(replayIDContextKey{}).(replayIDs)
+	return ids, ok
+}
+
+// NewIDs returns recorded IDs from context, or fresh IDs when none are set.
+func (*ReplayIDGenerator) NewIDs(ctx context.Context) (trace.TraceID, trace.SpanID) {
+	if ids, ok := replayIDsFromContext(ctx); ok && ids.traceID.IsValid() && ids.spanID.IsValid() {
+		return ids.traceID, ids.spanID
+	}
+	return randomReplayIDs()
+}
+
+// NewSpanID returns a recorded span ID from context, or a fresh ID.
+func (*ReplayIDGenerator) NewSpanID(ctx context.Context, _ trace.TraceID) trace.SpanID {
+	if ids, ok := replayIDsFromContext(ctx); ok && ids.spanID.IsValid() {
+		return ids.spanID
+	}
+	return randomReplaySpanID()
+}
+
+func randomReplayIDs() (trace.TraceID, trace.SpanID) {
+	tid := trace.TraceID{}
+	for {
+		binary.NativeEndian.PutUint64(tid[:traceIDHalfSize], rand.Uint64())
+		binary.NativeEndian.PutUint64(tid[traceIDHalfSize:], rand.Uint64())
+		if tid.IsValid() {
+			break
+		}
+	}
+	return tid, randomReplaySpanID()
+}
+
+func randomReplaySpanID() trace.SpanID {
+	sid := trace.SpanID{}
+	for {
+		binary.NativeEndian.PutUint64(sid[:], rand.Uint64())
+		if sid.IsValid() {
+			break
+		}
+	}
+	return sid
 }
 
 // ReplayRecording streams the recording at path and emits each trace through
@@ -169,12 +247,18 @@ func ReplayRecording(ctx context.Context, path string, tracers TracerSource, obs
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		plans := buildReplayPlans(t, shift)
+		plans, planErr := buildReplayPlans(t, shift, opts.PreserveIDs)
+		if planErr != nil {
+			return planErr
+		}
 		if len(plans) == 0 {
 			return nil
 		}
 		emitTraceInstant(plans, tracers, observers, &rstats)
 		stats.Traces++
+		if replayTraceFailed(plans) {
+			stats.FailedTraces++
+		}
 		return nil
 	})
 	if err != nil && ctx.Err() == nil {
@@ -192,7 +276,16 @@ func ReplayRecording(ctx context.Context, path string, tracers TracerSource, obs
 // indexed in tree order (parents before children) so emission can resolve the
 // parent context, and each child's window is clamped to sit within its parent
 // to preserve structure even when the source has clock skew.
-func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
+func buildReplayPlans(t RecordedTrace, shift time.Duration, preserveIDs bool) ([]SpanPlan, error) {
+	var traceID trace.TraceID
+	if preserveIDs && len(t.Spans) > 0 {
+		var err error
+		traceID, err = trace.TraceIDFromHex(t.TraceID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid recorded trace ID %q: %w", t.TraceID, err)
+		}
+	}
+
 	byID := make(map[string]*RecordedSpan, len(t.Spans))
 	for i := range t.Spans {
 		byID[t.Spans[i].SpanID] = &t.Spans[i]
@@ -215,8 +308,8 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 
 	plans := make([]SpanPlan, 0, len(t.Spans))
 
-	var add func(s *RecordedSpan, parentIndex int, parentStart time.Time)
-	add = func(s *RecordedSpan, parentIndex int, parentStart time.Time) {
+	var add func(s *RecordedSpan, parentIndex int, parentStart time.Time) error
+	add = func(s *RecordedSpan, parentIndex int, parentStart time.Time) error {
 		startT := s.Start.Add(shift)
 		if parentIndex >= 0 && startT.Before(parentStart) {
 			startT = parentStart
@@ -236,10 +329,21 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 			attrs = append(attrs, attribute.String(k, v))
 		}
 
+		var spanID trace.SpanID
+		if preserveIDs {
+			var err error
+			spanID, err = trace.SpanIDFromHex(s.SpanID)
+			if err != nil {
+				return fmt.Errorf("invalid recorded span ID %q in trace %q: %w", s.SpanID, t.TraceID, err)
+			}
+		}
+
 		idx := len(plans)
 		plans = append(plans, SpanPlan{
 			Index:       idx,
 			ParentIndex: parentIndex,
+			TraceID:     traceID,
+			SpanID:      spanID,
 			Service:     s.Service,
 			Operation:   s.Operation,
 			Ref:         s.Service + "." + s.Operation,
@@ -253,14 +357,28 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration) []SpanPlan {
 		kids := children[s.SpanID]
 		slices.SortFunc(kids, byStart)
 		for _, c := range kids {
-			add(c, idx, startT)
+			if err := add(c, idx, startT); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
 
 	for _, r := range roots {
-		add(r, -1, time.Time{})
+		if err := add(r, -1, time.Time{}); err != nil {
+			return nil, err
+		}
 	}
-	return plans
+	return plans, nil
+}
+
+func replayTraceFailed(plans []SpanPlan) bool {
+	for i := range plans {
+		if plans[i].ParentIndex < 0 && plans[i].IsError {
+			return true
+		}
+	}
+	return false
 }
 
 // emitTraceInstant emits a planned trace immediately (no wall-clock pacing),
@@ -280,6 +398,7 @@ func emitTraceInstant(plans []SpanPlan, tracers TracerSource, observers []SpanOb
 			if plan.ParentIndex >= 0 && live[plan.ParentIndex].Ctx != nil {
 				parentCtx = live[plan.ParentIndex].Ctx
 			}
+			parentCtx = contextWithReplayIDs(parentCtx, plan.TraceID, plan.SpanID)
 			startOpts := []trace.SpanStartOption{
 				trace.WithTimestamp(plan.StartTime),
 				trace.WithSpanKind(plan.Kind),

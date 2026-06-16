@@ -63,9 +63,13 @@ motel run <topology.yaml | URL> [flags]
 | `--time-offset` | duration | 0 | Shift span, metric, and log timestamps by this duration (e.g. `-1h` for past, `1h` for future) |
 | `--realtime` | bool | false | Emit spans at wall-clock times matching simulated timestamps |
 | `--seed` | uint | 0 | Seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions |
+| `--verbatim` | bool | false | Replay mode: emit spans with their original recorded timestamps instead of shifting them to run time |
+| `--preserve-ids` | bool | false | Replay mode: preserve recorded trace and span IDs instead of generating fresh IDs |
 | `--pprof` | string | | Start a pprof HTTP server on this address (e.g. `:6060`) |
 
 `--realtime` and `--time-offset` are mutually exclusive.
+For `mode: replay`, leave `--signals` off; replay emits recorded traces only
+and returns an error if `--signals` is supplied.
 
 #### Output format
 
