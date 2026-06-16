@@ -319,6 +319,19 @@ func TestRunCommandInvalidSignal(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown signal")
 }
 
+func TestRunReplayRejectsSignalsFlag(t *testing.T) {
+	t.Parallel()
+
+	path := writeTestConfig(t, "version: 1\nmode: replay\nrecording: rec.jsonl\n")
+	root := rootCmd()
+	root.SetArgs([]string{"run", "--signals", "traces", path})
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--signals is not supported with mode: replay")
+	assert.Contains(t, err.Error(), "leave --signals off")
+}
+
 func TestRunCommandNegativeSlowThreshold(t *testing.T) {
 	t.Parallel()
 

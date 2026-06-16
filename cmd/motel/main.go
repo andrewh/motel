@@ -93,6 +93,7 @@ func runCmd() *cobra.Command {
 		realtime         bool
 		seed             uint64
 		verbatim         bool
+		preserveIDs      bool
 	)
 
 	cmd := &cobra.Command{
@@ -120,6 +121,7 @@ func runCmd() *cobra.Command {
 				duration:         duration,
 				protocol:         protocol,
 				signals:          signals,
+				signalsChanged:   cmd.Flags().Changed("signals"),
 				slowThreshold:    slowThreshold,
 				maxSpansPerTrace: maxSpansPerTrace,
 				semconvDir:       semconvDir,
@@ -129,6 +131,7 @@ func runCmd() *cobra.Command {
 				realtime:         realtime,
 				seed:             seed,
 				verbatim:         verbatim,
+				preserveIDs:      preserveIDs,
 			})
 		},
 	}
@@ -147,6 +150,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&realtime, "realtime", false, "emit spans at wall-clock times matching simulated timestamps")
 	cmd.Flags().Uint64Var(&seed, "seed", 0, "seed for deterministic simulation decisions (0 = random); determinism is best-effort and not guaranteed across motel versions")
 	cmd.Flags().BoolVar(&verbatim, "verbatim", false, "replay mode: emit spans with their original recorded timestamps instead of shifting them to run time")
+	cmd.Flags().BoolVar(&preserveIDs, "preserve-ids", false, "replay mode: preserve recorded trace and span IDs instead of generating fresh IDs")
 
 	return cmd
 }
@@ -462,6 +466,7 @@ type runOptions struct {
 	duration         time.Duration
 	protocol         string
 	signals          string
+	signalsChanged   bool
 	slowThreshold    time.Duration
 	maxSpansPerTrace int
 	semconvDir       string
@@ -471,6 +476,7 @@ type runOptions struct {
 	realtime         bool
 	seed             uint64
 	verbatim         bool
+	preserveIDs      bool
 }
 
 // RNG streams for seeded runs. Each consumer of randomness gets a fixed
@@ -783,12 +789,8 @@ func runReplay(ctx context.Context, configPath string, cfg *synth.Config, opts r
 		return fmt.Errorf("--realtime is not yet supported with mode: replay")
 	}
 
-	enabledSignals, err := parseSignals(opts.signals)
-	if err != nil {
-		return err
-	}
-	if enabledSignals["metrics"] || enabledSignals["logs"] {
-		fmt.Fprintln(os.Stderr, "warning: replay mode emits traces only; metrics and logs signals are ignored")
+	if opts.signalsChanged {
+		return fmt.Errorf("--signals is not supported with mode: replay; leave --signals off because replay emits recorded traces only")
 	}
 	if err := validateProtocol(opts.protocol); err != nil {
 		return err
@@ -849,9 +851,10 @@ func runReplay(ctx context.Context, configPath string, cfg *synth.Config, opts r
 	defer stop()
 
 	replayOpts := synth.ReplayOptions{
-		Verbatim: opts.verbatim,
-		Start:    info.Start,
-		Anchor:   time.Now().Add(opts.timeOffset),
+		Verbatim:    opts.verbatim,
+		PreserveIDs: opts.preserveIDs,
+		Start:       info.Start,
+		Anchor:      time.Now().Add(opts.timeOffset),
 	}
 	stats, err := synth.ReplayRecording(ctx, recordingPath, tracers, nil, replayOpts)
 	if err != nil {
@@ -922,10 +925,14 @@ func createTraceProviders(ctx context.Context, opts runOptions, enabled bool, re
 	}
 
 	for name, res := range resources {
-		providers[name] = sdktrace.NewTracerProvider(
+		providerOpts := []sdktrace.TracerProviderOption{
 			sdktrace.WithSpanProcessor(sp),
 			sdktrace.WithResource(res),
-		)
+		}
+		if opts.preserveIDs {
+			providerOpts = append(providerOpts, sdktrace.WithIDGenerator(synth.NewReplayIDGenerator()))
+		}
+		providers[name] = sdktrace.NewTracerProvider(providerOpts...)
 	}
 
 	shutdown := func() {

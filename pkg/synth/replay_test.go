@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
@@ -54,6 +57,26 @@ func sampleRecording() RecordedTrace {
 	}
 }
 
+func validIDRecording() RecordedTrace {
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	return RecordedTrace{
+		TraceID: "00112233445566778899aabbccddeeff",
+		Spans: []RecordedSpan{
+			{SpanID: "0102030405060708", Service: "api", Operation: "GET /x", Start: base, End: base.Add(100 * time.Millisecond)},
+			{SpanID: "1112131415161718", ParentID: "0102030405060708", Service: "db", Operation: "query", Start: base.Add(10 * time.Millisecond), End: base.Add(60 * time.Millisecond)},
+		},
+	}
+}
+
+func mustBuildReplayPlans(t *testing.T, rec RecordedTrace, shift time.Duration) []SpanPlan {
+	t.Helper()
+	plans, err := buildReplayPlans(rec, shift, false)
+	if err != nil {
+		t.Fatalf("buildReplayPlans: %v", err)
+	}
+	return plans
+}
+
 func TestRecordingRoundTrip(t *testing.T) {
 	want := sampleRecording()
 
@@ -83,7 +106,7 @@ func TestRecordingRoundTrip(t *testing.T) {
 }
 
 func TestBuildReplayPlansStructure(t *testing.T) {
-	plans := buildReplayPlans(sampleRecording(), 0)
+	plans := mustBuildReplayPlans(t, sampleRecording(), 0)
 	if len(plans) != 2 {
 		t.Fatalf("got %d plans, want 2", len(plans))
 	}
@@ -119,7 +142,7 @@ func TestBuildReplayPlansShift(t *testing.T) {
 	rec := sampleRecording()
 	orig := rec.Spans[0].Start
 	shift := 48 * time.Hour
-	plans := buildReplayPlans(rec, shift)
+	plans := mustBuildReplayPlans(t, rec, shift)
 	if !plans[0].StartTime.Equal(orig.Add(shift)) {
 		t.Errorf("shift not applied: got %v want %v", plans[0].StartTime, orig.Add(shift))
 	}
@@ -140,7 +163,7 @@ func TestBuildReplayPlansClampsSkew(t *testing.T) {
 			{SpanID: "c", ParentID: "p", Service: "s", Operation: "child", Start: base.Add(-5 * time.Millisecond), End: base.Add(20 * time.Millisecond)},
 		},
 	}
-	plans := buildReplayPlans(rec, 0)
+	plans := mustBuildReplayPlans(t, rec, 0)
 	if plans[1].StartTime.Before(plans[0].StartTime) {
 		t.Errorf("child start %v should be clamped to >= parent start %v", plans[1].StartTime, plans[0].StartTime)
 	}
@@ -181,5 +204,102 @@ func TestReplayRecordingEmitsViaTracers(t *testing.T) {
 	}
 	if rec.started != 2 || rec.observed != 2 {
 		t.Errorf("observer fired started=%d observed=%d, want 2/2", rec.started, rec.observed)
+	}
+}
+
+func TestReplayRecordingCountsFailedTraceStats(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/rec.jsonl"
+	rec := sampleRecording()
+	rec.Spans[0].Error = true
+	writeRecordingFile(t, path, rec)
+
+	stats, err := ReplayRecording(context.Background(), path, noopTracers(), nil, ReplayOptions{Verbatim: true})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if stats.FailedTraces != 1 {
+		t.Errorf("failed_traces = %d, want 1", stats.FailedTraces)
+	}
+	if stats.TraceErrorRate != 1 {
+		t.Errorf("trace_error_rate = %v, want 1", stats.TraceErrorRate)
+	}
+}
+
+func TestReplayRecordingPreservesIDsWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/rec.jsonl"
+	rec := validIDRecording()
+	writeRecordingFile(t, path, rec)
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(recorder),
+		sdktrace.WithIDGenerator(NewReplayIDGenerator()),
+	)
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Fatalf("shutdown tracer provider: %v", err)
+		}
+	})
+	tracers := func(name string) trace.Tracer {
+		return provider.Tracer(name)
+	}
+
+	_, err := ReplayRecording(context.Background(), path, tracers, nil, ReplayOptions{
+		Verbatim:    true,
+		PreserveIDs: true,
+	})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	wantTraceID, _ := trace.TraceIDFromHex(rec.TraceID)
+	wantRootID, _ := trace.SpanIDFromHex(rec.Spans[0].SpanID)
+	wantChildID, _ := trace.SpanIDFromHex(rec.Spans[1].SpanID)
+
+	ended := recorder.Ended()
+	if len(ended) != 2 {
+		t.Fatalf("ended spans = %d, want 2", len(ended))
+	}
+	spans := make(map[string]sdktrace.ReadOnlySpan, len(ended))
+	for _, span := range ended {
+		spans[span.Name()] = span
+	}
+
+	root := spans["GET /x"]
+	child := spans["query"]
+	if root == nil || child == nil {
+		t.Fatalf("missing replayed spans: %v", spans)
+	}
+	if root.SpanContext().TraceID() != wantTraceID || child.SpanContext().TraceID() != wantTraceID {
+		t.Fatalf("trace IDs not preserved: root=%s child=%s want %s",
+			root.SpanContext().TraceID(), child.SpanContext().TraceID(), wantTraceID)
+	}
+	if root.SpanContext().SpanID() != wantRootID {
+		t.Errorf("root span ID = %s, want %s", root.SpanContext().SpanID(), wantRootID)
+	}
+	if child.SpanContext().SpanID() != wantChildID {
+		t.Errorf("child span ID = %s, want %s", child.SpanContext().SpanID(), wantChildID)
+	}
+	if child.Parent().SpanID() != wantRootID {
+		t.Errorf("child parent span ID = %s, want %s", child.Parent().SpanID(), wantRootID)
+	}
+}
+
+func TestReplayRecordingRejectsInvalidPreservedIDs(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/rec.jsonl"
+	writeRecordingFile(t, path, sampleRecording())
+
+	_, err := ReplayRecording(context.Background(), path, noopTracers(), nil, ReplayOptions{
+		Verbatim:    true,
+		PreserveIDs: true,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid ID error")
+	}
+	if !strings.Contains(err.Error(), "invalid recorded trace ID") {
+		t.Fatalf("error = %v, want invalid trace ID", err)
 	}
 }
