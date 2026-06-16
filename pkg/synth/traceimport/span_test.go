@@ -24,6 +24,13 @@ func TestDetectFormat_OTLP(t *testing.T) {
 	assert.Equal(t, FormatOTLP, format)
 }
 
+func TestDetectFormat_GrafanaTempoBatches(t *testing.T) {
+	input := `{"batches":[{"resource":{},"instrumentationLibrarySpans":[]}]}`
+	format, err := detectFormat([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, FormatOTLP, format)
+}
+
 func TestDetectFormat_Unknown(t *testing.T) {
 	input := `{"something":"else"}`
 	_, err := detectFormat([]byte(input))
@@ -99,6 +106,37 @@ func TestParseOTLP_Basic(t *testing.T) {
 	assert.Equal(t, "api", s.Service)
 	assert.Equal(t, "GET /users", s.Operation)
 	assert.False(t, s.IsError)
+	assert.Equal(t, "GET", s.Attributes["http.method"])
+}
+
+func TestParseOTLP_GrafanaTempoExport(t *testing.T) {
+	input := `{
+		"batches": [{
+			"resource": {"attributes": []},
+			"instrumentationLibrarySpans": [{
+				"instrumentationLibrary": {"name": "api-gateway"},
+				"spans": [{
+					"traceId": "AQIDBAUGBwgJCgsMDQ4PEA==",
+					"spanId": "AQIDBAUGBwg=",
+					"name": "GET /users",
+					"startTimeUnixNano": "1700000000000000000",
+					"endTimeUnixNano": "1700000000030000000",
+					"status": {},
+					"attributes": [{"key": "http.method", "value": {"stringValue": "GET"}}]
+				}]
+			}]
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatAuto)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+
+	s := spans[0]
+	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", s.TraceID)
+	assert.Equal(t, "0102030405060708", s.SpanID)
+	assert.Equal(t, "api-gateway", s.Service)
+	assert.Equal(t, "GET /users", s.Operation)
 	assert.Equal(t, "GET", s.Attributes["http.method"])
 }
 
