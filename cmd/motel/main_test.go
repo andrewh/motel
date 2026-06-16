@@ -454,7 +454,7 @@ func TestCheckEndpoint(t *testing.T) {
 
 	t.Run("unreachable default endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("", "http/protobuf", "test.yaml")
+		err := checkEndpoint(runOptions{protocol: "http/protobuf", protocolSet: true}, "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4318")
 		assert.Contains(t, err.Error(), "--stdout")
@@ -465,14 +465,14 @@ func TestCheckEndpoint(t *testing.T) {
 
 	t.Run("unreachable grpc default endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("", "grpc", "test.yaml")
+		err := checkEndpoint(runOptions{protocol: "grpc", protocolSet: true}, "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at localhost:4317")
 	})
 
 	t.Run("unreachable custom endpoint", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("192.0.2.1:9999", "http/protobuf", "test.yaml")
+		err := checkEndpoint(runOptions{endpoint: "192.0.2.1:9999", endpointSet: true, protocol: "http/protobuf", protocolSet: true}, "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector at 192.0.2.1:9999")
 	})
@@ -483,7 +483,7 @@ func TestCheckEndpoint(t *testing.T) {
 		require.NoError(t, err)
 		defer ln.Close() //nolint:errcheck // best-effort close in test
 
-		err = checkEndpoint(ln.Addr().String(), "http/protobuf", "test.yaml")
+		err = checkEndpoint(runOptions{endpoint: ln.Addr().String(), endpointSet: true, protocol: "http/protobuf", protocolSet: true}, "test.yaml")
 		require.NoError(t, err)
 	})
 
@@ -493,13 +493,13 @@ func TestCheckEndpoint(t *testing.T) {
 		require.NoError(t, err)
 		defer ln.Close() //nolint:errcheck // best-effort close in test
 
-		err = checkEndpoint("http://"+ln.Addr().String()+"/v1/traces", "http/protobuf", "test.yaml")
+		err = checkEndpoint(runOptions{endpoint: "http://" + ln.Addr().String() + "/v1/traces", endpointSet: true, protocol: "http/protobuf", protocolSet: true}, "test.yaml")
 		require.NoError(t, err)
 	})
 
 	t.Run("endpoint without port gets default", func(t *testing.T) {
 		t.Parallel()
-		err := checkEndpoint("192.0.2.1", "http/protobuf", "test.yaml")
+		err := checkEndpoint(runOptions{endpoint: "192.0.2.1", endpointSet: true, protocol: "http/protobuf", protocolSet: true}, "test.yaml")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "192.0.2.1:4318")
 	})
@@ -529,6 +529,63 @@ func TestCheckEndpoint(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot reach OTLP collector")
 	})
+}
+
+func TestResolveOTLPConfig(t *testing.T) {
+	t.Run("env config", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.example.com:4318")
+		t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+		t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=secret,x-team=platform")
+		t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "2500")
+
+		cfg, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.NoError(t, err)
+		assert.Equal(t, "http://collector.example.com:4318", cfg.endpoint)
+		assert.Equal(t, "grpc", cfg.protocol)
+		assert.Equal(t, map[string]string{"authorization": "secret", "x-team": "platform"}, cfg.headers)
+		assert.Equal(t, 2500*time.Millisecond, cfg.timeout)
+	})
+
+	t.Run("flags override env", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "env.example.com:4318")
+		t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+		t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=secret")
+
+		cfg, err := resolveOTLPConfig(runOptions{
+			endpoint:    "flag.example.com:4318",
+			endpointSet: true,
+			protocol:    "http/protobuf",
+			protocolSet: true,
+			headers:     "x-flag=yes",
+			headersSet:  true,
+		}, "traces")
+		require.NoError(t, err)
+		assert.Equal(t, "flag.example.com:4318", cfg.endpoint)
+		assert.Equal(t, "http/protobuf", cfg.protocol)
+		assert.Equal(t, map[string]string{"x-flag": "yes"}, cfg.headers)
+	})
+
+	t.Run("signal env overrides generic env", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "generic.example.com:4318")
+		t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "traces.example.com:4318")
+
+		cfg, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.NoError(t, err)
+		assert.Equal(t, "traces.example.com:4318", cfg.endpoint)
+	})
+}
+
+func TestDoctorCommandRedactsHeaders(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=secret")
+	root := rootCmd()
+	root.SetArgs([]string{"doctor", "--endpoint", "192.0.2.1:9999"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, out.String(), "authorization=<redacted>")
+	assert.NotContains(t, out.String(), "secret")
 }
 
 func TestCheckCommand(t *testing.T) {

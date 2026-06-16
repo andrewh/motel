@@ -18,7 +18,7 @@ motel validate https://raw.githubusercontent.com/andrewh/motel/main/docs/example
 
 ## otel-cli (terminal, zero setup)
 
-The quickest way to see traces is [otel-cli's TUI server](https://github.com/equinix-labs/otel-cli), which displays spans in your terminal with no external dependencies.
+The quickest way to see traces is [otel-cli's TUI server](https://github.com/tobert/otel-cli), which displays spans in your terminal with no external dependencies.
 
 In one terminal:
 

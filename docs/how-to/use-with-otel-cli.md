@@ -1,13 +1,13 @@
 # Use motel with otel-cli
 
-[otel-cli](https://github.com/equinix-labs/otel-cli) is a command-line tool for creating OpenTelemetry spans from shell scripts. motel generates synthetic telemetry from topology definitions. The two tools complement each other — otel-cli instruments real commands, motel simulates entire distributed systems.
+[otel-cli](https://github.com/tobert/otel-cli) is a command-line tool for creating OpenTelemetry spans from shell scripts. motel generates synthetic telemetry from topology definitions. The two tools complement each other — otel-cli instruments real commands, motel simulates entire distributed systems.
 
 This guide covers practical ways to use them together.
 
 ## Prerequisites
 
 - motel installed
-- otel-cli installed ([releases](https://github.com/equinix-labs/otel-cli/releases))
+- otel-cli installed ([releases](https://github.com/tobert/otel-cli/releases))
 
 Save this as `topology.yaml` to use with the examples below:
 
@@ -56,6 +56,22 @@ motel run --endpoint localhost:4317 --protocol grpc --duration 10s topology.yaml
 
 The TUI displays each span as it arrives. This is particularly useful when you are authoring a new topology and want to see whether the call graph, durations, and error rates look right before sending traffic to a real backend.
 
+You can also use standard OTLP environment variables, which is useful in shell scripts and CI pipelines:
+
+```sh
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+motel run --duration 10s topology.yaml
+```
+
+`motel run`, `motel emit`, and `motel doctor` resolve OTLP settings with this precedence: command flags first, then signal-specific environment variables such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, then generic environment variables such as `OTEL_EXPORTER_OTLP_ENDPOINT`, then motel defaults. The supported generic variables are `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_INSECURE`, and `OTEL_EXPORTER_OTLP_TIMEOUT`; trace, metric, and log-specific variants use `_TRACES_`, `_METRICS_`, or `_LOGS_` before the final setting name.
+
+Run `motel doctor` to print the resolved OTLP configuration with header values redacted, check TCP connectivity, and send a tiny canary trace:
+
+```sh
+motel doctor --endpoint localhost:4317 --protocol grpc
+```
+
 ### Tips for the TUI workflow
 
 - **Keep the rate low.** The TUI is meant for inspection, not throughput. A rate of `5/s` or `10/s` is plenty.
@@ -98,6 +114,6 @@ If you want to capture real traces and import them into motel, use a collector w
 
 ## Further reading
 
-- [otel-cli documentation](https://github.com/equinix-labs/otel-cli)
+- [otel-cli documentation](https://github.com/tobert/otel-cli)
 - [Model your services](model-your-services.md) — creating topology files
 - [Validate a collector pipeline](validate-collector-pipeline.md) — testing collector configurations with motel
