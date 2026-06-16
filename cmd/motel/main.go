@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,6 +69,7 @@ func rootCmd() *cobra.Command {
 
 	root.AddCommand(runCmd())
 	root.AddCommand(emitCmd())
+	root.AddCommand(doctorCmd())
 	root.AddCommand(validateCmd())
 	root.AddCommand(importCmd())
 	root.AddCommand(previewCmd())
@@ -83,6 +85,9 @@ func runCmd() *cobra.Command {
 		stdout           bool
 		duration         time.Duration
 		protocol         string
+		headers          string
+		insecure         bool
+		exportTimeout    time.Duration
 		signals          string
 		slowThreshold    time.Duration
 		maxSpansPerTrace int
@@ -117,9 +122,17 @@ func runCmd() *cobra.Command {
 			}
 			return runGenerate(cmd.Context(), args[0], runOptions{
 				endpoint:         endpoint,
+				endpointSet:      cmd.Flags().Changed("endpoint"),
 				stdout:           stdout,
 				duration:         duration,
 				protocol:         protocol,
+				protocolSet:      cmd.Flags().Changed("protocol"),
+				headers:          headers,
+				headersSet:       cmd.Flags().Changed("headers"),
+				insecure:         insecure,
+				insecureSet:      cmd.Flags().Changed("insecure"),
+				exportTimeout:    exportTimeout,
+				timeoutSet:       cmd.Flags().Changed("timeout"),
 				signals:          signals,
 				signalsChanged:   cmd.Flags().Changed("signals"),
 				slowThreshold:    slowThreshold,
@@ -136,10 +149,13 @@ func runCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318 or http://localhost:4318)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (overrides OTEL_EXPORTER_OTLP_ENDPOINT)")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "simulation duration, e.g. 10s, 5m, 1h (default 1m)")
-	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
+	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol: http/protobuf or grpc (overrides OTEL_EXPORTER_OTLP_PROTOCOL)")
+	cmd.Flags().StringVar(&headers, "headers", "", "OTLP headers as comma-separated key=value pairs (overrides OTEL_EXPORTER_OTLP_HEADERS)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS for OTLP exporters")
+	cmd.Flags().DurationVar(&exportTimeout, "timeout", 0, "OTLP export timeout (overrides OTEL_EXPORTER_OTLP_TIMEOUT)")
 	cmd.Flags().StringVar(&signals, "signals", "traces", "comma-separated signals to emit: traces,metrics,logs")
 	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow span log emission")
 	cmd.Flags().IntVar(&maxSpansPerTrace, "max-spans-per-trace", 0, "maximum spans per trace (0 = default 10000)")
@@ -157,17 +173,20 @@ func runCmd() *cobra.Command {
 
 func emitCmd() *cobra.Command {
 	var (
-		service      string
-		operation    string
-		spanDuration time.Duration
-		duration     time.Duration
-		errorRate    string
-		attrs        []string
-		count        int
-		rate         string
-		endpoint     string
-		stdout       bool
-		protocol     string
+		service       string
+		operation     string
+		spanDuration  time.Duration
+		duration      time.Duration
+		errorRate     string
+		attrs         []string
+		count         int
+		rate          string
+		endpoint      string
+		stdout        bool
+		protocol      string
+		headers       string
+		insecure      bool
+		exportTimeout time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -228,9 +247,17 @@ func emitCmd() *cobra.Command {
 			}
 
 			opts := runOptions{
-				endpoint: endpoint,
-				stdout:   stdout,
-				protocol: protocol,
+				endpoint:      endpoint,
+				endpointSet:   cmd.Flags().Changed("endpoint"),
+				stdout:        stdout,
+				protocol:      protocol,
+				protocolSet:   cmd.Flags().Changed("protocol"),
+				headers:       headers,
+				headersSet:    cmd.Flags().Changed("headers"),
+				insecure:      insecure,
+				insecureSet:   cmd.Flags().Changed("insecure"),
+				exportTimeout: exportTimeout,
+				timeoutSet:    cmd.Flags().Changed("timeout"),
 			}
 
 			if err := validateProtocol(opts.protocol); err != nil {
@@ -238,7 +265,7 @@ func emitCmd() *cobra.Command {
 			}
 
 			if !opts.stdout {
-				if err := checkEndpointForEmit(opts.endpoint, opts.protocol); err != nil {
+				if err := checkEndpointForEmit(opts); err != nil {
 					return err
 				}
 			}
@@ -308,15 +335,107 @@ func emitCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "span attribute in key=value format (repeatable)")
 	cmd.Flags().IntVar(&count, "count", 1, "number of traces to emit")
 	cmd.Flags().StringVar(&rate, "rate", "10/s", "trace rate when count > 1 (e.g. 10/s, 100/m)")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (e.g. localhost:4318 or http://localhost:4318)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (overrides OTEL_EXPORTER_OTLP_ENDPOINT)")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "emit signals to stdout as JSON")
-	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol (http/protobuf or grpc)")
+	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol: http/protobuf or grpc (overrides OTEL_EXPORTER_OTLP_PROTOCOL)")
+	cmd.Flags().StringVar(&headers, "headers", "", "OTLP headers as comma-separated key=value pairs (overrides OTEL_EXPORTER_OTLP_HEADERS)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS for OTLP exporters")
+	cmd.Flags().DurationVar(&exportTimeout, "timeout", 0, "OTLP export timeout (overrides OTEL_EXPORTER_OTLP_TIMEOUT)")
 
 	return cmd
 }
 
-func checkEndpointForEmit(endpoint, protocol string) error {
-	host, err := dialEndpoint(endpoint, protocol)
+func doctorCmd() *cobra.Command {
+	var (
+		endpoint      string
+		protocol      string
+		headers       string
+		insecure      bool
+		exportTimeout time.Duration
+	)
+
+	cmd := &cobra.Command{
+		Use:     "doctor",
+		Aliases: []string{"status"},
+		Short:   "Diagnose OTLP exporter configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := runOptions{
+				endpoint:      endpoint,
+				endpointSet:   cmd.Flags().Changed("endpoint"),
+				protocol:      protocol,
+				protocolSet:   cmd.Flags().Changed("protocol"),
+				headers:       headers,
+				headersSet:    cmd.Flags().Changed("headers"),
+				insecure:      insecure,
+				insecureSet:   cmd.Flags().Changed("insecure"),
+				exportTimeout: exportTimeout,
+				timeoutSet:    cmd.Flags().Changed("timeout"),
+			}
+			return runDoctor(cmd.Context(), cmd.OutOrStdout(), opts)
+		},
+	}
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (overrides OTEL_EXPORTER_OTLP_ENDPOINT)")
+	cmd.Flags().StringVar(&protocol, "protocol", "http/protobuf", "OTLP protocol: http/protobuf or grpc (overrides OTEL_EXPORTER_OTLP_PROTOCOL)")
+	cmd.Flags().StringVar(&headers, "headers", "", "OTLP headers as comma-separated key=value pairs (overrides OTEL_EXPORTER_OTLP_HEADERS)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "disable TLS for OTLP exporters")
+	cmd.Flags().DurationVar(&exportTimeout, "timeout", 0, "OTLP export timeout (overrides OTEL_EXPORTER_OTLP_TIMEOUT)")
+	return cmd
+}
+
+func runDoctor(ctx context.Context, out io.Writer, opts runOptions) error {
+	cfg, err := resolveOTLPConfig(opts, "traces")
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveEndpoint(cfg.endpoint, cfg.protocol)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "OTLP endpoint: %s\n", resolved.hostPort)
+	_, _ = fmt.Fprintf(out, "OTLP protocol: %s\n", cfg.protocol)
+	_, _ = fmt.Fprintf(out, "OTLP insecure: %t\n", cfg.insecure)
+	if cfg.timeout > 0 {
+		_, _ = fmt.Fprintf(out, "OTLP timeout: %s\n", cfg.timeout)
+	}
+	for _, key := range slices.Sorted(maps.Keys(cfg.headers)) {
+		_, _ = fmt.Fprintf(out, "OTLP header: %s=%s\n", key, redactValue(cfg.headers[key]))
+	}
+
+	if _, err := dialEndpoint(cfg.endpoint, cfg.protocol); err != nil {
+		return fmt.Errorf("OTLP TCP check failed for %s: %w\n\nCheck the endpoint host/port, protocol port (4318 for http/protobuf, 4317 for grpc), TLS mode, and firewall rules", resolved.hostPort, err)
+	}
+	_, _ = fmt.Fprintln(out, "TCP check: ok")
+
+	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(attribute.String("service.name", "motel-doctor")))
+	if err != nil {
+		return fmt.Errorf("creating resource: %w", err)
+	}
+	providers, shutdown, err := createTraceProviders(ctx, opts, true, map[string]*resource.Resource{"motel-doctor": res})
+	if err != nil {
+		return fmt.Errorf("creating trace exporter: %w", err)
+	}
+	tr := providers["motel-doctor"].Tracer("motel-doctor")
+	spanCtx, span := tr.Start(ctx, "motel.doctor.canary")
+	span.End()
+	shutdown()
+	_, _ = fmt.Fprintf(out, "Canary trace: sent trace_id=%s span_id=%s\n", span.SpanContext().TraceID(), span.SpanContext().SpanID())
+	_ = spanCtx
+	return nil
+}
+
+func redactValue(value string) string {
+	if value == "" {
+		return "<empty>"
+	}
+	return "<redacted>"
+}
+
+func checkEndpointForEmit(opts runOptions) error {
+	cfg, err := resolveOTLPConfig(opts, "traces")
+	if err != nil {
+		return err
+	}
+	host, err := dialEndpoint(cfg.endpoint, cfg.protocol)
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
@@ -462,9 +581,17 @@ func versionCmd() *cobra.Command {
 
 type runOptions struct {
 	endpoint         string
+	endpointSet      bool
 	stdout           bool
 	duration         time.Duration
 	protocol         string
+	protocolSet      bool
+	headers          string
+	headersSet       bool
+	insecure         bool
+	insecureSet      bool
+	exportTimeout    time.Duration
+	timeoutSet       bool
 	signals          string
 	signalsChanged   bool
 	slowThreshold    time.Duration
@@ -477,6 +604,117 @@ type runOptions struct {
 	seed             uint64
 	verbatim         bool
 	preserveIDs      bool
+}
+
+type otlpConfig struct {
+	endpoint string
+	protocol string
+	headers  map[string]string
+	insecure bool
+	timeout  time.Duration
+}
+
+const (
+	envOTLPEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	envOTLPProtocol = "OTEL_EXPORTER_OTLP_PROTOCOL"
+	envOTLPHeaders  = "OTEL_EXPORTER_OTLP_HEADERS"
+	envOTLPTimeout  = "OTEL_EXPORTER_OTLP_TIMEOUT"
+)
+
+func signalEnv(signal, suffix string) string {
+	return "OTEL_EXPORTER_OTLP_" + strings.ToUpper(signal) + "_" + suffix
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func resolveOTLPConfig(opts runOptions, signal string) (otlpConfig, error) {
+	cfg := otlpConfig{protocol: "http/protobuf"}
+	if opts.protocolSet {
+		cfg.protocol = opts.protocol
+	} else if protocol := envFirst(signalEnv(signal, "PROTOCOL"), envOTLPProtocol); protocol != "" {
+		cfg.protocol = protocol
+	} else {
+		cfg.protocol = opts.protocol
+	}
+	if err := validateProtocol(cfg.protocol); err != nil {
+		return otlpConfig{}, err
+	}
+
+	if opts.endpointSet {
+		cfg.endpoint = opts.endpoint
+	} else {
+		cfg.endpoint = envFirst(signalEnv(signal, "ENDPOINT"), envOTLPEndpoint)
+	}
+
+	headerValue := ""
+	if opts.headersSet {
+		headerValue = opts.headers
+	} else {
+		headerValue = envFirst(signalEnv(signal, "HEADERS"), envOTLPHeaders)
+	}
+	headers, err := parseOTLPHeaders(headerValue)
+	if err != nil {
+		return otlpConfig{}, err
+	}
+	cfg.headers = headers
+
+	if opts.insecureSet {
+		cfg.insecure = opts.insecure
+	} else if insecure := envFirst(signalEnv(signal, "INSECURE"), "OTEL_EXPORTER_OTLP_INSECURE"); insecure != "" {
+		parsed, parseErr := strconv.ParseBool(insecure)
+		if parseErr != nil {
+			return otlpConfig{}, fmt.Errorf("invalid OTLP insecure value %q: %w", insecure, parseErr)
+		}
+		cfg.insecure = parsed
+	}
+
+	if opts.timeoutSet {
+		cfg.timeout = opts.exportTimeout
+	} else if timeoutValue := envFirst(signalEnv(signal, "TIMEOUT"), envOTLPTimeout); timeoutValue != "" {
+		timeout, parseErr := parseOTLPTimeout(timeoutValue)
+		if parseErr != nil {
+			return otlpConfig{}, parseErr
+		}
+		cfg.timeout = timeout
+	}
+	return cfg, nil
+}
+
+func parseOTLPHeaders(value string) (map[string]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	headers := map[string]string{}
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(part, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("OTLP header %q must be in key=value format", part)
+		}
+		headers[strings.TrimSpace(key)] = strings.TrimSpace(val)
+	}
+	return headers, nil
+}
+
+func parseOTLPTimeout(value string) (time.Duration, error) {
+	if ms, err := strconv.Atoi(value); err == nil {
+		return time.Duration(ms) * time.Millisecond, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid OTLP timeout %q: use a duration like 5s or milliseconds like 5000", value)
+	}
+	return d, nil
 }
 
 // RNG streams for seeded runs. Each consumer of randomness gets a fixed
@@ -603,8 +841,12 @@ func dialEndpoint(endpoint, protocol string) (string, error) {
 	return resolved.hostPort, nil
 }
 
-func checkEndpoint(endpoint, protocol, configPath string) error {
-	host, err := dialEndpoint(endpoint, protocol)
+func checkEndpoint(opts runOptions, configPath string) error {
+	cfg, err := resolveOTLPConfig(opts, "traces")
+	if err != nil {
+		return err
+	}
+	host, err := dialEndpoint(cfg.endpoint, cfg.protocol)
 	if err != nil {
 		return fmt.Errorf("cannot reach OTLP collector at %s\n\n"+
 			"To emit signals as JSON to the terminal, use --stdout:\n"+
@@ -676,7 +918,7 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 	}
 
 	if !opts.stdout {
-		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
+		if err := checkEndpoint(opts, configPath); err != nil {
 			return err
 		}
 	}
@@ -947,33 +1189,55 @@ func createTraceExporter(ctx context.Context, opts runOptions) (sdktrace.SpanExp
 	if opts.stdout {
 		return stdouttrace.New(stdouttrace.WithWriter(os.Stdout))
 	}
-	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	cfg, err := resolveOTLPConfig(opts, "traces")
 	if err != nil {
 		return nil, err
 	}
-	switch opts.protocol {
+	resolved, err := resolveEndpoint(cfg.endpoint, cfg.protocol)
+	if err != nil {
+		return nil, err
+	}
+	switch cfg.protocol {
 	case "grpc":
 		var grpcOpts []otlptracegrpc.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpointURL(resolved.endpointURL))
 			} else {
-				grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(resolved.hostPort), otlptracegrpc.WithInsecure())
+				grpcOpts = append(grpcOpts, otlptracegrpc.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			grpcOpts = append(grpcOpts, otlptracegrpc.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			grpcOpts = append(grpcOpts, otlptracegrpc.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			grpcOpts = append(grpcOpts, otlptracegrpc.WithTimeout(cfg.timeout))
 		}
 		return otlptracegrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlptracehttp.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				httpOpts = append(httpOpts, otlptracehttp.WithEndpointURL(resolved.endpointURL))
 			} else {
-				httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(resolved.hostPort), otlptracehttp.WithInsecure())
+				httpOpts = append(httpOpts, otlptracehttp.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			httpOpts = append(httpOpts, otlptracehttp.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			httpOpts = append(httpOpts, otlptracehttp.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			httpOpts = append(httpOpts, otlptracehttp.WithTimeout(cfg.timeout))
 		}
 		return otlptracehttp.New(ctx, httpOpts...)
 	default:
-		return nil, fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", opts.protocol)
+		return nil, fmt.Errorf("unsupported protocol %q, supported: http/protobuf, grpc", cfg.protocol)
 	}
 }
 
@@ -1023,33 +1287,55 @@ func createMetricExporter(ctx context.Context, opts runOptions) (sdkmetric.Expor
 	if opts.stdout {
 		return stdoutmetric.New(stdoutmetric.WithWriter(os.Stdout))
 	}
-	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	cfg, err := resolveOTLPConfig(opts, "metrics")
 	if err != nil {
 		return nil, err
 	}
-	switch opts.protocol {
+	resolved, err := resolveEndpoint(cfg.endpoint, cfg.protocol)
+	if err != nil {
+		return nil, err
+	}
+	switch cfg.protocol {
 	case "grpc":
 		var grpcOpts []otlpmetricgrpc.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpointURL(resolved.endpointURL))
 			} else {
-				grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(resolved.hostPort), otlpmetricgrpc.WithInsecure())
+				grpcOpts = append(grpcOpts, otlpmetricgrpc.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			grpcOpts = append(grpcOpts, otlpmetricgrpc.WithTimeout(cfg.timeout))
 		}
 		return otlpmetricgrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlpmetrichttp.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				httpOpts = append(httpOpts, otlpmetrichttp.WithEndpointURL(resolved.endpointURL))
 			} else {
-				httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(resolved.hostPort), otlpmetrichttp.WithInsecure())
+				httpOpts = append(httpOpts, otlpmetrichttp.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			httpOpts = append(httpOpts, otlpmetrichttp.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			httpOpts = append(httpOpts, otlpmetrichttp.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			httpOpts = append(httpOpts, otlpmetrichttp.WithTimeout(cfg.timeout))
 		}
 		return otlpmetrichttp.New(ctx, httpOpts...)
 	default:
-		return nil, fmt.Errorf("unsupported protocol %q for metrics", opts.protocol)
+		return nil, fmt.Errorf("unsupported protocol %q for metrics", cfg.protocol)
 	}
 }
 
@@ -1092,33 +1378,55 @@ func createLogExporter(ctx context.Context, opts runOptions) (sdklog.Exporter, e
 	if opts.stdout {
 		return stdoutlog.New(stdoutlog.WithWriter(os.Stdout))
 	}
-	resolved, err := resolveEndpoint(opts.endpoint, opts.protocol)
+	cfg, err := resolveOTLPConfig(opts, "logs")
 	if err != nil {
 		return nil, err
 	}
-	switch opts.protocol {
+	resolved, err := resolveEndpoint(cfg.endpoint, cfg.protocol)
+	if err != nil {
+		return nil, err
+	}
+	switch cfg.protocol {
 	case "grpc":
 		var grpcOpts []otlploggrpc.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				grpcOpts = append(grpcOpts, otlploggrpc.WithEndpointURL(resolved.endpointURL))
 			} else {
-				grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(resolved.hostPort), otlploggrpc.WithInsecure())
+				grpcOpts = append(grpcOpts, otlploggrpc.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			grpcOpts = append(grpcOpts, otlploggrpc.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			grpcOpts = append(grpcOpts, otlploggrpc.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			grpcOpts = append(grpcOpts, otlploggrpc.WithTimeout(cfg.timeout))
 		}
 		return otlploggrpc.New(ctx, grpcOpts...)
 	case "http/protobuf", "":
 		var httpOpts []otlploghttp.Option
-		if opts.endpoint != "" {
+		if cfg.endpoint != "" {
 			if resolved.endpointURL != "" {
 				httpOpts = append(httpOpts, otlploghttp.WithEndpointURL(resolved.endpointURL))
 			} else {
-				httpOpts = append(httpOpts, otlploghttp.WithEndpoint(resolved.hostPort), otlploghttp.WithInsecure())
+				httpOpts = append(httpOpts, otlploghttp.WithEndpoint(resolved.hostPort))
 			}
+		}
+		if cfg.insecure || (cfg.endpoint != "" && resolved.endpointURL == "") {
+			httpOpts = append(httpOpts, otlploghttp.WithInsecure())
+		}
+		if len(cfg.headers) > 0 {
+			httpOpts = append(httpOpts, otlploghttp.WithHeaders(cfg.headers))
+		}
+		if cfg.timeout > 0 {
+			httpOpts = append(httpOpts, otlploghttp.WithTimeout(cfg.timeout))
 		}
 		return otlploghttp.New(ctx, httpOpts...)
 	default:
-		return nil, fmt.Errorf("unsupported protocol %q for logs", opts.protocol)
+		return nil, fmt.Errorf("unsupported protocol %q for logs", cfg.protocol)
 	}
 }
 
