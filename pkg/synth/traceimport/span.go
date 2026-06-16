@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -306,9 +307,8 @@ func parseOTLP(data []byte) ([]Span, error) {
 					svc = scopeName
 				}
 
-				parentBytes := decodeOTLPID(span.ParentSpanID)
-				parentID := hex.EncodeToString(parentBytes)
-				if isZeroID(parentID) || len(parentBytes) == 0 {
+				parentID := span.ParentSpanID.hex()
+				if isZeroID(parentID) || len(span.ParentSpanID) == 0 {
 					parentID = ""
 				}
 
@@ -321,13 +321,13 @@ func parseOTLP(data []byte) ([]Span, error) {
 				}
 
 				spans = append(spans, Span{
-					TraceID:    hex.EncodeToString(decodeOTLPID(span.TraceID)),
-					SpanID:     hex.EncodeToString(decodeOTLPID(span.SpanID)),
+					TraceID:    span.TraceID.hex(),
+					SpanID:     span.SpanID.hex(),
 					ParentID:   parentID,
 					Service:    svc,
 					Operation:  span.Name,
-					StartTime:  time.Unix(0, int64(span.StartTimeUnixNano.uint64())), //nolint:gosec // nanosecond timestamps are always positive
-					EndTime:    time.Unix(0, int64(span.EndTimeUnixNano.uint64())),   //nolint:gosec // nanosecond timestamps are always positive
+					StartTime:  time.Unix(0, int64(span.StartTimeUnixNano)), //nolint:gosec // nanosecond timestamps are always positive
+					EndTime:    time.Unix(0, int64(span.EndTimeUnixNano)),   //nolint:gosec // nanosecond timestamps are always positive
 					IsError:    span.Status.Code.isError(),
 					Attributes: attrs,
 				})
@@ -536,12 +536,12 @@ type otlpScope struct {
 }
 
 type otlpSpan struct {
-	TraceID           string         `json:"traceId"`
-	SpanID            string         `json:"spanId"`
-	ParentSpanID      string         `json:"parentSpanId"`
+	TraceID           otlpID         `json:"traceId"`
+	SpanID            otlpID         `json:"spanId"`
+	ParentSpanID      otlpID         `json:"parentSpanId"`
 	Name              string         `json:"name"`
-	StartTimeUnixNano otlpInt        `json:"startTimeUnixNano"`
-	EndTimeUnixNano   otlpInt        `json:"endTimeUnixNano"`
+	StartTimeUnixNano otlpUint64     `json:"startTimeUnixNano"`
+	EndTimeUnixNano   otlpUint64     `json:"endTimeUnixNano"`
 	Status            otlpStatus     `json:"status"`
 	Attributes        []otlpKeyValue `json:"attributes"`
 }
@@ -558,10 +558,10 @@ type otlpKeyValue struct {
 // otlpAnyValue mirrors the OTLP AnyValue. Only scalar variants feed topology
 // inference; arrayValue and kvlistValue are intentionally not represented.
 type otlpAnyValue struct {
-	StringValue *string  `json:"stringValue"`
-	IntValue    *otlpInt `json:"intValue"`
-	BoolValue   *bool    `json:"boolValue"`
-	DoubleValue *float64 `json:"doubleValue"`
+	StringValue *string     `json:"stringValue"`
+	IntValue    *otlpInt64  `json:"intValue"`
+	BoolValue   *bool       `json:"boolValue"`
+	DoubleValue *otlpDouble `json:"doubleValue"`
 }
 
 // asString renders the AnyValue as the inference engine's string form. Scalar
@@ -571,28 +571,101 @@ func (v otlpAnyValue) asString() string {
 	case v.StringValue != nil:
 		return *v.StringValue
 	case v.IntValue != nil:
-		return string(*v.IntValue)
+		return strconv.FormatInt(int64(*v.IntValue), 10)
 	case v.BoolValue != nil:
 		return strconv.FormatBool(*v.BoolValue)
 	case v.DoubleValue != nil:
-		return strconv.FormatFloat(*v.DoubleValue, 'g', -1, 64)
+		return strconv.FormatFloat(float64(*v.DoubleValue), 'g', -1, 64)
 	default:
 		return ""
 	}
 }
 
-// otlpInt is a 64-bit integer that OTLP/JSON encodes as either a JSON number
-// or, per the proto3 JSON mapping for 64-bit integers, a decimal string.
-type otlpInt string
+type otlpID []byte
 
-func (n *otlpInt) UnmarshalJSON(data []byte) error {
-	*n = otlpInt(bytes.Trim(data, `"`))
+func (id *otlpID) UnmarshalJSON(data []byte) error {
+	s, ok, err := otlpJSONScalarText(data)
+	if err != nil {
+		return err
+	}
+	if !ok || s == "" {
+		*id = nil
+		return nil
+	}
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding,
+		base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			*id = b
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid OTLP ID %q", s)
+}
+
+func (id otlpID) hex() string {
+	return hex.EncodeToString(id)
+}
+
+type otlpUint64 uint64
+
+func (n *otlpUint64) UnmarshalJSON(data []byte) error {
+	s, ok, err := otlpJSONScalarText(data)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		*n = 0
+		return nil
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid OTLP uint64 %q: %w", s, err)
+	}
+	*n = otlpUint64(v)
 	return nil
 }
 
-func (n otlpInt) uint64() uint64 {
-	v, _ := strconv.ParseUint(string(n), 10, 64)
-	return v
+type otlpInt64 int64
+
+func (n *otlpInt64) UnmarshalJSON(data []byte) error {
+	s, ok, err := otlpJSONScalarText(data)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		*n = 0
+		return nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid OTLP int64 %q: %w", s, err)
+	}
+	*n = otlpInt64(v)
+	return nil
+}
+
+type otlpDouble float64
+
+func (n *otlpDouble) UnmarshalJSON(data []byte) error {
+	s, ok, err := otlpJSONScalarText(data)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		*n = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return fmt.Errorf("invalid OTLP double %q: %w", s, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("invalid OTLP double %q: non-finite values are not supported", s)
+	}
+	*n = otlpDouble(v)
+	return nil
 }
 
 // otlpStatusCode accepts the OTLP status code as its proto3 JSON enum name
@@ -608,19 +681,17 @@ func (c otlpStatusCode) isError() bool {
 	return c == "STATUS_CODE_ERROR" || c == "2"
 }
 
-// decodeOTLPID decodes an OTLP/JSON trace or span ID. proto3 JSON encodes bytes
-// as base64; emitters vary on alphabet and padding, so all four forms are tried.
-func decodeOTLPID(s string) []byte {
-	if s == "" {
-		return nil
+func otlpJSONScalarText(data []byte) (string, bool, error) {
+	data = bytes.TrimSpace(data)
+	if bytes.Equal(data, []byte("null")) {
+		return "", false, nil
 	}
-	for _, enc := range []*base64.Encoding{
-		base64.StdEncoding, base64.RawStdEncoding,
-		base64.URLEncoding, base64.RawURLEncoding,
-	} {
-		if b, err := enc.DecodeString(s); err == nil {
-			return b
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return "", false, err
 		}
+		return s, true, nil
 	}
-	return nil
+	return string(data), true, nil
 }
