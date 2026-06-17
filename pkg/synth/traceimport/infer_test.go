@@ -154,8 +154,10 @@ func TestImport_SelfNestedSpansRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Import succeeding at all proves the round-trip (now including BuildTopology
-	// and its cycle detection) accepted the result. Confirm the legitimate edges
-	// survive while the transaction operation gains no self edge.
+	// and its cycle detection) accepted the result. Confirm the transaction
+	// operation gains no self edge and that db-write is recorded as an
+	// unconditional call (probability 1.0) — i.e. the nested span did not inflate
+	// the count and deflate the probability.
 	cfg, err := synth.ParseConfig(result.YAML)
 	require.NoError(t, err)
 	var tx *synth.OperationConfig
@@ -165,9 +167,11 @@ func TestImport_SelfNestedSpansRoundTrip(t *testing.T) {
 		}
 	}
 	require.NotNil(t, tx)
-	for _, call := range tx.Calls {
-		assert.NotEqual(t, "svc.transaction", call.Target, "self-referential edge must not be emitted")
-	}
+	require.Len(t, tx.Calls, 1)
+	assert.Equal(t, "svc.db-write", tx.Calls[0].Target)
+	// db-write is unconditional: the nested span must not inflate the count and
+	// deflate the probability, so no probability key is emitted.
+	assert.NotContains(t, string(result.YAML), "probability", "nested span must not deflate the call probability")
 }
 
 func TestImport_WithErrors(t *testing.T) {

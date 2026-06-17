@@ -100,9 +100,24 @@ func Import(r io.Reader, opts Options) (Result, error) {
 		return Result{}, err
 	}
 
-	// Step 7: Round-trip validation
-	if err := validateRoundTrip(yamlBytes); err != nil {
+	// Step 7: Round-trip validation. Parsing and structural validation guard
+	// against serialisation bugs in motel itself, so those failures are flagged
+	// as bugs. Topology construction additionally runs cycle detection; because
+	// self-nested spans are folded during stats collection, a remaining cycle
+	// reflects a genuinely cyclic call pattern in the source traces that motel's
+	// acyclic model cannot represent — a property of the input, not a bug.
+	cfg, err := synth.ParseConfig(yamlBytes)
+	if err != nil {
+		return Result{}, fmt.Errorf("round-trip parse failed (this is a bug): %w", err)
+	}
+	if err := synth.ValidateConfig(cfg); err != nil {
 		return Result{}, fmt.Errorf("round-trip validation failed (this is a bug): %w", err)
+	}
+	if _, err := synth.BuildTopology(cfg, nil); err != nil {
+		return Result{}, fmt.Errorf("inferred topology is not valid: %w\n\n"+
+			"this typically means the source traces contain a cyclic call pattern "+
+			"(an operation that, directly or transitively, calls itself across "+
+			"services), which motel's acyclic model cannot represent", err)
 	}
 
 	return Result{

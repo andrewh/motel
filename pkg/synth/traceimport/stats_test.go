@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpStatsDurationStats(t *testing.T) {
@@ -110,11 +111,12 @@ func TestCollector_Basic(t *testing.T) {
 	assert.Equal(t, 1, collector.Services["gw"].Ops["GET"].Calls["api.list"].Count)
 }
 
-// TestCollector_SkipsSelfNestedEdge ensures that a span nested inside another
-// span of the same (service, operation) — e.g. a DB savepoint inside a
-// transaction — does not produce a self-referential call edge, which the
-// topology model forbids and cycle detection would reject.
-func TestCollector_SkipsSelfNestedEdge(t *testing.T) {
+// TestCollector_FoldsSelfNestedSpans ensures that a span nested inside an
+// ancestor of the same (service, operation) — e.g. a DB savepoint inside a
+// transaction — is folded into the enclosing operation: no self edge, the
+// nested span does not inflate the operation's count, and its real downstream
+// call is attributed to the operation with the right probability.
+func TestCollector_FoldsSelfNestedSpans(t *testing.T) {
 	now := time.Now()
 	spans := []Span{
 		{TraceID: "t1", SpanID: "root", Service: "svc", Operation: "work", StartTime: now, EndTime: now.Add(30 * time.Millisecond)},
@@ -128,8 +130,38 @@ func TestCollector_SkipsSelfNestedEdge(t *testing.T) {
 	collector.CollectFromTrees(trees)
 
 	tx := collector.Services["svc"].Ops["transaction"]
-	assert.NotContains(t, tx.Calls, "svc.transaction", "self-referential edge must be skipped")
-	assert.Contains(t, tx.Calls, "svc.db-write")
-	// Both transaction spans still fold into the same operation's stats.
-	assert.Equal(t, 2, tx.TotalCount)
+	assert.NotContains(t, tx.Calls, "svc.transaction", "self-referential edge must not be recorded")
+	require.Contains(t, tx.Calls, "svc.db-write")
+	// The nested transaction is a continuation, not a second invocation.
+	assert.Equal(t, 1, tx.TotalCount, "nested same-op span must not inflate the count")
+	assert.Equal(t, 1, tx.Calls["svc.db-write"].Count)
+	// Duration reflects the outermost span (24ms), not a blend with the inner one.
+	assert.Equal(t, 24*time.Millisecond, tx.meanDuration())
+}
+
+// TestCollector_FoldsIndirectSelfNesting covers recursion through a different
+// operation (A -> B -> A): the inner A is a continuation of the outer A, so the
+// back-edge B -> A is dropped rather than producing a cycle.
+func TestCollector_FoldsIndirectSelfNesting(t *testing.T) {
+	now := time.Now()
+	spans := []Span{
+		{TraceID: "t1", SpanID: "a1", Service: "svc", Operation: "A", StartTime: now, EndTime: now.Add(30 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "b1", ParentID: "a1", Service: "svc", Operation: "B", StartTime: now.Add(1 * time.Millisecond), EndTime: now.Add(25 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "a2", ParentID: "b1", Service: "svc", Operation: "A", StartTime: now.Add(2 * time.Millisecond), EndTime: now.Add(20 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "c1", ParentID: "a2", Service: "svc", Operation: "C", StartTime: now.Add(3 * time.Millisecond), EndTime: now.Add(10 * time.Millisecond)},
+	}
+
+	trees := BuildTrees(spans, nil)
+	collector := NewStatsCollector()
+	collector.CollectFromTrees(trees)
+
+	a := collector.Services["svc"].Ops["A"]
+	b := collector.Services["svc"].Ops["B"]
+	assert.Contains(t, a.Calls, "svc.B")
+	assert.NotContains(t, b.Calls, "svc.A", "back-edge to an ancestor op must be dropped")
+	// The recursed A is folded away; its call to C is attributed to B, the
+	// nearest genuine caller. Either way the graph stays acyclic.
+	assert.Contains(t, b.Calls, "svc.C")
+	assert.NotContains(t, a.Calls, "svc.C")
+	assert.Equal(t, 1, a.TotalCount, "recursed same-op span must not inflate the count")
 }
