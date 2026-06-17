@@ -402,16 +402,29 @@ func runDoctor(ctx context.Context, out io.Writer, opts runOptions) error {
 	if err != nil {
 		return fmt.Errorf("creating resource: %w", err)
 	}
-	providers, shutdown, err := createTraceProviders(ctx, opts, true, map[string]*resource.Resource{"motel-doctor": res})
+	exporter, err := createTraceExporter(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("creating trace exporter: %w", err)
 	}
-	tr := providers["motel-doctor"].Tracer("motel-doctor")
-	spanCtx, span := tr.Start(ctx, "motel.doctor.canary")
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		shutdownAll(shutdownCtx, []*sdktrace.TracerProvider{tp}, "tracer provider")
+	}()
+
+	_, span := tp.Tracer("motel-doctor").Start(ctx, "motel.doctor.canary")
 	span.End()
-	shutdown()
+
+	flushCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+	defer cancel()
+	if err := tp.ForceFlush(flushCtx); err != nil {
+		return fmt.Errorf("canary trace export failed for %s: %w\n\nThe collector is reachable over TCP but rejected the trace. Check the protocol, path, TLS mode, and any required headers", resolved.hostPort, err)
+	}
 	_, _ = fmt.Fprintf(out, "Canary trace: sent trace_id=%s span_id=%s\n", span.SpanContext().TraceID(), span.SpanContext().SpanID())
-	_ = spanCtx
 	return nil
 }
 
@@ -616,8 +629,6 @@ func resolveOTLPConfig(opts runOptions, signal string) (otlpConfig, error) {
 		cfg.protocol = opts.protocol
 	} else if protocol := envFirst(signalEnv(signal, "PROTOCOL"), envOTLPProtocol); protocol != "" {
 		cfg.protocol = protocol
-	} else {
-		cfg.protocol = opts.protocol
 	}
 	if err := validateProtocol(cfg.protocol); err != nil {
 		return otlpConfig{}, err

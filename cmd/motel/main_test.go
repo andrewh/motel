@@ -573,6 +573,52 @@ func TestResolveOTLPConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "traces.example.com:4318", cfg.endpoint)
 	})
+
+	t.Run("insecure from env", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+
+		cfg, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.NoError(t, err)
+		assert.True(t, cfg.insecure)
+	})
+
+	t.Run("insecure flag overrides env", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+
+		cfg, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf", insecureSet: true, insecure: false}, "traces")
+		require.NoError(t, err)
+		assert.False(t, cfg.insecure)
+	})
+
+	t.Run("invalid insecure env errors", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "notabool")
+
+		_, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid OTLP insecure value")
+	})
+
+	t.Run("timeout as duration string", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "5s")
+
+		cfg, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.NoError(t, err)
+		assert.Equal(t, 5*time.Second, cfg.timeout)
+	})
+
+	t.Run("invalid timeout env errors", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "soon")
+
+		_, err := resolveOTLPConfig(runOptions{protocol: "http/protobuf"}, "traces")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid OTLP timeout")
+	})
+
+	t.Run("unset protocol falls back to default", func(t *testing.T) {
+		cfg, err := resolveOTLPConfig(runOptions{}, "traces")
+		require.NoError(t, err)
+		assert.Equal(t, "http/protobuf", cfg.protocol)
+	})
 }
 
 func TestDoctorCommandRedactsHeaders(t *testing.T) {
@@ -586,6 +632,34 @@ func TestDoctorCommandRedactsHeaders(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, out.String(), "authorization=<redacted>")
 	assert.NotContains(t, out.String(), "secret")
+}
+
+func TestDoctorCommandReportsCanaryExportFailure(t *testing.T) {
+	// A listener that accepts TCP connections but immediately closes them passes
+	// the TCP reachability check yet fails the OTLP canary export.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close() //nolint:errcheck // best-effort close in test
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	root := rootCmd()
+	root.SetArgs([]string{"doctor", "--endpoint", ln.Addr().String(), "--insecure", "--timeout", "1s"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+
+	err = root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canary trace export failed")
+	assert.Contains(t, out.String(), "TCP check: ok")
+	assert.NotContains(t, out.String(), "Canary trace: sent")
 }
 
 func TestCheckCommand(t *testing.T) {
