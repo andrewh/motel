@@ -165,3 +165,46 @@ func TestCollector_FoldsIndirectSelfNesting(t *testing.T) {
 	assert.NotContains(t, a.Calls, "svc.C")
 	assert.Equal(t, 1, a.TotalCount, "recursed same-op span must not inflate the count")
 }
+
+// TestCollector_FoldedContinuationErrorPropagates ensures a failure in a folded
+// continuation marks the enclosing invocation as errored, rather than vanishing
+// because the continuation span is never walked.
+func TestCollector_FoldedContinuationErrorPropagates(t *testing.T) {
+	now := time.Now()
+	spans := []Span{
+		{TraceID: "t1", SpanID: "root", Service: "svc", Operation: "work", StartTime: now, EndTime: now.Add(30 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "tx1", ParentID: "root", Service: "svc", Operation: "transaction", StartTime: now.Add(1 * time.Millisecond), EndTime: now.Add(25 * time.Millisecond)},
+		// Inner transaction (a continuation) is the one that fails.
+		{TraceID: "t1", SpanID: "tx2", ParentID: "tx1", Service: "svc", Operation: "transaction", IsError: true, StartTime: now.Add(2 * time.Millisecond), EndTime: now.Add(20 * time.Millisecond)},
+	}
+
+	trees := BuildTrees(spans, nil)
+	collector := NewStatsCollector()
+	collector.CollectFromTrees(trees)
+
+	tx := collector.Services["svc"].Ops["transaction"]
+	assert.Equal(t, 1, tx.TotalCount)
+	assert.Equal(t, 1, tx.ErrorCount, "nested continuation failure must mark the invocation errored")
+}
+
+// TestCollector_RepeatedCallsCountAsOccurrences ensures that a call made several
+// times within a single invocation is recorded once toward the probability
+// numerator (Count) but accumulates its repetitions in Occurrences, so it can be
+// emitted as a count: rather than collapsing to a single call.
+func TestCollector_RepeatedCallsCountAsOccurrences(t *testing.T) {
+	now := time.Now()
+	spans := []Span{
+		{TraceID: "t1", SpanID: "root", Service: "svc", Operation: "handler", StartTime: now, EndTime: now.Add(30 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "w1", ParentID: "root", Service: "svc", Operation: "db-write", StartTime: now.Add(1 * time.Millisecond), EndTime: now.Add(5 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "w2", ParentID: "root", Service: "svc", Operation: "db-write", StartTime: now.Add(6 * time.Millisecond), EndTime: now.Add(10 * time.Millisecond)},
+	}
+
+	trees := BuildTrees(spans, nil)
+	collector := NewStatsCollector()
+	collector.CollectFromTrees(trees)
+
+	h := collector.Services["svc"].Ops["handler"]
+	require.Contains(t, h.Calls, "svc.db-write")
+	assert.Equal(t, 1, h.Calls["svc.db-write"].Count, "one invocation made the call")
+	assert.Equal(t, 2, h.Calls["svc.db-write"].Occurrences, "made twice in that invocation")
+}

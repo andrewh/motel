@@ -19,9 +19,17 @@ type OpStats struct {
 	Calls         map[string]*CallStats // key: "targetService.targetOp"
 }
 
-// CallStats tracks how often a downstream call appears.
+// CallStats separates how often a call happens from how many times it happens.
+//
+// Count is the number of parent invocations that made the call at least once —
+// the probability numerator. Occurrences is the total number of call occurrences
+// across those invocations, so the typical per-invocation repetition (the
+// emitted count:) is round(Occurrences / Count). Keeping these apart prevents a
+// call made several times within one invocation from being mistaken for a call
+// made across several invocations.
 type CallStats struct {
-	Count int // total times this call was observed
+	Count       int
+	Occurrences int
 }
 
 // CallStyleVote tracks parallel vs sequential votes across traces.
@@ -75,13 +83,6 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	svc := c.getService(node.Span.Service)
 	op := c.getOp(svc, node.Span.Operation)
 
-	duration := node.Span.EndTime.Sub(node.Span.StartTime)
-	op.RecordDuration(duration, 1)
-	op.TotalCount++
-	if node.Span.IsError {
-		op.ErrorCount++
-	}
-
 	// Path including this node; children matching any ref on it are continuations.
 	selfRef := node.Span.Service + "." + node.Span.Operation
 	path := make([]string, len(ancestors)+1)
@@ -90,19 +91,36 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 
 	// Effective calls: direct children that are genuine downstream operations,
 	// flattening through any continuation spans so their calls attach here.
-	calls := effectiveCalls(node, path)
+	// contErr reports whether any folded continuation span errored, so a nested
+	// failure marks this invocation as failed.
+	calls, contErr := foldedCalls(node, path)
 
-	for _, child := range calls {
-		childRef := child.Span.Service + "." + child.Span.Operation
+	duration := node.Span.EndTime.Sub(node.Span.StartTime)
+	op.RecordDuration(duration, 1)
+	op.TotalCount++
+	if node.Span.IsError || contErr {
+		op.ErrorCount++
+	}
+
+	// Group this invocation's calls by target: each target counts once toward the
+	// probability numerator, and its repetitions accumulate as occurrences.
+	if len(calls) > 0 {
+		perTarget := make(map[string]int, len(calls))
+		for _, child := range calls {
+			perTarget[child.Span.Service+"."+child.Span.Operation]++
+		}
 		if op.Calls == nil {
 			op.Calls = make(map[string]*CallStats)
 		}
-		cs := op.Calls[childRef]
-		if cs == nil {
-			cs = &CallStats{}
-			op.Calls[childRef] = cs
+		for target, k := range perTarget {
+			cs := op.Calls[target]
+			if cs == nil {
+				cs = &CallStats{}
+				op.Calls[target] = cs
+			}
+			cs.Count++
+			cs.Occurrences += k
 		}
-		cs.Count++
 	}
 
 	// Vote on call style if this operation makes 2+ effective calls.
@@ -124,24 +142,32 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	}
 }
 
-// effectiveCalls returns the spans representing genuine downstream calls from the
-// operation rooted at node. A direct child whose (service, operation) is not on
-// the path is a real call. A child that is on the path is a continuation of an
-// enclosing operation (depth-bounded recursion such as a nested transaction);
-// its own real calls are flattened in so they attach to the enclosing operation
-// rather than producing a self- or back-edge. path lists the "service.operation"
-// refs on the route to node, including node itself.
-func effectiveCalls(node *SpanNode, path []string) []*SpanNode {
-	var calls []*SpanNode
+// foldedCalls returns the spans representing genuine downstream calls from the
+// operation rooted at node, and whether any folded continuation span errored. A
+// direct child whose (service, operation) is not on the path is a real call. A
+// child that is on the path is a continuation of an enclosing operation
+// (depth-bounded recursion such as a nested transaction); its own real calls are
+// flattened in so they attach to the enclosing operation rather than producing a
+// self- or back-edge, and its error status is propagated via errored so the
+// folded invocation inherits a nested failure. path lists the
+// "service.operation" refs on the route to node, including node itself.
+func foldedCalls(node *SpanNode, path []string) (calls []*SpanNode, errored bool) {
 	for _, child := range node.Children {
 		childRef := child.Span.Service + "." + child.Span.Operation
 		if containsString(path, childRef) {
-			calls = append(calls, effectiveCalls(child, path)...)
+			if child.Span.IsError {
+				errored = true
+			}
+			sub, subErr := foldedCalls(child, path)
+			calls = append(calls, sub...)
+			if subErr {
+				errored = true
+			}
 		} else {
 			calls = append(calls, child)
 		}
 	}
-	return calls
+	return calls, errored
 }
 
 func containsString(haystack []string, needle string) bool {
