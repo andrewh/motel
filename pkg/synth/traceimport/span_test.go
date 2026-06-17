@@ -110,6 +110,38 @@ func TestParseOTLP_Basic(t *testing.T) {
 	assert.Equal(t, "GET", s.Attributes["http.method"])
 }
 
+// TestParseOTLP_HexEncodedIDs covers exporters that emit trace/span IDs as hex
+// rather than the OTLP/JSON-canonical base64. Hex is a subset of the base64
+// alphabet, so a 32-char hex trace ID would otherwise be mis-decoded as base64
+// into 24 bytes, corrupting the ID (and later breaking --preserve-ids replay,
+// which requires a 32-char hex trace ID).
+func TestParseOTLP_HexEncodedIDs(t *testing.T) {
+	input := `{
+		"resourceSpans": [{
+			"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "api"}}]},
+			"scopeSpans": [{"scope": {"name": "api"}, "spans": [{
+				"traceId": "9da7c5910d265353de4ae5973ea6b727",
+				"spanId": "b86a4a145c519715",
+				"parentSpanId": "0312e23151fd56ee",
+				"name": "GET /users",
+				"startTimeUnixNano": "1700000000000000000",
+				"endTimeUnixNano": "1700000000030000000",
+				"status": {}
+			}]}]
+		}]
+	}`
+
+	spans, err := ParseSpans(strings.NewReader(input), FormatOTLP)
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+
+	s := spans[0]
+	assert.Equal(t, "9da7c5910d265353de4ae5973ea6b727", s.TraceID)
+	assert.Len(t, s.TraceID, 32)
+	assert.Equal(t, "b86a4a145c519715", s.SpanID)
+	assert.Equal(t, "0312e23151fd56ee", s.ParentID)
+}
+
 func TestParseOTLP_GrafanaTempoExport(t *testing.T) {
 	input := `{
 		"batches": [{
