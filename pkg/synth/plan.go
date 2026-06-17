@@ -13,6 +13,8 @@ import (
 type SpanPlan struct {
 	Index           int
 	ParentIndex     int
+	TraceID         trace.TraceID
+	SpanID          trace.SpanID
 	Service         string
 	Operation       string
 	Ref             string

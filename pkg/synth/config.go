@@ -79,9 +79,15 @@ const (
 	logAtEnd   = "end"
 )
 
+// ModeReplay selects replay mode, where the engine re-emits a recorded
+// trace sidecar instead of generating traces from the probabilistic model.
+const ModeReplay = "replay"
+
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
 	Version   int              `yaml:"version"`
+	Mode      string           `yaml:"mode,omitempty"`
+	Recording string           `yaml:"recording,omitempty"`
 	Services  []ServiceConfig  `yaml:"-"`
 	Traffic   TrafficConfig    `yaml:"traffic"`
 	Scenarios []ScenarioConfig `yaml:"scenarios,omitempty"`
@@ -90,6 +96,8 @@ type Config struct {
 // rawConfig mirrors Config but uses a map for services to match the YAML structure.
 type rawConfig struct {
 	Version   *int                        `yaml:"version"`
+	Mode      string                      `yaml:"mode,omitempty"`
+	Recording string                      `yaml:"recording,omitempty"`
 	Services  map[string]rawServiceConfig `yaml:"services"`
 	Traffic   TrafficConfig               `yaml:"traffic"`
 	Scenarios []ScenarioConfig            `yaml:"scenarios,omitempty"`
@@ -374,6 +382,8 @@ func ParseConfig(data []byte) (*Config, error) {
 
 	cfg := &Config{
 		Version:   *raw.Version,
+		Mode:      raw.Mode,
+		Recording: raw.Recording,
 		Traffic:   raw.Traffic,
 		Scenarios: raw.Scenarios,
 	}
@@ -426,6 +436,16 @@ func ParseConfig(data []byte) (*Config, error) {
 	return cfg, nil
 }
 
+// validateReplayConfig checks a replay-mode configuration. Replay needs a
+// recording path and does not require services or a traffic section, since it
+// re-emits recorded data rather than generating it.
+func validateReplayConfig(cfg *Config) error {
+	if cfg.Recording == "" {
+		return fmt.Errorf("mode: replay requires a 'recording:' path to the trace recording sidecar")
+	}
+	return nil
+}
+
 // LoadConfig reads and parses a YAML topology from a file path or URL.
 func LoadConfig(source string) (*Config, error) {
 	data, err := readSource(source)
@@ -438,6 +458,12 @@ func LoadConfig(source string) (*Config, error) {
 
 // ValidateConfig checks a configuration for structural correctness.
 func ValidateConfig(cfg *Config) error {
+	if cfg.Mode == ModeReplay {
+		return validateReplayConfig(cfg)
+	}
+	if cfg.Mode != "" {
+		return fmt.Errorf("unknown mode %q (supported: %q)", cfg.Mode, ModeReplay)
+	}
 	if len(cfg.Services) == 0 {
 		return fmt.Errorf("at least one service is required under 'services:')")
 	}
