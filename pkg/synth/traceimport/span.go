@@ -652,6 +652,19 @@ func (id *otlpID) UnmarshalJSON(data []byte) error {
 		*id = nil
 		return nil
 	}
+	// OTLP/JSON nominally base64-encodes IDs, but many real exporters (and
+	// Jaeger/Tempo-derived JSON) emit hex. A canonical hex trace ID (32 chars)
+	// or span ID (16 chars) is also valid base64 over the same alphabet, so
+	// "try base64 first" silently mis-decodes hex into 24/12 bytes. Decode hex
+	// first when the string is a canonical-length hex ID. This is unambiguous:
+	// OTLP IDs are only ever 8 or 16 bytes, and their base64 forms are never 16
+	// or 32 chars, so a 16/32-char all-hex string is always hex.
+	if len(s) == 16 || len(s) == 32 {
+		if b, err := hex.DecodeString(s); err == nil {
+			*id = b
+			return nil
+		}
+	}
 	for _, enc := range []*base64.Encoding{
 		base64.StdEncoding, base64.RawStdEncoding,
 		base64.URLEncoding, base64.RawURLEncoding,
