@@ -277,29 +277,31 @@ func TestProperty_Stats_CallCountsMatchChildren(t *testing.T) {
 		collector := NewStatsCollector()
 		collector.CollectFromTrees(trees)
 
-		// Independent reference for the expected call counts, applying the same
-		// continuation-folding spec by a different formulation: an edge parent->C
-		// is a call only when C's (service, operation) is not already on the path
-		// to C (otherwise C is a continuation of an enclosing operation), and it
-		// is attributed to the owner of the parent — the nearest ancestor-or-self
-		// that is itself a genuine invocation rather than a continuation.
+		// Independent reference, applying the same continuation-folding spec by a
+		// different formulation. An edge parent->C is a call only when C's
+		// (service, operation) is not already on the path to C (otherwise C is a
+		// continuation of an enclosing operation), and it is attributed to the
+		// owner of the parent — the nearest ancestor-or-self that is itself a
+		// genuine invocation. Edges are tallied per owner *node*, so Count is the
+		// number of distinct genuine invocations that made the call and
+		// Occurrences is the total number of call spans.
 		ref := func(n *SpanNode) string { return n.Span.Service + "." + n.Span.Operation }
-		expected := make(map[string]map[string]int) // ownerRef -> target -> count
-		var walk func(n *SpanNode, path []string, owner string)
-		walk = func(n *SpanNode, path []string, owner string) {
+		perNode := make(map[*SpanNode]map[string]int) // ownerNode -> target -> occurrences
+		var walk func(n *SpanNode, path []string, owner *SpanNode)
+		walk = func(n *SpanNode, path []string, owner *SpanNode) {
 			self := ref(n)
 			if !containsString(path, self) {
-				owner = self // n is a genuine invocation; it owns its real calls
+				owner = n // n is a genuine invocation; it owns its real calls
 			}
 			for _, child := range n.Children {
 				cref := ref(child)
 				if cref == self || containsString(path, cref) {
 					continue // continuation of n or an ancestor: not a call edge
 				}
-				if expected[owner] == nil {
-					expected[owner] = make(map[string]int)
+				if perNode[owner] == nil {
+					perNode[owner] = make(map[string]int)
 				}
-				expected[owner][cref]++
+				perNode[owner][cref]++
 			}
 			childPath := append(append([]string{}, path...), self)
 			for _, child := range n.Children {
@@ -308,35 +310,52 @@ func TestProperty_Stats_CallCountsMatchChildren(t *testing.T) {
 		}
 		for _, tree := range trees {
 			for _, root := range tree.Roots {
-				walk(root, nil, "")
+				walk(root, nil, nil)
+			}
+		}
+
+		// Aggregate per owner node into per-operation invocation and occurrence
+		// counts.
+		expInv := make(map[string]map[string]int)
+		expOcc := make(map[string]map[string]int)
+		for owner, targets := range perNode {
+			op := ref(owner)
+			if expInv[op] == nil {
+				expInv[op] = make(map[string]int)
+				expOcc[op] = make(map[string]int)
+			}
+			for target, occ := range targets {
+				expInv[op][target]++
+				expOcc[op][target] += occ
 			}
 		}
 
 		// Verify stats match the reference in both directions.
-		got := make(map[string]map[string]int)
+		seen := make(map[string]map[string]bool)
 		for svcName, svcStats := range collector.Services {
 			for opName, opStats := range svcStats.Ops {
 				self := svcName + "." + opName
 				if _, ok := opStats.Calls[self]; ok {
 					t.Fatalf("%s has a self-referential call edge", self)
 				}
+				seen[self] = make(map[string]bool)
 				for target, cs := range opStats.Calls {
-					if got[self] == nil {
-						got[self] = make(map[string]int)
+					seen[self][target] = true
+					if cs.Count != expInv[self][target] {
+						t.Fatalf("%s -> %s: invocation count %d, expected %d",
+							self, target, cs.Count, expInv[self][target])
 					}
-					got[self][target] = cs.Count
-					if exp := expected[self][target]; cs.Count != exp {
-						t.Fatalf("%s -> %s: got count %d, expected %d",
-							self, target, cs.Count, exp)
+					if cs.Occurrences != expOcc[self][target] {
+						t.Fatalf("%s -> %s: occurrences %d, expected %d",
+							self, target, cs.Occurrences, expOcc[self][target])
 					}
 				}
 			}
 		}
-		for owner, targets := range expected {
-			for target, exp := range targets {
-				if got[owner][target] != exp {
-					t.Fatalf("%s -> %s: missing or wrong count, got %d, expected %d",
-						owner, target, got[owner][target], exp)
+		for op, targets := range expInv {
+			for target := range targets {
+				if !seen[op][target] {
+					t.Fatalf("%s -> %s: missing from stats", op, target)
 				}
 			}
 		}

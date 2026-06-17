@@ -174,6 +174,39 @@ func TestImport_SelfNestedSpansRoundTrip(t *testing.T) {
 	assert.NotContains(t, string(result.YAML), "probability", "nested span must not deflate the call probability")
 }
 
+// TestImport_RepeatedCallEmitsCount imports a single invocation that makes the
+// same downstream call twice and asserts it is emitted as count: 2 (unconditional)
+// rather than collapsing to a single call.
+func TestImport_RepeatedCallEmitsCount(t *testing.T) {
+	lines := strings.Join([]string{
+		`{"Name":"handler","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:00.030Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		`{"Name":"db-write","SpanContext":{"TraceID":"t1","SpanID":"s2"},"Parent":{"TraceID":"t1","SpanID":"s1"},"StartTime":"2024-01-01T00:00:00.001Z","EndTime":"2024-01-01T00:00:00.005Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		`{"Name":"db-write","SpanContext":{"TraceID":"t1","SpanID":"s3"},"Parent":{"TraceID":"t1","SpanID":"s1"},"StartTime":"2024-01-01T00:00:00.006Z","EndTime":"2024-01-01T00:00:00.010Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+	}, "\n")
+
+	var warnings bytes.Buffer
+	result, err := Import(strings.NewReader(lines), Options{
+		Format:   FormatStdouttrace,
+		Warnings: &warnings,
+	})
+	require.NoError(t, err)
+
+	cfg, err := synth.ParseConfig(result.YAML)
+	require.NoError(t, err)
+	var handler *synth.OperationConfig
+	for i := range cfg.Services[0].Operations {
+		if cfg.Services[0].Operations[i].Name == "handler" {
+			handler = &cfg.Services[0].Operations[i]
+		}
+	}
+	require.NotNil(t, handler)
+	require.Len(t, handler.Calls, 1)
+	assert.Equal(t, "svc.db-write", handler.Calls[0].Target)
+	assert.Equal(t, 2, handler.Calls[0].Count, "two calls in one invocation must emit count: 2")
+	// Unconditional (made every invocation), so no probability is emitted.
+	assert.Zero(t, handler.Calls[0].Probability)
+}
+
 func TestImport_WithErrors(t *testing.T) {
 	const (
 		expectedTraceCount = 2

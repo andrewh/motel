@@ -30,10 +30,11 @@ type inferredOperation struct {
 	Calls     []any  `yaml:"calls,omitempty"`
 }
 
-// inferredCallRich is the mapping form when probability is needed.
+// inferredCallRich is the mapping form when probability or count is needed.
 type inferredCallRich struct {
 	Target      string  `yaml:"target"`
-	Probability float64 `yaml:"probability"`
+	Probability float64 `yaml:"probability,omitempty"`
+	Count       int     `yaml:"count,omitempty"`
 }
 
 // MarshalConfig produces YAML bytes from the collected statistics.
@@ -76,14 +77,26 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 					if opStats.TotalCount > 0 {
 						prob = float64(cs.Count) / float64(opStats.TotalCount)
 					}
-					if prob >= 1.0 {
-						op.Calls = append(op.Calls, target)
-					} else {
-						op.Calls = append(op.Calls, inferredCallRich{
-							Target:      target,
-							Probability: roundFloat(prob, 2),
-						})
+					// Typical repetitions per invocation that made the call.
+					count := 1
+					if cs.Count > 0 {
+						count = int(math.Round(float64(cs.Occurrences) / float64(cs.Count)))
+						if count < 1 {
+							count = 1
+						}
 					}
+					if prob >= 1.0 && count <= 1 {
+						op.Calls = append(op.Calls, target)
+						continue
+					}
+					rich := inferredCallRich{Target: target}
+					if prob < 1.0 {
+						rich.Probability = roundFloat(prob, 2)
+					}
+					if count > 1 {
+						rich.Count = count
+					}
+					op.Calls = append(op.Calls, rich)
 				}
 			}
 
