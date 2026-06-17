@@ -95,19 +95,19 @@ type RecordingInfo struct {
 	Spans    int
 }
 
-// ScanRecording reads a recording once to collect the data needed to set up
-// replay: the set of services (for provider/resource creation) and the global
-// earliest start time (for relative time-shifting).
-func ScanRecording(path string) (RecordingInfo, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return RecordingInfo{}, fmt.Errorf("opening recording: %w", err)
-	}
-	defer f.Close() //nolint:errcheck // read-only file, close error is not actionable
-
+// ScanRecordingFrom reads a recording from r once to collect the data needed to
+// set up replay: the set of services (for provider/resource creation) and the
+// global earliest start time (for relative time-shifting).
+//
+// Replay is a two-pass operation: this scan must run before ReplayRecordingFrom
+// so the earliest start and service set are known up front. A single
+// non-seekable reader cannot serve both passes, so callers holding the
+// recording in memory should hand a fresh reader (e.g. bytes.NewReader over the
+// same bytes) to each function.
+func ScanRecordingFrom(r io.Reader) (RecordingInfo, error) {
 	seen := make(map[string]struct{})
 	info := RecordingInfo{}
-	err = ReadRecording(f, func(t RecordedTrace) error {
+	err := ReadRecording(r, func(t RecordedTrace) error {
 		info.Traces++
 		for _, s := range t.Spans {
 			info.Spans++
@@ -126,6 +126,17 @@ func ScanRecording(path string) (RecordingInfo, error) {
 	}
 	slices.Sort(info.Services)
 	return info, nil
+}
+
+// ScanRecording reads a recording from the file at path once to collect the
+// data needed to set up replay. It is a thin wrapper over ScanRecordingFrom.
+func ScanRecording(path string) (RecordingInfo, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return RecordingInfo{}, fmt.Errorf("opening recording: %w", err)
+	}
+	defer f.Close() //nolint:errcheck // read-only file, close error is not actionable
+	return ScanRecordingFrom(f)
 }
 
 // ReplayOptions controls how a recording is re-emitted.
@@ -230,22 +241,21 @@ func randomReplaySpanID() trace.SpanID {
 	return sid
 }
 
-// ReplayRecording streams the recording at path and emits each trace through
+// ReplayRecordingFrom streams the recording from r and emits each trace through
 // the given tracers and observers. Timestamps follow opts. Returns aggregate
 // emission statistics.
-func ReplayRecording(ctx context.Context, path string, tracers TracerSource, observers []SpanObserver, opts ReplayOptions) (*Stats, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("opening recording: %w", err)
-	}
-	defer f.Close() //nolint:errcheck // read-only file, close error is not actionable
-
+//
+// Relative time-shifting (the default, non-Verbatim mode) needs opts.Start,
+// which comes from a prior ScanRecordingFrom pass over the same recording. A
+// single non-seekable reader cannot serve both passes, so in-memory callers
+// should hand a fresh reader over the same bytes to each function.
+func ReplayRecordingFrom(ctx context.Context, r io.Reader, tracers TracerSource, observers []SpanObserver, opts ReplayOptions) (*Stats, error) {
 	shift := opts.shift()
 	var stats Stats
 	var rstats realtimeStats
 	start := time.Now()
 
-	err = ReadRecording(f, func(t RecordedTrace) error {
+	err := ReadRecording(r, func(t RecordedTrace) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -272,6 +282,18 @@ func ReplayRecording(ctx context.Context, path string, tracers TracerSource, obs
 	e := &Engine{}
 	e.finaliseStats(&stats, start)
 	return &stats, nil
+}
+
+// ReplayRecording streams the recording at path and emits each trace through
+// the given tracers and observers. It is a thin wrapper over
+// ReplayRecordingFrom.
+func ReplayRecording(ctx context.Context, path string, tracers TracerSource, observers []SpanObserver, opts ReplayOptions) (*Stats, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening recording: %w", err)
+	}
+	defer f.Close() //nolint:errcheck // read-only file, close error is not actionable
+	return ReplayRecordingFrom(ctx, f, tracers, observers, opts)
 }
 
 // buildReplayPlans converts a recorded trace into ordered SpanPlans. Spans are
