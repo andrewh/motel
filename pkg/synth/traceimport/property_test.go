@@ -183,15 +183,38 @@ func TestProperty_Stats_CountsMatchSpans(t *testing.T) {
 		collector := NewStatsCollector()
 		collector.CollectFromTrees(trees)
 
-		// Total span count across all stats must equal input span count
+		// Each span is counted once, except continuations — spans nested inside an
+		// ancestor of the same (service, operation), which are folded into the
+		// enclosing operation. The total count must equal the number of genuine
+		// (non-continuation) spans.
+		ref := func(n *SpanNode) string { return n.Span.Service + "." + n.Span.Operation }
+		expectedCount := 0
+		var walk func(n *SpanNode, path []string)
+		walk = func(n *SpanNode, path []string) {
+			self := ref(n)
+			if !containsString(path, self) {
+				expectedCount++
+			}
+			childPath := append(append([]string{}, path...), self)
+			for _, child := range n.Children {
+				walk(child, childPath)
+			}
+		}
+		for _, tree := range trees {
+			for _, root := range tree.Roots {
+				walk(root, nil)
+			}
+		}
+
 		totalCounted := 0
 		for _, svcStats := range collector.Services {
 			for _, opStats := range svcStats.Ops {
 				totalCounted += opStats.TotalCount
 			}
 		}
-		if totalCounted != len(spans) {
-			t.Fatalf("stats counted %d spans, input had %d", totalCounted, len(spans))
+		if totalCounted != expectedCount {
+			t.Fatalf("stats counted %d genuine spans, expected %d (of %d input spans)",
+				totalCounted, expectedCount, len(spans))
 		}
 	})
 }
@@ -254,39 +277,66 @@ func TestProperty_Stats_CallCountsMatchChildren(t *testing.T) {
 		collector := NewStatsCollector()
 		collector.CollectFromTrees(trees)
 
-		// Compute expected call counts by walking trees directly
-		type parentKey struct{ svc, op string }
-		expected := make(map[parentKey]map[string]int) // parent -> target -> count
-		var walk func(n *SpanNode)
-		walk = func(n *SpanNode) {
-			pk := parentKey{n.Span.Service, n.Span.Operation}
-			if expected[pk] == nil {
-				expected[pk] = make(map[string]int)
+		// Independent reference for the expected call counts, applying the same
+		// continuation-folding spec by a different formulation: an edge parent->C
+		// is a call only when C's (service, operation) is not already on the path
+		// to C (otherwise C is a continuation of an enclosing operation), and it
+		// is attributed to the owner of the parent — the nearest ancestor-or-self
+		// that is itself a genuine invocation rather than a continuation.
+		ref := func(n *SpanNode) string { return n.Span.Service + "." + n.Span.Operation }
+		expected := make(map[string]map[string]int) // ownerRef -> target -> count
+		var walk func(n *SpanNode, path []string, owner string)
+		walk = func(n *SpanNode, path []string, owner string) {
+			self := ref(n)
+			if !containsString(path, self) {
+				owner = self // n is a genuine invocation; it owns its real calls
 			}
 			for _, child := range n.Children {
-				ref := child.Span.Service + "." + child.Span.Operation
-				expected[pk][ref]++
+				cref := ref(child)
+				if cref == self || containsString(path, cref) {
+					continue // continuation of n or an ancestor: not a call edge
+				}
+				if expected[owner] == nil {
+					expected[owner] = make(map[string]int)
+				}
+				expected[owner][cref]++
 			}
+			childPath := append(append([]string{}, path...), self)
 			for _, child := range n.Children {
-				walk(child)
+				walk(child, childPath, owner)
 			}
 		}
 		for _, tree := range trees {
 			for _, root := range tree.Roots {
-				walk(root)
+				walk(root, nil, "")
 			}
 		}
 
-		// Verify stats match
+		// Verify stats match the reference in both directions.
+		got := make(map[string]map[string]int)
 		for svcName, svcStats := range collector.Services {
 			for opName, opStats := range svcStats.Ops {
-				pk := parentKey{svcName, opName}
+				self := svcName + "." + opName
+				if _, ok := opStats.Calls[self]; ok {
+					t.Fatalf("%s has a self-referential call edge", self)
+				}
 				for target, cs := range opStats.Calls {
-					exp := expected[pk][target]
-					if cs.Count != exp {
-						t.Fatalf("%s.%s -> %s: got count %d, expected %d",
-							svcName, opName, target, cs.Count, exp)
+					if got[self] == nil {
+						got[self] = make(map[string]int)
 					}
+					got[self][target] = cs.Count
+					if exp := expected[self][target]; cs.Count != exp {
+						t.Fatalf("%s -> %s: got count %d, expected %d",
+							self, target, cs.Count, exp)
+					}
+				}
+			}
+		}
+		for owner, targets := range expected {
+			for target, exp := range targets {
+				if got[owner][target] != exp {
+					t.Fatalf("%s -> %s: missing or wrong count, got %d, expected %d",
+						owner, target, got[owner][target], exp)
 				}
 			}
 		}

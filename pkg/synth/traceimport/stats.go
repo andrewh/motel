@@ -52,12 +52,26 @@ func NewStatsCollector() *StatsCollector {
 func (c *StatsCollector) CollectFromTrees(trees []*TraceTree) {
 	for _, tree := range trees {
 		for _, root := range tree.Roots {
-			c.walkNode(root)
+			c.walkNode(root, nil)
 		}
 	}
 }
 
-func (c *StatsCollector) walkNode(node *SpanNode) {
+// walkNode records statistics for a single operation invocation.
+//
+// A span nested inside an ancestor of the same (service, operation) — e.g. a DB
+// savepoint inside a transaction, or an HTTP client that wraps its request in an
+// outer same-named span — is a continuation of that ancestor, not a fresh
+// invocation and not a cyclic dependency. Such spans are folded into the
+// enclosing operation: walkNode is never called on them, so their duration and
+// count are subsumed by the ancestor, and their real downstream calls are
+// attributed directly to the operation via effectiveCalls. This keeps the
+// inferred topology acyclic (the model forbids cycles) without inflating call
+// counts or blending durations across nesting levels.
+//
+// ancestors holds the "service.operation" refs already on the path to node,
+// excluding node itself.
+func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	svc := c.getService(node.Span.Service)
 	op := c.getOp(svc, node.Span.Operation)
 
@@ -68,19 +82,18 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 		op.ErrorCount++
 	}
 
-	// Record calls to children
+	// Path including this node; children matching any ref on it are continuations.
 	selfRef := node.Span.Service + "." + node.Span.Operation
-	for _, child := range node.Children {
+	path := make([]string, len(ancestors)+1)
+	copy(path, ancestors)
+	path[len(ancestors)] = selfRef
+
+	// Effective calls: direct children that are genuine downstream operations,
+	// flattening through any continuation spans so their calls attach here.
+	calls := effectiveCalls(node, path)
+
+	for _, child := range calls {
 		childRef := child.Span.Service + "." + child.Span.Operation
-		// Skip self-referential edges. A span nested inside another span of the
-		// same (service, operation) — e.g. a DB savepoint inside a transaction,
-		// or an HTTP client wrapping its request in an outer same-named span — is
-		// finite, depth-bounded recursion, not a real cyclic dependency. Keying
-		// operations by name alone would otherwise collapse it into an A -> A
-		// edge, which the topology model forbids and cycle detection rejects.
-		if childRef == selfRef {
-			continue
-		}
 		if op.Calls == nil {
 			op.Calls = make(map[string]*CallStats)
 		}
@@ -92,12 +105,12 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 		cs.Count++
 	}
 
-	// Vote on call style if this node has 2+ children
-	if len(node.Children) >= 2 {
+	// Vote on call style if this operation makes 2+ effective calls.
+	if len(calls) >= 2 {
 		vote := c.getCallStyle(svc, node.Span.Operation)
-		if isParallel(node.Children) {
+		if isParallel(calls) {
 			vote.Parallel++
-		} else if isSequential(node.Children) {
+		} else if isSequential(calls) {
 			vote.Sequential++
 		} else {
 			// Ambiguous — count as parallel (engine default)
@@ -105,10 +118,39 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 		}
 	}
 
-	// Recurse into children
-	for _, child := range node.Children {
-		c.walkNode(child)
+	// Recurse into the effective calls; each is itself a genuine invocation.
+	for _, child := range calls {
+		c.walkNode(child, path)
 	}
+}
+
+// effectiveCalls returns the spans representing genuine downstream calls from the
+// operation rooted at node. A direct child whose (service, operation) is not on
+// the path is a real call. A child that is on the path is a continuation of an
+// enclosing operation (depth-bounded recursion such as a nested transaction);
+// its own real calls are flattened in so they attach to the enclosing operation
+// rather than producing a self- or back-edge. path lists the "service.operation"
+// refs on the route to node, including node itself.
+func effectiveCalls(node *SpanNode, path []string) []*SpanNode {
+	var calls []*SpanNode
+	for _, child := range node.Children {
+		childRef := child.Span.Service + "." + child.Span.Operation
+		if containsString(path, childRef) {
+			calls = append(calls, effectiveCalls(child, path)...)
+		} else {
+			calls = append(calls, child)
+		}
+	}
+	return calls
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *OpStats) RecordDuration(d time.Duration, weight int) {
