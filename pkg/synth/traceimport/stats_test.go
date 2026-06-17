@@ -109,3 +109,27 @@ func TestCollector_Basic(t *testing.T) {
 	assert.Equal(t, 1, collector.Services["gw"].Ops["GET"].TotalCount)
 	assert.Equal(t, 1, collector.Services["gw"].Ops["GET"].Calls["api.list"].Count)
 }
+
+// TestCollector_SkipsSelfNestedEdge ensures that a span nested inside another
+// span of the same (service, operation) — e.g. a DB savepoint inside a
+// transaction — does not produce a self-referential call edge, which the
+// topology model forbids and cycle detection would reject.
+func TestCollector_SkipsSelfNestedEdge(t *testing.T) {
+	now := time.Now()
+	spans := []Span{
+		{TraceID: "t1", SpanID: "root", Service: "svc", Operation: "work", StartTime: now, EndTime: now.Add(30 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "tx1", ParentID: "root", Service: "svc", Operation: "transaction", StartTime: now.Add(1 * time.Millisecond), EndTime: now.Add(25 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "tx2", ParentID: "tx1", Service: "svc", Operation: "transaction", StartTime: now.Add(2 * time.Millisecond), EndTime: now.Add(20 * time.Millisecond)},
+		{TraceID: "t1", SpanID: "wr", ParentID: "tx2", Service: "svc", Operation: "db-write", StartTime: now.Add(3 * time.Millisecond), EndTime: now.Add(10 * time.Millisecond)},
+	}
+
+	trees := BuildTrees(spans, nil)
+	collector := NewStatsCollector()
+	collector.CollectFromTrees(trees)
+
+	tx := collector.Services["svc"].Ops["transaction"]
+	assert.NotContains(t, tx.Calls, "svc.transaction", "self-referential edge must be skipped")
+	assert.Contains(t, tx.Calls, "svc.db-write")
+	// Both transaction spans still fold into the same operation's stats.
+	assert.Equal(t, 2, tx.TotalCount)
+}
