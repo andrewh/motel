@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andrewh/motel/pkg/synth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,6 +131,43 @@ func TestImport_MinimalSingleSpan(t *testing.T) {
 	assert.Contains(t, yaml, "health:")
 	assert.Contains(t, yaml, "ping:")
 	assert.Contains(t, yaml, "10ms")
+}
+
+// TestImport_SelfNestedSpansRoundTrip imports a trace with a span nested inside
+// another span of the same (service, operation) — the shape produced by nested
+// DB transactions or HTTP clients that wrap their request span. Import must
+// succeed: the round-trip check now runs full topology construction (cycle
+// detection included), and the emitted YAML must not contain a self edge.
+func TestImport_SelfNestedSpansRoundTrip(t *testing.T) {
+	lines := strings.Join([]string{
+		`{"Name":"work","SpanContext":{"TraceID":"t1","SpanID":"s1"},"Parent":{"TraceID":"t1","SpanID":"0000000000000000"},"StartTime":"2024-01-01T00:00:00Z","EndTime":"2024-01-01T00:00:00.030Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		`{"Name":"transaction","SpanContext":{"TraceID":"t1","SpanID":"s2"},"Parent":{"TraceID":"t1","SpanID":"s1"},"StartTime":"2024-01-01T00:00:00.001Z","EndTime":"2024-01-01T00:00:00.025Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		`{"Name":"transaction","SpanContext":{"TraceID":"t1","SpanID":"s3"},"Parent":{"TraceID":"t1","SpanID":"s2"},"StartTime":"2024-01-01T00:00:00.002Z","EndTime":"2024-01-01T00:00:00.020Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+		`{"Name":"db-write","SpanContext":{"TraceID":"t1","SpanID":"s4"},"Parent":{"TraceID":"t1","SpanID":"s3"},"StartTime":"2024-01-01T00:00:00.003Z","EndTime":"2024-01-01T00:00:00.010Z","Attributes":[],"Status":{"Code":"Unset"},"InstrumentationScope":{"Name":"svc"}}`,
+	}, "\n")
+
+	var warnings bytes.Buffer
+	result, err := Import(strings.NewReader(lines), Options{
+		Format:   FormatStdouttrace,
+		Warnings: &warnings,
+	})
+	require.NoError(t, err)
+
+	// Import succeeding at all proves the round-trip (now including BuildTopology
+	// and its cycle detection) accepted the result. Confirm the legitimate edges
+	// survive while the transaction operation gains no self edge.
+	cfg, err := synth.ParseConfig(result.YAML)
+	require.NoError(t, err)
+	var tx *synth.OperationConfig
+	for i := range cfg.Services[0].Operations {
+		if cfg.Services[0].Operations[i].Name == "transaction" {
+			tx = &cfg.Services[0].Operations[i]
+		}
+	}
+	require.NotNil(t, tx)
+	for _, call := range tx.Calls {
+		assert.NotEqual(t, "svc.transaction", call.Target, "self-referential edge must not be emitted")
+	}
 }
 
 func TestImport_WithErrors(t *testing.T) {

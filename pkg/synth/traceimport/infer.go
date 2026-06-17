@@ -176,11 +176,18 @@ func computeWindow(trees []*TraceTree) float64 {
 	return window.Seconds()
 }
 
-// validateRoundTrip checks that the generated YAML parses and validates correctly.
+// validateRoundTrip checks that the generated YAML parses, validates, and builds
+// into a topology. Building runs the same checks as `motel validate` — notably
+// cycle detection — so the importer never emits YAML that the validate command
+// would reject.
 func validateRoundTrip(yamlBytes []byte) error {
 	cfg, err := synth.ParseConfig(yamlBytes)
 	if err != nil {
 		return err
 	}
-	return synth.ValidateConfig(cfg)
+	if err := synth.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	_, err = synth.BuildTopology(cfg, nil)
+	return err
 }

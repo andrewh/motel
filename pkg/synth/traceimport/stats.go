@@ -69,8 +69,18 @@ func (c *StatsCollector) walkNode(node *SpanNode) {
 	}
 
 	// Record calls to children
+	selfRef := node.Span.Service + "." + node.Span.Operation
 	for _, child := range node.Children {
 		childRef := child.Span.Service + "." + child.Span.Operation
+		// Skip self-referential edges. A span nested inside another span of the
+		// same (service, operation) — e.g. a DB savepoint inside a transaction,
+		// or an HTTP client wrapping its request in an outer same-named span — is
+		// finite, depth-bounded recursion, not a real cyclic dependency. Keying
+		// operations by name alone would otherwise collapse it into an A -> A
+		// edge, which the topology model forbids and cycle detection rejects.
+		if childRef == selfRef {
+			continue
+		}
 		if op.Calls == nil {
 			op.Calls = make(map[string]*CallStats)
 		}
