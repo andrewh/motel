@@ -1066,7 +1066,7 @@ func runReplay(ctx context.Context, configPath string, cfg *synth.Config, opts r
 	}
 
 	if !opts.stdout {
-		if err := checkEndpoint(opts.endpoint, opts.protocol, configPath); err != nil {
+		if err := checkEndpoint(opts, configPath); err != nil {
 			return err
 		}
 	}
