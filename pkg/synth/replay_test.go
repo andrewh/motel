@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -301,5 +302,107 @@ func TestReplayRecordingRejectsInvalidPreservedIDs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid recorded trace ID") {
 		t.Fatalf("error = %v, want invalid trace ID", err)
+	}
+}
+
+// recordingBytes serializes traces into the newline-delimited recording format,
+// mirroring an in-memory (non-filesystem) recording such as the WASM playground
+// holds.
+func recordingBytes(t *testing.T, traces ...RecordedTrace) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := NewRecordingWriter(&buf)
+	for _, tr := range traces {
+		if err := w.Write(tr); err != nil {
+			t.Fatalf("write recording: %v", err)
+		}
+	}
+	return buf.Bytes()
+}
+
+func TestScanRecordingFromCollectsServicesAndStart(t *testing.T) {
+	rec := sampleRecording()
+	data := recordingBytes(t, rec)
+
+	info, err := ScanRecordingFrom(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if info.Traces != 1 || info.Spans != 2 {
+		t.Fatalf("info = %+v, want 1 trace / 2 spans", info)
+	}
+	if got, want := info.Services, []string{"api", "db"}; !slices.Equal(got, want) {
+		t.Errorf("services = %v, want %v", got, want)
+	}
+	if !info.Start.Equal(rec.Spans[0].Start) {
+		t.Errorf("start = %v, want %v", info.Start, rec.Spans[0].Start)
+	}
+}
+
+func TestReplayRecordingFromEmitsViaTracers(t *testing.T) {
+	data := recordingBytes(t, sampleRecording())
+
+	rec := newReplayObserver()
+	stats, err := ReplayRecordingFrom(context.Background(), bytes.NewReader(data), noopTracers(), []SpanObserver{rec}, ReplayOptions{Verbatim: true})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if stats.Traces != 1 || stats.Spans != 2 {
+		t.Fatalf("stats = %+v, want 1 trace / 2 spans", stats)
+	}
+	if stats.Errors != 1 {
+		t.Errorf("errors = %d, want 1", stats.Errors)
+	}
+	if rec.started != 2 || rec.observed != 2 {
+		t.Errorf("observer fired started=%d observed=%d, want 2/2", rec.started, rec.observed)
+	}
+}
+
+// TestReaderReplayTwoPass exercises the in-memory flow the reader variants
+// exist for: a single recording held as bytes, scanned then replayed by handing
+// a fresh reader to each pass, with the scan's Start driving relative shifting.
+func TestReaderReplayTwoPass(t *testing.T) {
+	rec := sampleRecording()
+	data := recordingBytes(t, rec)
+	anchor := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+
+	info, err := ScanRecordingFrom(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Fatalf("shutdown tracer provider: %v", err)
+		}
+	})
+	tracers := func(name string) trace.Tracer { return provider.Tracer(name) }
+
+	stats, err := ReplayRecordingFrom(context.Background(), bytes.NewReader(data), tracers, nil, ReplayOptions{
+		Start:  info.Start,
+		Anchor: anchor,
+	})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if stats.Traces != 1 || stats.Spans != 2 {
+		t.Fatalf("stats = %+v, want 1 trace / 2 spans", stats)
+	}
+
+	spans := recorder.Ended()
+	if len(spans) != 2 {
+		t.Fatalf("got %d ended spans, want 2", len(spans))
+	}
+	// Relative mode maps the earliest recorded start onto the anchor.
+	var earliest time.Time
+	for _, s := range spans {
+		if earliest.IsZero() || s.StartTime().Before(earliest) {
+			earliest = s.StartTime()
+		}
+	}
+	if !earliest.Equal(anchor) {
+		t.Errorf("earliest replayed start = %v, want anchor %v", earliest, anchor)
 	}
 }

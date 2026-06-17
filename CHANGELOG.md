@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reader-based replay entry points `ScanRecordingFrom(io.Reader)` and
+  `ReplayRecordingFrom(ctx, io.Reader, …)` so non-filesystem callers (such as
+  `pkg/synth` compiled to `js/wasm`) can replay in-memory recordings. The
+  existing path-based `ScanRecording`/`ReplayRecording` now delegate to them;
+  no behavior change for CLI callers. (#216)
+
 - Replay mode: `motel import --record <file>` writes a newline-delimited
   recording sidecar of the source traces alongside the inferred topology, and a
   `mode: replay` config (with `recording: <file>`) re-emits the recorded trace
