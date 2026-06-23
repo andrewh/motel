@@ -72,6 +72,12 @@ type Event struct {
 	Attributes Attributes
 }
 
+// Link represents a resolved span link to another operation, with optional attributes.
+type Link struct {
+	Operation  *Operation
+	Attributes map[string]string
+}
+
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
 	Service        *Service
@@ -83,7 +89,7 @@ type Operation struct {
 	CallStyle      string
 	Attributes     Attributes
 	Events         []Event
-	Links          []*Operation
+	Links          []Link
 	Metrics        []MetricDefinition
 	Logs           []LogDefinition
 	QueueDepth     int
@@ -257,12 +263,15 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 	for _, svcCfg := range cfg.Services {
 		for _, opCfg := range svcCfg.Operations {
 			op := topo.Services[svcCfg.Name].Operations[opCfg.Name]
-			for _, linkRef := range opCfg.Links {
-				_, linkOp, err := resolveRef(topo, linkRef)
+			for _, linkCfg := range opCfg.Links {
+				_, linkOp, err := resolveRef(topo, linkCfg.Ref)
 				if err != nil {
 					return nil, fmt.Errorf("service %q operation %q: link: %w", svcCfg.Name, opCfg.Name, err)
 				}
-				op.Links = append(op.Links, linkOp)
+				op.Links = append(op.Links, Link{
+					Operation:  linkOp,
+					Attributes: linkCfg.Attributes,
+				})
 			}
 			for _, callCfg := range opCfg.Calls {
 				_, targetOp, err := resolveRef(topo, callCfg.Target)

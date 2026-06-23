@@ -19,7 +19,13 @@ services:
         duration: 15ms +/- 5ms
         error_rate: 0.5%
         links:
-          - producer.enqueue
+          # Bare-string form (no attributes):
+          # - producer.enqueue
+          # Structured form with link attributes:
+          - ref: producer.enqueue
+            attributes:
+              messaging.message.id: "msg-001"
+              link.relationship: "async-produce"
 
 traffic:
   rate: 10/s

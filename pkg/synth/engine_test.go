@@ -2701,7 +2701,7 @@ func TestEngineSpanLinks(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "dequeue",
 					Duration: "10ms",
-					Links:    []string{"producer.enqueue"},
+					Links:    []LinkConfig{{Ref: "producer.enqueue"}},
 				}},
 			},
 		},
@@ -2749,6 +2749,72 @@ func TestEngineSpanLinks(t *testing.T) {
 	assert.Equal(t, producerSpanCtx.SpanID(), consumerSpans[0].Links[0].SpanContext.SpanID())
 }
 
+func TestEngineSpanLinkAttributes(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "producer",
+				Operations: []OperationConfig{{
+					Name:     "enqueue",
+					Duration: "5ms",
+				}},
+			},
+			{
+				Name: "consumer",
+				Operations: []OperationConfig{{
+					Name:     "dequeue",
+					Duration: "10ms",
+					Links: []LinkConfig{{
+						Ref: "producer.enqueue",
+						Attributes: map[string]string{
+							"messaging.message.id": "msg-42",
+							"link.type":            "async",
+						},
+					}},
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
+
+	now := time.Now()
+	stats := &Stats{}
+
+	var producerRoot, consumerRoot *Operation
+	for _, r := range engine.Topology.Roots {
+		if r.Service.Name == "producer" {
+			producerRoot = r
+		} else {
+			consumerRoot = r
+		}
+	}
+	require.NotNil(t, producerRoot)
+	require.NotNil(t, consumerRoot)
+
+	engine.walkTrace(context.Background(), producerRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	exporter.Reset()
+	engine.walkTrace(context.Background(), consumerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Len(t, spans[0].Links, 1)
+
+	linkAttrs := make(map[string]string)
+	for _, kv := range spans[0].Links[0].Attributes {
+		linkAttrs[string(kv.Key)] = kv.Value.AsString()
+	}
+	assert.Equal(t, "msg-42", linkAttrs["messaging.message.id"])
+	assert.Equal(t, "async", linkAttrs["link.type"])
+}
+
 func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -2766,7 +2832,7 @@ func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "dequeue",
 					Duration: "10ms",
-					Links:    []string{"producer.enqueue"},
+					Links:    []LinkConfig{{Ref: "producer.enqueue"}},
 				}},
 			},
 		},

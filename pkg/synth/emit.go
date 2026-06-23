@@ -78,9 +78,9 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			}
 			if len(plan.LinkRefs) > 0 && registry != nil {
 				var links []trace.Link
-				for _, ref := range plan.LinkRefs {
-					if sc, ok := registry.load(ref); ok {
-						links = append(links, trace.Link{SpanContext: sc})
+				for _, lr := range plan.LinkRefs {
+					if sc, ok := registry.load(lr.Ref); ok {
+						links = append(links, trace.Link{SpanContext: sc, Attributes: lr.Attributes})
 					}
 				}
 				if len(links) > 0 {

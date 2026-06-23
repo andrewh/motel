@@ -464,7 +464,7 @@ func TestBuildTopology(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "dequeue",
 						Duration: "10ms",
-						Links:    []string{"producer.enqueue"},
+						Links:    []LinkConfig{{Ref: "producer.enqueue"}},
 					}},
 				},
 			},
@@ -476,8 +476,8 @@ func TestBuildTopology(t *testing.T) {
 
 		consumerOp := topo.Services["consumer"].Operations["dequeue"]
 		require.Len(t, consumerOp.Links, 1)
-		assert.Equal(t, "enqueue", consumerOp.Links[0].Name)
-		assert.Equal(t, "producer", consumerOp.Links[0].Service.Name)
+		assert.Equal(t, "enqueue", consumerOp.Links[0].Operation.Name)
+		assert.Equal(t, "producer", consumerOp.Links[0].Operation.Service.Name)
 
 		producerOp := topo.Services["producer"].Operations["enqueue"]
 		assert.Empty(t, producerOp.Links)

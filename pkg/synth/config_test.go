@@ -1461,7 +1461,7 @@ func TestValidateConfigLinks(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "dequeue",
 						Duration: "10ms",
-						Links:    []string{"producer.enqueue"},
+						Links:    []LinkConfig{{Ref: "producer.enqueue"}},
 					}},
 				},
 			},
@@ -1479,7 +1479,7 @@ func TestValidateConfigLinks(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "op",
 					Duration: "10ms",
-					Links:    []string{"unknown.op"},
+					Links:    []LinkConfig{{Ref: "unknown.op"}},
 				}},
 			}},
 			Traffic: TrafficConfig{Rate: "10/s"},
@@ -1497,7 +1497,7 @@ func TestValidateConfigLinks(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "op",
 					Duration: "10ms",
-					Links:    []string{"nope"},
+					Links:    []LinkConfig{{Ref: "nope"}},
 				}},
 			}},
 			Traffic: TrafficConfig{Rate: "10/s"},
@@ -1515,7 +1515,7 @@ func TestValidateConfigLinks(t *testing.T) {
 				Operations: []OperationConfig{{
 					Name:     "op",
 					Duration: "10ms",
-					Links:    []string{"svc.op"},
+					Links:    []LinkConfig{{Ref: "svc.op"}},
 				}},
 			}},
 			Traffic: TrafficConfig{Rate: "10/s"},
@@ -1541,7 +1541,7 @@ func TestValidateConfigLinks(t *testing.T) {
 					Operations: []OperationConfig{{
 						Name:     "dequeue",
 						Duration: "10ms",
-						Links:    []string{"producer.enqueue", "producer.enqueue"},
+						Links:    []LinkConfig{{Ref: "producer.enqueue"}, {Ref: "producer.enqueue"}},
 					}},
 				},
 			},
@@ -1550,6 +1550,65 @@ func TestValidateConfigLinks(t *testing.T) {
 		err := ValidateConfig(cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "duplicate link")
+	})
+}
+
+func TestParseLinkConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("bare string form", func(t *testing.T) {
+		t.Parallel()
+		cfg, err := ParseConfig([]byte(`
+version: 1
+services:
+  producer:
+    operations:
+      enqueue:
+        duration: 5ms
+  consumer:
+    operations:
+      dequeue:
+        duration: 10ms
+        links:
+          - producer.enqueue
+traffic:
+  rate: 1/s
+`))
+		require.NoError(t, err)
+		// Services are sorted: consumer[0], producer[1]
+		require.Len(t, cfg.Services[0].Operations[0].Links, 1)
+		assert.Equal(t, "producer.enqueue", cfg.Services[0].Operations[0].Links[0].Ref)
+		assert.Empty(t, cfg.Services[0].Operations[0].Links[0].Attributes)
+	})
+
+	t.Run("structured form with attributes", func(t *testing.T) {
+		t.Parallel()
+		cfg, err := ParseConfig([]byte(`
+version: 1
+services:
+  producer:
+    operations:
+      enqueue:
+        duration: 5ms
+  consumer:
+    operations:
+      dequeue:
+        duration: 10ms
+        links:
+          - ref: producer.enqueue
+            attributes:
+              messaging.message.id: msg-42
+              link.type: async
+traffic:
+  rate: 1/s
+`))
+		require.NoError(t, err)
+		// Services are sorted: consumer[0], producer[1]
+		require.Len(t, cfg.Services[0].Operations[0].Links, 1)
+		lnk := cfg.Services[0].Operations[0].Links[0]
+		assert.Equal(t, "producer.enqueue", lnk.Ref)
+		assert.Equal(t, "msg-42", lnk.Attributes["messaging.message.id"])
+		assert.Equal(t, "async", lnk.Attributes["link.type"])
 	})
 }
 

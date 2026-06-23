@@ -54,7 +54,7 @@ func newSpanContextRegistry(topo *Topology) *spanContextRegistry {
 	for _, svc := range topo.Services {
 		for _, op := range svc.Operations {
 			for _, linked := range op.Links {
-				targets[linked.Ref] = true
+				targets[linked.Operation.Ref] = true
 			}
 		}
 	}
@@ -470,8 +470,12 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	if len(op.Links) > 0 && e.linkRegistry != nil {
 		var links []trace.Link
 		for _, linked := range op.Links {
-			if sc, ok := e.linkRegistry.load(linked.Ref); ok {
-				links = append(links, trace.Link{SpanContext: sc})
+			if sc, ok := e.linkRegistry.load(linked.Operation.Ref); ok {
+				lnk := trace.Link{SpanContext: sc}
+				for k, v := range linked.Attributes {
+					lnk.Attributes = append(lnk.Attributes, attribute.String(k, v))
+				}
+				links = append(links, lnk)
 			}
 		}
 		if len(links) > 0 {
