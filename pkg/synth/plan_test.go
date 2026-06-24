@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -365,6 +366,60 @@ func TestPlanTraceRetries(t *testing.T) {
 	spans := exporter.GetSpans()
 	require.Len(t, plans, len(spans), "should have same span count with retries")
 	assert.Equal(t, walkStats.Retries, planStats.Retries, "retry counts must match")
+}
+
+func TestPlanTraceSpanLinkAttributes(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "producer",
+				Operations: []OperationConfig{{
+					Name:     "enqueue",
+					Duration: "5ms",
+				}},
+			},
+			{
+				Name: "consumer",
+				Operations: []OperationConfig{{
+					Name:     "dequeue",
+					Duration: "10ms",
+					Links: []LinkConfig{{
+						Ref: "producer.enqueue",
+						Attributes: map[string]AttributeValueConfig{
+							"messaging.message.id":          {Value: "msg-42"},
+							"messaging.batch.message.index": {Value: 7},
+						},
+					}},
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+	engine, _, _ := newTestEngine(t, cfg)
+
+	var consumerRoot *Operation
+	for _, r := range engine.Topology.Roots {
+		if r.Ref == "consumer.dequeue" {
+			consumerRoot = r
+		}
+	}
+	require.NotNil(t, consumerRoot)
+
+	var plans []SpanPlan
+	engine.planTrace(consumerRoot, -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false)
+
+	require.Len(t, plans, 1)
+	require.Len(t, plans[0].LinkRefs, 1)
+	assert.Equal(t, "producer.enqueue", plans[0].LinkRefs[0].Ref)
+
+	linkAttrs := make(map[string]attribute.Value)
+	for _, kv := range plans[0].LinkRefs[0].Attributes {
+		linkAttrs[string(kv.Key)] = kv.Value
+	}
+	assert.Equal(t, attribute.StringValue("msg-42"), linkAttrs["messaging.message.id"])
+	assert.Equal(t, attribute.IntValue(7), linkAttrs["messaging.batch.message.index"])
 }
 
 // twoTierStateConfig builds a gateway->backend topology where backend has a

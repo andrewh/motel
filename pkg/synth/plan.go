@@ -9,6 +9,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// LinkRef holds the ref string and optional attributes for a span link.
+type LinkRef struct {
+	Ref        string
+	Attributes []attribute.KeyValue
+}
+
 // SpanPlan holds pre-computed data for a single span, ready for deferred emission.
 type SpanPlan struct {
 	Index           int
@@ -27,7 +33,7 @@ type SpanPlan struct {
 	Scenarios       []string
 	Rejected        bool
 	RejectionReason string
-	LinkRefs        []string
+	LinkRefs        []LinkRef
 }
 
 // planTrace recursively plans spans for an operation and its downstream calls.
@@ -114,9 +120,12 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	var linkRefs []string
+	var linkRefs []LinkRef
 	for _, linked := range op.Links {
-		linkRefs = append(linkRefs, linked.Ref)
+		linkRefs = append(linkRefs, LinkRef{
+			Ref:        linked.Operation.Ref,
+			Attributes: attributeKeyValues(linked.Attributes, e.Rng),
+		})
 	}
 
 	// Append a placeholder plan entry; EndTime and IsError are filled in after children.

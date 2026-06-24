@@ -72,6 +72,12 @@ type Event struct {
 	Attributes Attributes
 }
 
+// Link represents a resolved span link to another operation, with optional attributes.
+type Link struct {
+	Operation  *Operation
+	Attributes Attributes
+}
+
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
 	Service        *Service
@@ -83,7 +89,7 @@ type Operation struct {
 	CallStyle      string
 	Attributes     Attributes
 	Events         []Event
-	Links          []*Operation
+	Links          []Link
 	Metrics        []MetricDefinition
 	Logs           []LogDefinition
 	QueueDepth     int
@@ -257,12 +263,27 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 	for _, svcCfg := range cfg.Services {
 		for _, opCfg := range svcCfg.Operations {
 			op := topo.Services[svcCfg.Name].Operations[opCfg.Name]
-			for _, linkRef := range opCfg.Links {
-				_, linkOp, err := resolveRef(topo, linkRef)
+			for _, linkCfg := range opCfg.Links {
+				_, linkOp, err := resolveRef(topo, linkCfg.Ref)
 				if err != nil {
 					return nil, fmt.Errorf("service %q operation %q: link: %w", svcCfg.Name, opCfg.Name, err)
 				}
-				op.Links = append(op.Links, linkOp)
+				var attrs Attributes
+				if len(linkCfg.Attributes) > 0 {
+					gens := make(map[string]AttributeGenerator, len(linkCfg.Attributes))
+					for name, acfg := range linkCfg.Attributes {
+						gen, genErr := NewAttributeGenerator(acfg)
+						if genErr != nil {
+							return nil, fmt.Errorf("service %q operation %q link %q attribute %q: %w", svcCfg.Name, opCfg.Name, linkCfg.Ref, name, genErr)
+						}
+						gens[name] = gen
+					}
+					attrs = NewAttributes(gens)
+				}
+				op.Links = append(op.Links, Link{
+					Operation:  linkOp,
+					Attributes: attrs,
+				})
 			}
 			for _, callCfg := range opCfg.Calls {
 				_, targetOp, err := resolveRef(topo, callCfg.Target)

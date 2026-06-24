@@ -54,7 +54,7 @@ func newSpanContextRegistry(topo *Topology) *spanContextRegistry {
 	for _, svc := range topo.Services {
 		for _, op := range svc.Operations {
 			for _, linked := range op.Links {
-				targets[linked.Ref] = true
+				targets[linked.Operation.Ref] = true
 			}
 		}
 	}
@@ -470,8 +470,11 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	if len(op.Links) > 0 && e.linkRegistry != nil {
 		var links []trace.Link
 		for _, linked := range op.Links {
-			if sc, ok := e.linkRegistry.load(linked.Ref); ok {
-				links = append(links, trace.Link{SpanContext: sc})
+			if sc, ok := e.linkRegistry.load(linked.Operation.Ref); ok {
+				links = append(links, trace.Link{
+					SpanContext: sc,
+					Attributes:  attributeKeyValues(linked.Attributes, e.Rng),
+				})
 			}
 		}
 		if len(links) > 0 {
@@ -798,4 +801,15 @@ func typedAttribute(key string, value any) attribute.KeyValue {
 	default:
 		return attribute.String(key, fmt.Sprint(v))
 	}
+}
+
+func attributeKeyValues(attrs Attributes, rng *rand.Rand) []attribute.KeyValue {
+	if len(attrs) == 0 {
+		return nil
+	}
+	kvs := make([]attribute.KeyValue, 0, len(attrs))
+	for _, a := range attrs {
+		kvs = append(kvs, typedAttribute(a.Key, a.Gen.Generate(rng)))
+	}
+	return kvs
 }

@@ -188,6 +188,36 @@ type MetricConfig struct {
 	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
+// LinkConfig represents a span link target with optional attributes.
+// It supports both bare-string form ("service.operation") and structured form
+// with attributes:
+//
+//	links:
+//	  - ref: service.operation
+//	    attributes:
+//	      messaging.message.id:
+//	        value: "abc"
+type LinkConfig struct {
+	Ref        string                          `yaml:"ref"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+}
+
+// UnmarshalYAML allows LinkConfig to be specified as either a bare string
+// ("service.operation") or a struct with ref and attributes.
+func (lc *LinkConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		lc.Ref = value.Value
+		return nil
+	}
+	type linkConfigRaw LinkConfig
+	var raw linkConfigRaw
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*lc = LinkConfig(raw)
+	return nil
+}
+
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
 	Domain         string                          `yaml:"domain,omitempty"`
@@ -197,7 +227,7 @@ type rawOperationConfig struct {
 	CallStyle      string                          `yaml:"call_style,omitempty"`
 	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 	Events         []EventConfig                   `yaml:"events,omitempty"`
-	Links          []string                        `yaml:"links,omitempty"`
+	Links          []LinkConfig                    `yaml:"links,omitempty"`
 	Metrics        []MetricConfig                  `yaml:"metrics,omitempty"`
 	Logs           []LogConfig                     `yaml:"logs,omitempty"`
 	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
@@ -225,7 +255,7 @@ type OperationConfig struct {
 	CallStyle      string
 	Attributes     map[string]AttributeValueConfig
 	Events         []EventConfig
-	Links          []string
+	Links          []LinkConfig
 	Metrics        []MetricConfig
 	Logs           []LogConfig
 	QueueDepth     int
@@ -627,19 +657,27 @@ func ValidateConfig(cfg *Config) error {
 			ref := svc.Name + "." + op.Name
 			seenLinks := make(map[string]bool, len(op.Links))
 			for _, link := range op.Links {
-				if !strings.Contains(link, ".") {
-					return fmt.Errorf("service %q operation %q: link %q must be in service.operation format", svc.Name, op.Name, link)
+				if link.Ref == "" {
+					return fmt.Errorf("service %q operation %q: link must have a non-empty ref", svc.Name, op.Name)
 				}
-				if !knownOps[link] {
-					return fmt.Errorf("service %q operation %q: link %q references unknown operation", svc.Name, op.Name, link)
+				if !strings.Contains(link.Ref, ".") {
+					return fmt.Errorf("service %q operation %q: link %q must be in service.operation format", svc.Name, op.Name, link.Ref)
 				}
-				if link == ref {
+				if !knownOps[link.Ref] {
+					return fmt.Errorf("service %q operation %q: link %q references unknown operation", svc.Name, op.Name, link.Ref)
+				}
+				if link.Ref == ref {
 					return fmt.Errorf("service %q operation %q: link must not reference itself", svc.Name, op.Name)
 				}
-				if seenLinks[link] {
-					return fmt.Errorf("service %q operation %q: duplicate link %q", svc.Name, op.Name, link)
+				if seenLinks[link.Ref] {
+					return fmt.Errorf("service %q operation %q: duplicate link %q", svc.Name, op.Name, link.Ref)
 				}
-				seenLinks[link] = true
+				for attrName, attrCfg := range link.Attributes {
+					if _, err := NewAttributeGenerator(attrCfg); err != nil {
+						return fmt.Errorf("service %q operation %q link %q: attribute %q: %w", svc.Name, op.Name, link.Ref, attrName, err)
+					}
+				}
+				seenLinks[link.Ref] = true
 			}
 
 			for _, call := range op.Calls {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -119,6 +120,76 @@ func TestEmitTraceProducesSpans(t *testing.T) {
 	assert.Equal(t, "list", child.Name)
 	assert.Equal(t, root.SpanContext.SpanID(), child.Parent.SpanID())
 	assert.Equal(t, root.SpanContext.TraceID(), child.SpanContext.TraceID())
+}
+
+func TestEmitTraceSpanLinkAttributes(t *testing.T) {
+	t.Parallel()
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	tracers := func(name string) trace.Tracer { return tp.Tracer(name) }
+
+	now := time.Now()
+	plans := []SpanPlan{
+		{
+			Index:       0,
+			ParentIndex: -1,
+			Ref:         "producer.enqueue",
+			Service:     "producer",
+			Operation:   "enqueue",
+			Kind:        trace.SpanKindServer,
+			StartTime:   now,
+			EndTime:     now.Add(20 * time.Millisecond),
+		},
+		{
+			Index:       1,
+			ParentIndex: -1,
+			Ref:         "consumer.dequeue",
+			Service:     "consumer",
+			Operation:   "dequeue",
+			Kind:        trace.SpanKindServer,
+			StartTime:   now.Add(5 * time.Millisecond),
+			EndTime:     now.Add(15 * time.Millisecond),
+			LinkRefs: []LinkRef{{
+				Ref: "producer.enqueue",
+				Attributes: []attribute.KeyValue{
+					attribute.String("messaging.message.id", "msg-42"),
+					attribute.Int("messaging.batch.message.index", 7),
+				},
+			}},
+		},
+	}
+
+	registry := &spanContextRegistry{
+		ctx:     make(map[string]trace.SpanContext),
+		targets: map[string]bool{"producer.enqueue": true},
+	}
+
+	var rstats realtimeStats
+	emitTrace(context.Background(), plans, now, time.Now(), tracers, nil, &rstats, registry)
+
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	byName := make(map[string]tracetest.SpanStub, len(spans))
+	for _, span := range spans {
+		byName[span.Name] = span
+	}
+	consumer := byName["dequeue"]
+	producer := byName["enqueue"]
+	require.Len(t, consumer.Links, 1)
+	assert.Equal(t, producer.SpanContext.SpanID(), consumer.Links[0].SpanContext.SpanID())
+
+	linkAttrs := make(map[string]attribute.Value)
+	for _, kv := range consumer.Links[0].Attributes {
+		linkAttrs[string(kv.Key)] = kv.Value
+	}
+	assert.Equal(t, attribute.StringValue("msg-42"), linkAttrs["messaging.message.id"])
+	assert.Equal(t, attribute.IntValue(7), linkAttrs["messaging.batch.message.index"])
 }
 
 func TestEmitTraceErrors(t *testing.T) {
