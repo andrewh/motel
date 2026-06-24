@@ -122,11 +122,10 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 
 	var linkRefs []LinkRef
 	for _, linked := range op.Links {
-		lr := LinkRef{Ref: linked.Operation.Ref}
-		for k, v := range linked.Attributes {
-			lr.Attributes = append(lr.Attributes, attribute.String(k, v))
-		}
-		linkRefs = append(linkRefs, lr)
+		linkRefs = append(linkRefs, LinkRef{
+			Ref:        linked.Operation.Ref,
+			Attributes: attributeKeyValues(linked.Attributes, e.Rng),
+		})
 	}
 
 	// Append a placeholder plan entry; EndTime and IsError are filled in after children.

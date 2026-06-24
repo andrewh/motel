@@ -195,10 +195,11 @@ type MetricConfig struct {
 //	links:
 //	  - ref: service.operation
 //	    attributes:
-//	      messaging.message.id: "abc"
+//	      messaging.message.id:
+//	        value: "abc"
 type LinkConfig struct {
-	Ref        string            `yaml:"ref"`
-	Attributes map[string]string `yaml:"attributes,omitempty"`
+	Ref        string                          `yaml:"ref"`
+	Attributes map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
 }
 
 // UnmarshalYAML allows LinkConfig to be specified as either a bare string
@@ -670,6 +671,11 @@ func ValidateConfig(cfg *Config) error {
 				}
 				if seenLinks[link.Ref] {
 					return fmt.Errorf("service %q operation %q: duplicate link %q", svc.Name, op.Name, link.Ref)
+				}
+				for attrName, attrCfg := range link.Attributes {
+					if _, err := NewAttributeGenerator(attrCfg); err != nil {
+						return fmt.Errorf("service %q operation %q link %q: attribute %q: %w", svc.Name, op.Name, link.Ref, attrName, err)
+					}
 				}
 				seenLinks[link.Ref] = true
 			}

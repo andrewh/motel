@@ -24,8 +24,12 @@ services:
           # Structured form with link attributes:
           - ref: producer.enqueue
             attributes:
-              messaging.message.id: "msg-001"
-              link.relationship: "async-produce"
+              messaging.message.id:
+                value: "msg-001"
+              messaging.batch.message.index:
+                value: 0
+              link.relationship:
+                value: "async-produce"
 
 traffic:
   rate: 10/s

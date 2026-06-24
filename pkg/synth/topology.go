@@ -75,7 +75,7 @@ type Event struct {
 // Link represents a resolved span link to another operation, with optional attributes.
 type Link struct {
 	Operation  *Operation
-	Attributes map[string]string
+	Attributes Attributes
 }
 
 // Operation represents a resolved operation with pointers to downstream calls.
@@ -268,9 +268,21 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 				if err != nil {
 					return nil, fmt.Errorf("service %q operation %q: link: %w", svcCfg.Name, opCfg.Name, err)
 				}
+				var attrs Attributes
+				if len(linkCfg.Attributes) > 0 {
+					gens := make(map[string]AttributeGenerator, len(linkCfg.Attributes))
+					for name, acfg := range linkCfg.Attributes {
+						gen, genErr := NewAttributeGenerator(acfg)
+						if genErr != nil {
+							return nil, fmt.Errorf("service %q operation %q link %q attribute %q: %w", svcCfg.Name, opCfg.Name, linkCfg.Ref, name, genErr)
+						}
+						gens[name] = gen
+					}
+					attrs = NewAttributes(gens)
+				}
 				op.Links = append(op.Links, Link{
 					Operation:  linkOp,
-					Attributes: linkCfg.Attributes,
+					Attributes: attrs,
 				})
 			}
 			for _, callCfg := range opCfg.Calls {

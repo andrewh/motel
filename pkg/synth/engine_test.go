@@ -2768,9 +2768,10 @@ func TestEngineSpanLinkAttributes(t *testing.T) {
 					Duration: "10ms",
 					Links: []LinkConfig{{
 						Ref: "producer.enqueue",
-						Attributes: map[string]string{
-							"messaging.message.id": "msg-42",
-							"link.type":            "async",
+						Attributes: map[string]AttributeValueConfig{
+							"messaging.message.id":          {Value: "msg-42"},
+							"messaging.batch.message.index": {Value: 7},
+							"messaging.duplicate":           {Value: true},
 						},
 					}},
 				}},
@@ -2807,12 +2808,13 @@ func TestEngineSpanLinkAttributes(t *testing.T) {
 	require.Len(t, spans, 1)
 	require.Len(t, spans[0].Links, 1)
 
-	linkAttrs := make(map[string]string)
+	linkAttrs := make(map[string]attribute.Value)
 	for _, kv := range spans[0].Links[0].Attributes {
-		linkAttrs[string(kv.Key)] = kv.Value.AsString()
+		linkAttrs[string(kv.Key)] = kv.Value
 	}
-	assert.Equal(t, "msg-42", linkAttrs["messaging.message.id"])
-	assert.Equal(t, "async", linkAttrs["link.type"])
+	assert.Equal(t, attribute.StringValue("msg-42"), linkAttrs["messaging.message.id"])
+	assert.Equal(t, attribute.IntValue(7), linkAttrs["messaging.batch.message.index"])
+	assert.Equal(t, attribute.BoolValue(true), linkAttrs["messaging.duplicate"])
 }
 
 func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {

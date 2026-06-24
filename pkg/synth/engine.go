@@ -471,11 +471,10 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 		var links []trace.Link
 		for _, linked := range op.Links {
 			if sc, ok := e.linkRegistry.load(linked.Operation.Ref); ok {
-				lnk := trace.Link{SpanContext: sc}
-				for k, v := range linked.Attributes {
-					lnk.Attributes = append(lnk.Attributes, attribute.String(k, v))
-				}
-				links = append(links, lnk)
+				links = append(links, trace.Link{
+					SpanContext: sc,
+					Attributes:  attributeKeyValues(linked.Attributes, e.Rng),
+				})
 			}
 		}
 		if len(links) > 0 {
@@ -802,4 +801,15 @@ func typedAttribute(key string, value any) attribute.KeyValue {
 	default:
 		return attribute.String(key, fmt.Sprint(v))
 	}
+}
+
+func attributeKeyValues(attrs Attributes, rng *rand.Rand) []attribute.KeyValue {
+	if len(attrs) == 0 {
+		return nil
+	}
+	kvs := make([]attribute.KeyValue, 0, len(attrs))
+	for _, a := range attrs {
+		kvs = append(kvs, typedAttribute(a.Key, a.Gen.Generate(rng)))
+	}
+	return kvs
 }

@@ -1551,6 +1551,38 @@ func TestValidateConfigLinks(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "duplicate link")
 	})
+
+	t.Run("invalid link attribute", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Services: []ServiceConfig{
+				{
+					Name: "producer",
+					Operations: []OperationConfig{{
+						Name:     "enqueue",
+						Duration: "5ms",
+					}},
+				},
+				{
+					Name: "consumer",
+					Operations: []OperationConfig{{
+						Name:     "dequeue",
+						Duration: "10ms",
+						Links: []LinkConfig{{
+							Ref: "producer.enqueue",
+							Attributes: map[string]AttributeValueConfig{
+								"batch.position": {},
+							},
+						}},
+					}},
+				},
+			},
+			Traffic: TrafficConfig{Rate: "10/s"},
+		}
+		err := ValidateConfig(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `link "producer.enqueue": attribute "batch.position"`)
+	})
 }
 
 func TestParseLinkConfig(t *testing.T) {
@@ -1597,8 +1629,10 @@ services:
         links:
           - ref: producer.enqueue
             attributes:
-              messaging.message.id: msg-42
-              link.type: async
+              messaging.message.id:
+                value: msg-42
+              messaging.batch.message.index:
+                value: 7
 traffic:
   rate: 1/s
 `))
@@ -1607,8 +1641,8 @@ traffic:
 		require.Len(t, cfg.Services[0].Operations[0].Links, 1)
 		lnk := cfg.Services[0].Operations[0].Links[0]
 		assert.Equal(t, "producer.enqueue", lnk.Ref)
-		assert.Equal(t, "msg-42", lnk.Attributes["messaging.message.id"])
-		assert.Equal(t, "async", lnk.Attributes["link.type"])
+		assert.Equal(t, "msg-42", lnk.Attributes["messaging.message.id"].Value)
+		assert.Equal(t, 7, lnk.Attributes["messaging.batch.message.index"].Value)
 	})
 }
 
