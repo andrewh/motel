@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `producer: true` call modifier emits a `PRODUCER` span for an asynchronous
+  enqueue/publish step, the fifth OTel span kind. It pairs with the existing
+  `async` (`CONSUMER`) calls and span links to model cross-trace messaging:
+  a producer publish span on one service and a linked consumer span on another.
+  See `docs/examples/producer-consumer.yaml`. (#214)
+
 - Reader-based replay entry points `ScanRecordingFrom(io.Reader)` and
   `ReplayRecordingFrom(ctx, io.Reader, …)` so non-filesystem callers (such as
   `pkg/synth` compiled to `js/wasm`) can replay in-memory recordings. The

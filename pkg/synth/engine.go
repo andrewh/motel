@@ -191,7 +191,7 @@ func (e *Engine) Run(ctx context.Context) (*Stats, error) {
 		spanStart := now.Add(e.TimeOffset)
 		spanLimit := e.maxSpansPerTrace()
 		spanCount := 0
-		_, rootErr := e.walkTrace(ctx, root, nil, spanStart, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit, false)
+		_, rootErr := e.walkTrace(ctx, root, nil, spanStart, elapsed, overrides, scenarioNames, &stats, &spanCount, spanLimit, false, false)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -350,7 +350,7 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		// QueueRejections, and CircuitBreakerTrips which are plan-phase
 		// decisions.
 		var plans []SpanPlan
-		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit, false)
+		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit, false, false)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -401,7 +401,8 @@ func (e *Engine) maxSpansPerTrace() int {
 // spanCount tracks the number of spans generated in this trace; no new spans are created once it reaches spanLimit.
 // elapsed is the simulation wall-clock time since engine start, used for state tracking.
 // isAsync indicates the span was invoked via an async call and should use CONSUMER span kind.
-func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int, isAsync bool) (time.Time, bool) {
+// isProducer indicates the span was invoked via a producer call and should use PRODUCER span kind.
+func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, spanCount *int, spanLimit int, isAsync, isProducer bool) (time.Time, bool) {
 	if *spanCount >= spanLimit {
 		return startTime, false
 	}
@@ -437,7 +438,7 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 				stats.CircuitBreakerTrips++
 				notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventCircuitBreakerTrip, Service: op.Service.Name, Operation: op.Name, Timestamp: startTime})
 			}
-			return e.emitRejectionSpan(ctx, op, parent, startTime, reason, scenarioNames, stats, isAsync)
+			return e.emitRejectionSpan(ctx, op, parent, startTime, reason, scenarioNames, stats, isAsync, isProducer)
 		}
 		if durationMult > 1.0 {
 			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
@@ -446,13 +447,9 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 		opState.Enter()
 	}
 
-	// Determine span kind: SERVER for roots, CONSUMER for async callees, CLIENT otherwise
-	kind := trace.SpanKindClient
-	if isRoot(e.Topology, op) {
-		kind = trace.SpanKindServer
-	} else if isAsync {
-		kind = trace.SpanKindConsumer
-	}
+	// Determine span kind: SERVER for roots, PRODUCER for producer callees,
+	// CONSUMER for async callees, CLIENT otherwise.
+	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
 
 	startAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -648,16 +645,11 @@ func parentNames(parent *Operation) (string, string) {
 // emitRejectionSpan creates a short error span for a rejected request.
 // The caller (walkTrace) has already counted this span against the trace's
 // span limit, so spanCount is not incremented here.
-func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, isAsync bool) (time.Time, bool) {
+func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, startTime time.Time, reason string, scenarioNames []string, stats *Stats, isAsync, isProducer bool) (time.Time, bool) {
 	tracer := e.Tracers(op.Service.Name)
 	endTime := startTime.Add(rejectionDuration)
 
-	kind := trace.SpanKindClient
-	if isRoot(e.Topology, op) {
-		kind = trace.SpanKindServer
-	} else if isAsync {
-		kind = trace.SpanKindConsumer
-	}
+	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
 
 	rejAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -717,7 +709,7 @@ func (e *Engine) executeCall(ctx context.Context, active activeCall, parent *Ope
 	attemptStart := callStart
 
 	for attempt := range maxAttempts {
-		childEnd, childErr := e.walkTrace(ctx, call.Operation, parent, attemptStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit, call.Async)
+		childEnd, childErr := e.walkTrace(ctx, call.Operation, parent, attemptStart, elapsed, overrides, scenarioNames, stats, spanCount, spanLimit, call.Async, call.Producer)
 		perceivedEnd := childEnd
 		failed := childErr
 
@@ -760,6 +752,23 @@ func activeScenariosEqual(a, b []Scenario) bool {
 // isRoot checks whether an operation is a root (entry point) in the topology.
 func isRoot(topo *Topology, op *Operation) bool {
 	return slices.Contains(topo.Roots, op)
+}
+
+// spanKindFor determines the OTel span kind for an operation given how it was
+// invoked: SERVER for trace roots, PRODUCER for the callee of a producer call
+// (an async enqueue/publish step), CONSUMER for the callee of an async call,
+// and CLIENT otherwise. Roots always win; producer takes precedence over async.
+func spanKindFor(topo *Topology, op *Operation, isAsync, isProducer bool) trace.SpanKind {
+	switch {
+	case isRoot(topo, op):
+		return trace.SpanKindServer
+	case isProducer:
+		return trace.SpanKindProducer
+	case isAsync:
+		return trace.SpanKindConsumer
+	default:
+		return trace.SpanKindClient
+	}
 }
 
 // effectiveCalls returns the call list for an operation, applying scenario add/remove overrides.

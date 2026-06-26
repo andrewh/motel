@@ -1,0 +1,59 @@
+# Messaging producer/consumer spans with cross-trace links
+#
+# Models the two halves of an asynchronous messaging interaction per the OTel
+# messaging semantic conventions:
+#
+#   * The publishing service emits a PRODUCER span for the enqueue/publish step.
+#     A call marked `producer: true` makes its callee a PRODUCER span. The
+#     publish is synchronous from the caller's perspective (the parent waits for
+#     the enqueue to complete) but represents handing work off to a queue.
+#
+#   * The processing service emits a CONSUMER span (via `async: true`) that
+#     lives in a separate trace and links back to the producer's publish span,
+#     the non-parent-child relationship typical of message queues.
+#
+# Run the first trace to populate the link registry; subsequent consumer traces
+# link to the most recent producer span (see span-links.yaml for the mechanics).
+
+version: 1
+
+services:
+  api:
+    operations:
+      handle:
+        duration: 12ms +/- 4ms
+        calls:
+          # PRODUCER span: enqueue the message onto the queue.
+          - target: queue.publish
+            producer: true
+
+  queue:
+    operations:
+      publish:
+        duration: 4ms +/- 1ms
+        error_rate: 0.1%
+
+  worker:
+    operations:
+      poll:
+        duration: 1ms
+        calls:
+          # CONSUMER span: process the dequeued message asynchronously.
+          - target: worker.process
+            async: true
+      process:
+        duration: 25ms +/- 8ms
+        error_rate: 0.5%
+        links:
+          # Join the consumer's processing span back to the producer's publish.
+          - ref: queue.publish
+            attributes:
+              messaging.message.id:
+                value: "msg-001"
+              messaging.operation.name:
+                value: "process"
+              link.relationship:
+                value: "async-produce"
+
+traffic:
+  rate: 10/s
