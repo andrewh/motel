@@ -41,7 +41,7 @@ type SpanPlan struct {
 // mutations, same timing logic. The only difference is that it appends to plans
 // instead of creating OTel spans.
 // Returns the span end time and whether the span errored.
-func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, plans *[]SpanPlan, spanCount *int, spanLimit int, isAsync bool) (time.Time, bool) {
+func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, elapsed time.Duration, overrides map[string]Override, scenarioNames []string, stats *Stats, plans *[]SpanPlan, spanCount *int, spanLimit int, isAsync, isProducer bool) (time.Time, bool) {
 	if *spanCount >= spanLimit {
 		return startTime, false
 	}
@@ -76,7 +76,7 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 				stats.CircuitBreakerTrips++
 				notifyPlanEvent(e.Observers, PlanEvent{Kind: PlanEventCircuitBreakerTrip, Service: op.Service.Name, Operation: op.Name, Timestamp: startTime})
 			}
-			return e.planRejectionSpan(op, parentIndex, startTime, reason, scenarioNames, plans, isAsync)
+			return e.planRejectionSpan(op, parentIndex, startTime, reason, scenarioNames, plans, isAsync, isProducer)
 		}
 		if durationMult > 1.0 {
 			duration.Mean = time.Duration(float64(duration.Mean) * durationMult)
@@ -85,12 +85,7 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 		opState.Enter()
 	}
 
-	kind := trace.SpanKindClient
-	if isRoot(e.Topology, op) {
-		kind = trace.SpanKindServer
-	} else if isAsync {
-		kind = trace.SpanKindConsumer
-	}
+	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
 
 	startAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -226,15 +221,10 @@ func (e *Engine) planTrace(op *Operation, parentIndex int, startTime time.Time, 
 // planRejectionSpan mirrors emitRejectionSpan but appends to plans.
 // The caller (planTrace) has already counted this span against the trace's
 // span limit, so spanCount is not incremented here.
-func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime time.Time, reason string, scenarioNames []string, plans *[]SpanPlan, isAsync bool) (time.Time, bool) {
+func (e *Engine) planRejectionSpan(op *Operation, parentIndex int, startTime time.Time, reason string, scenarioNames []string, plans *[]SpanPlan, isAsync, isProducer bool) (time.Time, bool) {
 	endTime := startTime.Add(rejectionDuration)
 
-	kind := trace.SpanKindClient
-	if isRoot(e.Topology, op) {
-		kind = trace.SpanKindServer
-	} else if isAsync {
-		kind = trace.SpanKindConsumer
-	}
+	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
 
 	rejAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -272,7 +262,7 @@ func (e *Engine) executePlanCall(active activeCall, parent *Operation, parentInd
 	attemptStart := callStart
 
 	for attempt := range maxAttempts {
-		childEnd, childErr := e.planTrace(call.Operation, parentIndex, attemptStart, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit, call.Async)
+		childEnd, childErr := e.planTrace(call.Operation, parentIndex, attemptStart, elapsed, overrides, scenarioNames, stats, plans, spanCount, spanLimit, call.Async, call.Producer)
 		perceivedEnd := childEnd
 		failed := childErr
 

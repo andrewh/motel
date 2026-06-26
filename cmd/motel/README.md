@@ -165,6 +165,7 @@ or a full mapping.
 | `retries`      | int    | Retry count on child failure |
 | `retry_backoff`| string | Constant delay between retries (Go duration) |
 | `async`        | bool   | Fire-and-forget: child runs independently, parent does not wait. Child span kind is CONSUMER instead of CLIENT. Errors do not cascade to parent. Cannot combine with `retries` or `timeout` |
+| `producer`     | bool   | Messaging enqueue/publish step: child span kind is PRODUCER instead of CLIENT. The publish is synchronous (parent waits). Pair with an `async` consumer and a span link for cross-trace messaging. Cannot combine with `async` |
 
 ```yaml
 calls:

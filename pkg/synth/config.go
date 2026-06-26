@@ -123,6 +123,7 @@ type CallConfig struct {
 	Retries      int     `yaml:"retries,omitempty"`
 	RetryBackoff string  `yaml:"retry_backoff,omitempty"`
 	Async        bool    `yaml:"async,omitempty"`
+	Producer     bool    `yaml:"producer,omitempty"`
 }
 
 // UnmarshalYAML handles both scalar string and mapping forms for call config.
@@ -726,6 +727,9 @@ func ValidateConfig(cfg *Config) error {
 				if call.Async && call.Timeout != "" {
 					return fmt.Errorf("service %q operation %q: call %q: async calls cannot have a timeout", svc.Name, op.Name, call.Target)
 				}
+				if call.Producer && call.Async {
+					return fmt.Errorf("service %q operation %q: call %q: a call cannot be both producer and async", svc.Name, op.Name, call.Target)
+				}
 			}
 		}
 	}
@@ -893,6 +897,9 @@ func validateCallConfig(call CallConfig, knownOps map[string]bool) error {
 	}
 	if call.Async && call.Timeout != "" {
 		return fmt.Errorf("target %q: async calls cannot have a timeout", call.Target)
+	}
+	if call.Producer && call.Async {
+		return fmt.Errorf("target %q: a call cannot be both producer and async", call.Target)
 	}
 	return nil
 }

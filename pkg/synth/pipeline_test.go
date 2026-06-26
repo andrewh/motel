@@ -210,7 +210,7 @@ func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed ui
 		}
 		root := topo.Roots[rng.IntN(len(topo.Roots))]
 		var stats Stats
-		engine.walkTrace(ctx, root, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(ctx, root, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	}
 	if err := tp.ForceFlush(ctx); err != nil {
 		t.Fatalf("ForceFlush: %v", err)

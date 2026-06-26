@@ -107,6 +107,7 @@ func BuildScenarios(cfgs []ScenarioConfig, topo *Topology) ([]Scenario, error) {
 					Count:       callCfg.Count,
 					Retries:     callCfg.Retries,
 					Async:       callCfg.Async,
+					Producer:    callCfg.Producer,
 				}
 				if callCfg.Timeout != "" {
 					call.Timeout, err = time.ParseDuration(callCfg.Timeout)

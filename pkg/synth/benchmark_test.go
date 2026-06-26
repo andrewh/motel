@@ -95,14 +95,14 @@ func BenchmarkWalkTrace(b *testing.B) {
 	for range b.N {
 		var stats Stats
 		spanCount := 0
-		engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, &spanCount, DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, &spanCount, DefaultMaxSpansPerTrace, false, false)
 	}
 	b.StopTimer()
 
 	// Report spans per iteration for reference
 	var stats Stats
 	spanCount := 0
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, &spanCount, DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, &spanCount, DefaultMaxSpansPerTrace, false, false)
 	b.ReportMetric(float64(stats.Spans), "spans/trace")
 }
 

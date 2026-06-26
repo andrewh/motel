@@ -79,7 +79,7 @@ func TestEngineWalkTrace(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 
 	// Force flush
 	require.NoError(t, tp.ForceFlush(context.Background()))
@@ -128,7 +128,7 @@ func TestEngineErrorInjection(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -241,7 +241,7 @@ func TestEngineScenarioOverrides(t *testing.T) {
 
 	// Walk trace with overrides active at elapsed=0
 	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
-	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -305,7 +305,7 @@ func TestEngineScenarioAttributeOverrides(t *testing.T) {
 	}
 
 	overrides := ResolveOverrides(ActiveScenarios(scenarios, 0))
-	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -488,7 +488,7 @@ func TestEngineOperationAttributes(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -532,7 +532,7 @@ func TestEngineSequentialCallStyle(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -583,7 +583,7 @@ func TestEngineParallelCallStyle(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -668,7 +668,7 @@ func TestEngineSpanAttributes(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -720,7 +720,7 @@ func TestEngineProbabilisticCall(t *testing.T) {
 
 	for range trials {
 		exporter.Reset()
-		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		require.NoError(t, tp.ForceFlush(context.Background()))
 
 		spans := exporter.GetSpans()
@@ -765,7 +765,7 @@ func TestEngineOnErrorCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter, tp := newTestEngine(t, makeConfig("100%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		require.NoError(t, tp.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 2, "on-error child should be present when parent errors")
@@ -775,7 +775,7 @@ func TestEngineOnErrorCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter, tp := newTestEngine(t, makeConfig("0%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		require.NoError(t, tp.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 1, "on-error child should be absent when parent succeeds")
@@ -813,7 +813,7 @@ func TestEngineOnSuccessCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter, tp := newTestEngine(t, makeConfig("0%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		require.NoError(t, tp.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 2, "on-success child should be present when parent succeeds")
@@ -823,7 +823,7 @@ func TestEngineOnSuccessCondition(t *testing.T) {
 		t.Parallel()
 		engine, exporter, tp := newTestEngine(t, makeConfig("100%"))
 		rootOp := engine.Topology.Roots[0]
-		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+		engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		require.NoError(t, tp.ForceFlush(context.Background()))
 		spans := exporter.GetSpans()
 		assert.Len(t, spans, 1, "on-success child should be absent when parent errors")
@@ -856,7 +856,7 @@ func TestEngineFanOutCount(t *testing.T) {
 
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -898,7 +898,7 @@ func TestEngineFanOutSequential(t *testing.T) {
 
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -953,7 +953,7 @@ func TestEngineFanOutParallel(t *testing.T) {
 
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1002,7 +1002,7 @@ func TestEngineCallTimeout(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1060,7 +1060,7 @@ func TestEngineCallNoTimeout(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1110,7 +1110,7 @@ func TestEngineCallTimeoutSequential(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1168,7 +1168,7 @@ func TestEngineCascadingError(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1216,7 +1216,7 @@ func TestEngineCascadingErrorPreservesConditions(t *testing.T) {
 
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1254,7 +1254,7 @@ func TestEngineRetryOnError(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1300,7 +1300,7 @@ func TestEngineRetrySuccess(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1347,7 +1347,7 @@ func TestEngineRetryBackoff(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1398,7 +1398,7 @@ func TestEngineRetryWithTimeout(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1437,7 +1437,7 @@ func TestEngineRetryStats(t *testing.T) {
 	engine, _, _ := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 
 	assert.Equal(t, int64(3), stats.Retries, "should retry 3 times")
 	// 1 parent + 4 child = 5 spans, all errored (child 100%, parent cascaded)
@@ -1473,7 +1473,7 @@ func TestEngineNoRetryWithoutConfig(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 	rootOp := engine.Topology.Roots[0]
 	var stats Stats
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1519,14 +1519,14 @@ func TestEngineSpanBound(t *testing.T) {
 	rootOp := engine.Topology.Roots[0]
 
 	// Without bound: 1 + 5 + 25 = 31 spans
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 	assert.Equal(t, 31, len(exporter.GetSpans()))
 
 	// With bound of 10 spans
 	exporter.Reset()
 	spanCount := 0
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, &spanCount, 10, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, &spanCount, 10, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 	assert.LessOrEqual(t, len(exporter.GetSpans()), 10, "span count should be bounded")
 	assert.Greater(t, len(exporter.GetSpans()), 0, "should produce at least some spans")
@@ -1791,7 +1791,7 @@ func TestEngineWalkTraceWithAddCalls(t *testing.T) {
 	gatewayOp := topo.Services["gateway"].Operations["request"]
 
 	var stats Stats
-	engine.walkTrace(context.Background(), gatewayOp, nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), gatewayOp, nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1848,7 +1848,7 @@ func TestEngineWalkTraceWithRemoveCalls(t *testing.T) {
 	}
 
 	var stats Stats
-	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -1995,7 +1995,7 @@ func TestEngineLabelScenarios(t *testing.T) {
 		scenarioNames[i] = s.Name
 	}
 
-	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, scenarioNames, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), topo.Roots[0], nil, time.Now(), 0, overrides, scenarioNames, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2030,7 +2030,7 @@ func TestEngineLabelScenariosEmpty(t *testing.T) {
 	engine.LabelScenarios = true
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2065,7 +2065,7 @@ func TestEngineLabelScenariosDisabled(t *testing.T) {
 	// LabelScenarios defaults to false
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2133,7 +2133,7 @@ func TestPerServiceResource(t *testing.T) {
 	}
 
 	rootOp := topo.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 
 	for _, tp := range providers {
 		require.NoError(t, tp.ForceFlush(context.Background()))
@@ -2303,7 +2303,7 @@ func TestAsyncCallParentDoesNotWait(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2357,7 +2357,7 @@ func TestSyncCallSpanKindIsClient(t *testing.T) {
 	engine, exporter, tp := newTestEngine(t, cfg)
 
 	rootOp := engine.Topology.Roots[0]
-	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2375,6 +2375,169 @@ func TestSyncCallSpanKindIsClient(t *testing.T) {
 
 	assert.Equal(t, trace.SpanKindServer, parentSpan.SpanKind, "root span should be SERVER")
 	assert.Equal(t, trace.SpanKindClient, childSpan.SpanKind, "sync callee should be CLIENT")
+}
+
+// TestProducerCallSpanKind pins that a call marked producer:true emits a
+// PRODUCER span for the enqueue/publish step, distinct from the CONSUMER kind
+// used for async callees. The producer enqueue is synchronous, so the parent
+// waits for it to finish.
+func TestProducerCallSpanKind(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "submit",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "queue.publish", Producer: true},
+					},
+				}},
+			},
+			{
+				Name: "queue",
+				Operations: []OperationConfig{{
+					Name:     "publish",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2, "should have parent + producer child span")
+
+	var parentSpan, childSpan tracetest.SpanStub
+	for _, s := range spans {
+		switch s.Name {
+		case "submit":
+			parentSpan = s
+		case "publish":
+			childSpan = s
+		}
+	}
+
+	assert.Equal(t, parentSpan.SpanContext.TraceID(), childSpan.SpanContext.TraceID(),
+		"producer child should be in the same trace as its caller")
+	assert.Equal(t, parentSpan.SpanContext.SpanID(), childSpan.Parent.SpanID(),
+		"producer child should be parented under the caller")
+	assert.Equal(t, trace.SpanKindServer, parentSpan.SpanKind, "root span should be SERVER")
+	assert.Equal(t, trace.SpanKindProducer, childSpan.SpanKind, "producer callee should be PRODUCER")
+
+	// Producer enqueue is synchronous: the parent ends no earlier than the child.
+	assert.False(t, parentSpan.EndTime.Before(childSpan.EndTime),
+		"parent (end=%v) should not end before synchronous producer child (end=%v)", parentSpan.EndTime, childSpan.EndTime)
+}
+
+// TestProducerConsumerComposeWithSpanLinks exercises the realistic messaging
+// pattern: a PRODUCER span on the publishing service and a CONSUMER span on the
+// processing service, living in separate traces joined by a span link from the
+// consumer back to the producer.
+func TestProducerConsumerComposeWithSpanLinks(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "api",
+				Operations: []OperationConfig{{
+					Name:     "handle",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "queue.publish", Producer: true},
+					},
+				}},
+			},
+			{
+				Name: "queue",
+				Operations: []OperationConfig{{
+					Name:     "publish",
+					Duration: "3ms",
+				}},
+			},
+			{
+				Name: "worker",
+				Operations: []OperationConfig{
+					{
+						Name:     "poll",
+						Duration: "1ms",
+						Calls: []CallConfig{
+							{Target: "worker.process", Async: true},
+						},
+					},
+					{
+						Name:     "process",
+						Duration: "20ms",
+						Links:    []LinkConfig{{Ref: "queue.publish"}},
+					},
+				},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+	engine.linkRegistry = newSpanContextRegistry(engine.Topology)
+
+	now := time.Now()
+	stats := &Stats{}
+
+	// Roots are the api and worker entrypoints (publish/process are callees).
+	var apiRoot, workerRoot *Operation
+	for _, r := range engine.Topology.Roots {
+		switch r.Service.Name {
+		case "api":
+			apiRoot = r
+		case "worker":
+			workerRoot = r
+		}
+	}
+	require.NotNil(t, apiRoot)
+	require.NotNil(t, workerRoot)
+
+	// Producer trace first to populate the link registry.
+	engine.walkTrace(context.Background(), apiRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	producerSpans := exporter.GetSpans()
+	var publishSpan tracetest.SpanStub
+	for _, s := range producerSpans {
+		if s.Name == "publish" {
+			publishSpan = s
+		}
+	}
+	require.NotZero(t, publishSpan.SpanContext.SpanID(), "publish span should exist")
+	assert.Equal(t, trace.SpanKindProducer, publishSpan.SpanKind, "publish should be PRODUCER")
+
+	// Consumer trace second — its process span should be CONSUMER and link back.
+	exporter.Reset()
+	engine.walkTrace(context.Background(), workerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	consumerSpans := exporter.GetSpans()
+	var processSpan tracetest.SpanStub
+	for _, s := range consumerSpans {
+		if s.Name == "process" {
+			processSpan = s
+		}
+	}
+	require.NotZero(t, processSpan.SpanContext.SpanID(), "process span should exist")
+	assert.Equal(t, trace.SpanKindConsumer, processSpan.SpanKind, "process should be CONSUMER")
+
+	assert.NotEqual(t, publishSpan.SpanContext.TraceID(), processSpan.SpanContext.TraceID(),
+		"producer and consumer should live in separate traces")
+	require.Len(t, processSpan.Links, 1, "consumer should link back to the producer")
+	assert.Equal(t, publishSpan.SpanContext.TraceID(), processSpan.Links[0].SpanContext.TraceID())
+	assert.Equal(t, publishSpan.SpanContext.SpanID(), processSpan.Links[0].SpanContext.SpanID())
 }
 
 func TestAsyncCallErrorsDoNotCascade(t *testing.T) {
@@ -2408,7 +2571,7 @@ func TestAsyncCallErrorsDoNotCascade(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2469,7 +2632,7 @@ func TestAsyncSequentialDoesNotBlock(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2531,7 +2694,7 @@ func TestAsyncCallViaScenarioAddCalls(t *testing.T) {
 	rootOp := engine.Topology.Services["gateway"].Operations["handle"]
 	now := time.Now()
 	overrides := ResolveOverrides(ActiveScenarios(engine.Scenarios, 0))
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, overrides, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2585,7 +2748,7 @@ func TestSpanEvents(t *testing.T) {
 
 	rootOp := engine.Topology.Roots[0]
 	now := time.Now()
-	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), rootOp, nil, now, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2730,7 +2893,7 @@ func TestEngineSpanLinks(t *testing.T) {
 	require.NotNil(t, consumerRoot)
 
 	// Run producer first to populate the registry
-	engine.walkTrace(context.Background(), producerRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), producerRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	producerSpans := exporter.GetSpans()
@@ -2739,7 +2902,7 @@ func TestEngineSpanLinks(t *testing.T) {
 
 	// Run consumer — should link to producer
 	exporter.Reset()
-	engine.walkTrace(context.Background(), consumerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), consumerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	consumerSpans := exporter.GetSpans()
@@ -2797,11 +2960,11 @@ func TestEngineSpanLinkAttributes(t *testing.T) {
 	require.NotNil(t, producerRoot)
 	require.NotNil(t, consumerRoot)
 
-	engine.walkTrace(context.Background(), producerRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), producerRoot, nil, now, 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	exporter.Reset()
-	engine.walkTrace(context.Background(), consumerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), consumerRoot, nil, now.Add(100*time.Millisecond), 0, nil, nil, stats, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2853,7 +3016,7 @@ func TestEngineSpanLinksFirstTraceEmpty(t *testing.T) {
 	}
 	require.NotNil(t, consumerRoot)
 
-	engine.walkTrace(context.Background(), consumerRoot, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+	engine.walkTrace(context.Background(), consumerRoot, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 	require.NoError(t, tp.ForceFlush(context.Background()))
 
 	spans := exporter.GetSpans()
@@ -2913,7 +3076,7 @@ func TestSeededRunsFullyDeterministic(t *testing.T) {
 
 		base := time.UnixMilli(0)
 		for range 50 {
-			engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, base, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false)
+			engine.walkTrace(context.Background(), engine.Topology.Roots[0], nil, base, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
 		}
 		require.NoError(t, tp.ForceFlush(context.Background()))
 
