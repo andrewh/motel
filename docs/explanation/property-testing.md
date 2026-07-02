@@ -51,7 +51,8 @@ real operations.
 
 **Span structure (5 tests).** Children start after their parent, parents end
 after their children, durations are positive. Root spans are SERVER kind,
-non-root spans are CLIENT kind. All spans in a trace share the same trace ID.
+non-root spans are CLIENT kind (the generator only produces cross-service sync
+calls). All spans in a trace share the same trace ID.
 
 **Call graph (1 test).** Every parent-child span pair corresponds to a valid
 call edge in the topology.

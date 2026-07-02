@@ -350,7 +350,7 @@ func (e *Engine) runRealtime(ctx context.Context) (*Stats, error) {
 		// QueueRejections, and CircuitBreakerTrips which are plan-phase
 		// decisions.
 		var plans []SpanPlan
-		_, rootErr := e.planTrace(root, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit, false, false)
+		_, rootErr := e.planTrace(root, nil, -1, spanStart, elapsed, overrides, scenarioNames, &stats, &plans, &spanCount, spanLimit, false, false)
 		stats.Traces++
 		if rootErr {
 			stats.FailedTraces++
@@ -448,8 +448,9 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	}
 
 	// Determine span kind: SERVER for roots, PRODUCER for producer callees,
-	// CONSUMER for async callees, CLIENT otherwise.
-	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
+	// CONSUMER for async callees, INTERNAL for same-service sync callees,
+	// CLIENT otherwise.
+	kind := spanKindFor(e.Topology, op, parent, isAsync, isProducer)
 
 	startAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -649,7 +650,7 @@ func (e *Engine) emitRejectionSpan(ctx context.Context, op, parent *Operation, s
 	tracer := e.Tracers(op.Service.Name)
 	endTime := startTime.Add(rejectionDuration)
 
-	kind := spanKindFor(e.Topology, op, isAsync, isProducer)
+	kind := spanKindFor(e.Topology, op, parent, isAsync, isProducer)
 
 	rejAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
@@ -757,8 +758,10 @@ func isRoot(topo *Topology, op *Operation) bool {
 // spanKindFor determines the OTel span kind for an operation given how it was
 // invoked: SERVER for trace roots, PRODUCER for the callee of a producer call
 // (an async enqueue/publish step), CONSUMER for the callee of an async call,
-// and CLIENT otherwise. Roots always win; producer takes precedence over async.
-func spanKindFor(topo *Topology, op *Operation, isAsync, isProducer bool) trace.SpanKind {
+// INTERNAL for a sync callee on the same service as its caller (an in-process
+// sub-operation with no remote hop), and CLIENT for cross-service sync calls.
+// Roots always win; producer takes precedence over async.
+func spanKindFor(topo *Topology, op, parent *Operation, isAsync, isProducer bool) trace.SpanKind {
 	switch {
 	case isRoot(topo, op):
 		return trace.SpanKindServer
@@ -766,6 +769,8 @@ func spanKindFor(topo *Topology, op *Operation, isAsync, isProducer bool) trace.
 		return trace.SpanKindProducer
 	case isAsync:
 		return trace.SpanKindConsumer
+	case parent != nil && parent.Service == op.Service:
+		return trace.SpanKindInternal
 	default:
 		return trace.SpanKindClient
 	}

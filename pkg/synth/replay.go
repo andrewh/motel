@@ -343,9 +343,15 @@ func buildReplayPlans(t RecordedTrace, shift time.Duration, preserveIDs bool) ([
 			endT = startT
 		}
 
+		// Derive span kind from tree position and service boundaries, matching
+		// spanKindFor's rules for generated traces: roots are SERVER, children
+		// on their parent's service are INTERNAL, cross-service children CLIENT.
 		kind := trace.SpanKindClient
-		if parentIndex < 0 {
+		switch {
+		case parentIndex < 0:
 			kind = trace.SpanKindServer
+		case plans[parentIndex].Service == s.Service:
+			kind = trace.SpanKindInternal
 		}
 
 		attrs := make([]attribute.KeyValue, 0, len(s.Attributes))
