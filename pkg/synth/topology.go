@@ -107,6 +107,7 @@ type Call struct {
 	Retries      int
 	RetryBackoff time.Duration
 	Async        bool
+	Producer     bool
 }
 
 // DomainResolver maps a domain identifier to attribute generators.
@@ -297,6 +298,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					Count:       callCfg.Count,
 					Retries:     callCfg.Retries,
 					Async:       callCfg.Async,
+					Producer:    callCfg.Producer,
 				}
 				if callCfg.Timeout != "" {
 					call.Timeout, err = time.ParseDuration(callCfg.Timeout)

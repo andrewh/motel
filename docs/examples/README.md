@@ -23,6 +23,7 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 | `async-calls.yaml` | Async fire-and-forget calls with trace propagation for audit logging and notification dispatch. |
 | `span-events.yaml` | Span events emitted at an offset within operations (cache misses, query starts). |
 | `span-links.yaml` | Cross-trace span links between producer and consumer, modelling a message queue. |
+| `producer-consumer.yaml` | Messaging `PRODUCER`/`CONSUMER` span kinds: a `producer: true` publish span paired with an async consumer that links back across traces. |
 | `attribute-placement.yaml` | Resource attributes vs span attributes on the same service. |
 | `resource-attributes.yaml` | Per-service resource attributes (`deployment.environment`, `service.version`, etc.). |
 | `topology-driven-metrics.yaml` | All four metric instrument types at both service and operation level. |

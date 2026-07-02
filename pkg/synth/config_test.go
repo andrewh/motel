@@ -1945,6 +1945,37 @@ func TestValidateAsyncWithTimeoutRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "async calls cannot have a timeout")
 }
 
+func TestValidateProducerWithAsyncRejected(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "svc",
+				Operations: []OperationConfig{{
+					Name:     "op",
+					Duration: "10ms",
+					Calls: []CallConfig{
+						{Target: "svc2.op2", Producer: true, Async: true},
+					},
+				}},
+			},
+			{
+				Name: "svc2",
+				Operations: []OperationConfig{{
+					Name:     "op2",
+					Duration: "10ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "10/s"},
+	}
+
+	err := ValidateConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be both producer and async")
+}
+
 func TestLoadConfigEvents(t *testing.T) {
 	t.Parallel()
 
