@@ -2377,6 +2377,102 @@ func TestSyncCallSpanKindIsClient(t *testing.T) {
 	assert.Equal(t, trace.SpanKindClient, childSpan.SpanKind, "sync callee should be CLIENT")
 }
 
+// TestSameServiceSyncCallSpanKindIsInternal pins that a sync call to another
+// operation on the same service emits an INTERNAL span (an in-process
+// sub-operation, no remote hop), while a cross-service sync call made by that
+// sub-operation still emits CLIENT.
+func TestSameServiceSyncCallSpanKindIsInternal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{
+			{
+				Name: "gateway",
+				Operations: []OperationConfig{
+					{
+						Name:     "handle",
+						Duration: "10ms",
+						Calls:    []CallConfig{{Target: "gateway.validate"}},
+					},
+					{
+						Name:     "validate",
+						Duration: "5ms",
+						Calls:    []CallConfig{{Target: "backend.process"}},
+					},
+				},
+			},
+			{
+				Name: "backend",
+				Operations: []OperationConfig{{
+					Name:     "process",
+					Duration: "5ms",
+				}},
+			},
+		},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 3)
+
+	kinds := make(map[string]trace.SpanKind, len(spans))
+	for _, s := range spans {
+		kinds[s.Name] = s.SpanKind
+	}
+
+	assert.Equal(t, trace.SpanKindServer, kinds["handle"], "root span should be SERVER")
+	assert.Equal(t, trace.SpanKindInternal, kinds["validate"], "same-service sync callee should be INTERNAL")
+	assert.Equal(t, trace.SpanKindClient, kinds["process"], "cross-service sync callee should be CLIENT")
+}
+
+// TestSameServiceAsyncCallSpanKindIsConsumer pins that async takes precedence
+// over the same-service INTERNAL rule: a fire-and-forget callee is CONSUMER
+// even when it lives on the caller's service.
+func TestSameServiceAsyncCallSpanKindIsConsumer(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Services: []ServiceConfig{{
+			Name: "gateway",
+			Operations: []OperationConfig{
+				{
+					Name:     "handle",
+					Duration: "10ms",
+					Calls:    []CallConfig{{Target: "gateway.flush", Async: true}},
+				},
+				{
+					Name:     "flush",
+					Duration: "5ms",
+				},
+			},
+		}},
+		Traffic: TrafficConfig{Rate: "100/s"},
+	}
+
+	engine, exporter, tp := newTestEngine(t, cfg)
+
+	rootOp := engine.Topology.Roots[0]
+	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+
+	kinds := make(map[string]trace.SpanKind, len(spans))
+	for _, s := range spans {
+		kinds[s.Name] = s.SpanKind
+	}
+
+	assert.Equal(t, trace.SpanKindServer, kinds["handle"], "root span should be SERVER")
+	assert.Equal(t, trace.SpanKindConsumer, kinds["flush"], "same-service async callee should be CONSUMER")
+}
+
 // TestProducerCallSpanKind pins that a call marked producer:true emits a
 // PRODUCER span for the enqueue/publish step, distinct from the CONSUMER kind
 // used for async callees. The producer enqueue is synchronous, so the parent

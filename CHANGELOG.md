@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Sync calls that target an operation on the caller's own service now emit
+  `INTERNAL` spans instead of `CLIENT`, matching the OTel SpanKind spec: an
+  in-process sub-operation crosses no remote boundary. Cross-service sync
+  calls still emit `CLIENT`, and `async`/`producer` callees keep
+  `CONSUMER`/`PRODUCER` regardless of service. (#213)
+
 ### Added
 
 - `producer: true` call modifier emits a `PRODUCER` span for an asynchronous

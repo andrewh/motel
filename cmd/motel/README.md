@@ -167,6 +167,21 @@ or a full mapping.
 | `async`        | bool   | Fire-and-forget: child runs independently, parent does not wait. Child span kind is CONSUMER instead of CLIENT. Errors do not cascade to parent. Cannot combine with `retries` or `timeout` |
 | `producer`     | bool   | Messaging enqueue/publish step: child span kind is PRODUCER instead of CLIENT. The publish is synchronous (parent waits). Pair with an `async` consumer and a span link for cross-trace messaging. Cannot combine with `async` |
 
+Span kinds are derived from an operation's position in the topology and how it
+was invoked:
+
+- Root operations (not targeted by any call) emit `SERVER` spans.
+- `producer: true` callees emit `PRODUCER` spans; `async: true` callees emit
+  `CONSUMER` spans — regardless of which service they live on.
+- Sync callees on the **same service** as their caller emit `INTERNAL` spans:
+  an in-process sub-operation that crosses no remote boundary.
+- All other sync callees (cross-service calls) emit `CLIENT` spans.
+
+To model an internal sub-operation, point a call at another operation on the
+same service (e.g. `checkout.validate` calling `checkout.reserve-stock`). It
+behaves like any other call — duration, error rates, retries, and downstream
+calls all apply — but the span is tagged `INTERNAL` instead of `CLIENT`.
+
 ```yaml
 calls:
   # String shorthand
