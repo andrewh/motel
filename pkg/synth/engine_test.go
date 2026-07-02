@@ -2377,14 +2377,11 @@ func TestSyncCallSpanKindIsClient(t *testing.T) {
 	assert.Equal(t, trace.SpanKindClient, childSpan.SpanKind, "sync callee should be CLIENT")
 }
 
-// TestSameServiceSyncCallSpanKindIsInternal pins that a sync call to another
-// operation on the same service emits an INTERNAL span (an in-process
-// sub-operation, no remote hop), while a cross-service sync call made by that
-// sub-operation still emits CLIENT.
-func TestSameServiceSyncCallSpanKindIsInternal(t *testing.T) {
-	t.Parallel()
-
-	cfg := &Config{
+// sameServiceCallConfig builds a topology exercising the same-service span
+// kind rule: gateway.handle sync-calls gateway.validate (same service, so
+// INTERNAL), which sync-calls backend.process (cross-service, so CLIENT).
+func sameServiceCallConfig() *Config {
+	return &Config{
 		Services: []ServiceConfig{
 			{
 				Name: "gateway",
@@ -2411,8 +2408,16 @@ func TestSameServiceSyncCallSpanKindIsInternal(t *testing.T) {
 		},
 		Traffic: TrafficConfig{Rate: "100/s"},
 	}
+}
 
-	engine, exporter, tp := newTestEngine(t, cfg)
+// TestSameServiceSyncCallSpanKindIsInternal pins that a sync call to another
+// operation on the same service emits an INTERNAL span (an in-process
+// sub-operation, no remote hop), while a cross-service sync call made by that
+// sub-operation still emits CLIENT.
+func TestSameServiceSyncCallSpanKindIsInternal(t *testing.T) {
+	t.Parallel()
+
+	engine, exporter, tp := newTestEngine(t, sameServiceCallConfig())
 
 	rootOp := engine.Topology.Roots[0]
 	engine.walkTrace(context.Background(), rootOp, nil, time.Now(), 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)

@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `INTERNAL` spans instead of `CLIENT`, matching the OTel SpanKind spec: an
   in-process sub-operation crosses no remote boundary. Cross-service sync
   calls still emit `CLIENT`, and `async`/`producer` callees keep
-  `CONSUMER`/`PRODUCER` regardless of service. (#213)
+  `CONSUMER`/`PRODUCER` regardless of service. Replay mode derives kinds by
+  the same rule: a recorded child span on its parent's service replays as
+  `INTERNAL`. (#213)
 
 ### Added
 

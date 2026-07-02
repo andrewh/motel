@@ -139,6 +139,35 @@ func TestBuildReplayPlansStructure(t *testing.T) {
 	}
 }
 
+// TestBuildReplayPlansSameServiceChildIsInternal pins that replay derives the
+// same span kinds as generation: a recorded child on its parent's service is
+// INTERNAL, while a cross-service child (or grandchild) is CLIENT.
+func TestBuildReplayPlansSameServiceChildIsInternal(t *testing.T) {
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	rec := RecordedTrace{
+		TraceID: "trace-internal",
+		Spans: []RecordedSpan{
+			{SpanID: "a", Service: "checkout", Operation: "submit", Start: base, End: base.Add(100 * time.Millisecond)},
+			{SpanID: "b", ParentID: "a", Service: "checkout", Operation: "validate", Start: base.Add(10 * time.Millisecond), End: base.Add(50 * time.Millisecond)},
+			{SpanID: "c", ParentID: "b", Service: "inventory", Operation: "reserve", Start: base.Add(20 * time.Millisecond), End: base.Add(40 * time.Millisecond)},
+		},
+	}
+
+	plans := mustBuildReplayPlans(t, rec, 0)
+	if len(plans) != 3 {
+		t.Fatalf("got %d plans, want 3", len(plans))
+	}
+	if plans[0].Kind != trace.SpanKindServer {
+		t.Errorf("root kind = %v, want Server", plans[0].Kind)
+	}
+	if plans[1].Kind != trace.SpanKindInternal {
+		t.Errorf("same-service child kind = %v, want Internal", plans[1].Kind)
+	}
+	if plans[2].Kind != trace.SpanKindClient {
+		t.Errorf("cross-service grandchild kind = %v, want Client", plans[2].Kind)
+	}
+}
+
 func TestBuildReplayPlansShift(t *testing.T) {
 	rec := sampleRecording()
 	orig := rec.Spans[0].Start

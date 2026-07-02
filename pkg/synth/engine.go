@@ -769,7 +769,7 @@ func spanKindFor(topo *Topology, op, parent *Operation, isAsync, isProducer bool
 		return trace.SpanKindProducer
 	case isAsync:
 		return trace.SpanKindConsumer
-	case parent != nil && parent.Service.Name == op.Service.Name:
+	case parent != nil && parent.Service == op.Service:
 		return trace.SpanKindInternal
 	default:
 		return trace.SpanKindClient

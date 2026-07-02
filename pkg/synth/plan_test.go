@@ -424,39 +424,11 @@ func TestPlanTraceSpanLinkAttributes(t *testing.T) {
 
 // TestPlanTraceSameServiceSyncCallKind pins that plan mode assigns INTERNAL to
 // same-service sync callees and CLIENT to cross-service sync callees, matching
-// walkTrace.
+// walkTrace. The topology is shared with TestSameServiceSyncCallSpanKindIsInternal.
 func TestPlanTraceSameServiceSyncCallKind(t *testing.T) {
 	t.Parallel()
 
-	cfg := &Config{
-		Services: []ServiceConfig{
-			{
-				Name: "gateway",
-				Operations: []OperationConfig{
-					{
-						Name:     "handle",
-						Duration: "10ms",
-						Calls:    []CallConfig{{Target: "gateway.validate"}},
-					},
-					{
-						Name:     "validate",
-						Duration: "5ms",
-						Calls:    []CallConfig{{Target: "backend.process"}},
-					},
-				},
-			},
-			{
-				Name: "backend",
-				Operations: []OperationConfig{{
-					Name:     "process",
-					Duration: "5ms",
-				}},
-			},
-		},
-		Traffic: TrafficConfig{Rate: "10/s"},
-	}
-
-	engine, _, _ := newTestEngine(t, cfg)
+	engine, _, _ := newTestEngine(t, sameServiceCallConfig())
 
 	var plans []SpanPlan
 	engine.planTrace(engine.Topology.Roots[0], nil, -1, time.Now(), 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false, false)
