@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Public trace-generation API in `pkg/synth`: `GenerateTraces` emits N traces
+  from a `*Topology` with a given seed and span limit through any
+  caller-provided `TracerProvider` (adapted with `TracerProviderSource`), so
+  collector pipeline tests and other embedders can drive generation without
+  reaching into the unexported engine internals. The pipeline-testing
+  proof-of-concept now generates through it. (#199)
+
 - `producer: true` call modifier emits a `PRODUCER` span for an asynchronous
   enqueue/publish step, the fifth OTel span kind. It pairs with the existing
   `async` (`CONSUMER`) calls and span links to model cross-trace messaging:

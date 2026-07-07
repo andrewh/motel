@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace"
 	"pgregory.net/rapid"
 )
 
@@ -180,9 +178,10 @@ type testingT interface {
 	Fatalf(format string, args ...any)
 }
 
-// generateAndSend walks n traces from topo into an OTLP exporter pointed at the
-// collector and returns the set of span identities sent. Identities come from a
-// second in-memory exporter so the test knows exactly what it pushed.
+// generateAndSend emits n traces from topo into an OTLP exporter pointed at
+// the collector via the public GenerateTraces API and returns the set of span
+// identities sent. Identities come from a second in-memory exporter so the
+// test knows exactly what it pushed.
 func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed uint64) map[string]struct{} {
 	t.Helper()
 
@@ -201,16 +200,8 @@ func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed ui
 	)
 	defer func() { _ = tp.Shutdown(ctx) }()
 
-	for i := range n {
-		rng := rand.New(rand.NewPCG(seed+uint64(i), 0)) //nolint:gosec // not security-sensitive
-		engine := &Engine{
-			Topology: topo,
-			Tracers:  func(string) trace.Tracer { return tp.Tracer("github.com/andrewh/motel") },
-			Rng:      rng,
-		}
-		root := topo.Roots[rng.IntN(len(topo.Roots))]
-		var stats Stats
-		engine.walkTrace(ctx, root, nil, time.Now(), 0, nil, nil, &stats, new(int), DefaultMaxSpansPerTrace, false, false)
+	if _, err := GenerateTraces(ctx, topo, TracerProviderSource(tp), GenerateOptions{Traces: n, Seed: seed}); err != nil {
+		t.Fatalf("GenerateTraces: %v", err)
 	}
 	if err := tp.ForceFlush(ctx); err != nil {
 		t.Fatalf("ForceFlush: %v", err)

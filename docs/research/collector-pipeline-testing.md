@@ -169,12 +169,12 @@ always-on coverage.
 
 ## Productionisation note
 
-The PoC drives generation from inside `package synth` because it reuses the
-unexported `walkTrace`. To let invariants and the harness live entirely outside
-`package synth` (which the later sub-issues will want), motel should expose a
-small public generation API — for example, emitting a topology's traces into a
-caller-provided `TracerProvider`. That is the natural next step and is tracked
-with the invariant work rather than this design.
+The PoC originally drove generation from inside `package synth` because it
+reused the unexported `walkTrace`. Issue 199 resolved this: `pkg/synth` now
+exposes `GenerateTraces`, a public, exporter-agnostic API that emits a
+topology's traces through a caller-provided `TracerProvider` (via
+`TracerProviderSource`), and the PoC drives generation through it. Invariant
+tests and the harness can therefore live entirely outside `package synth`.
 
 ## What later issues build on
 
