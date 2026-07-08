@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"pgregory.net/rapid"
 )
 
@@ -128,21 +129,13 @@ func TestPipeline_SamplingDropsSpans(t *testing.T) {
 	sent := generateAndSend(t, topo, collector.OTLPEndpoint, 40, 7)
 
 	// The sampler drops whole traces, so the sent count is never reached.
-	// Let the pipeline settle, then snapshot what survived.
-	time.Sleep(2 * time.Second)
-	received := make(map[string]struct{})
-	for _, s := range sink.Spans() {
-		received[spanKey(s.GetTraceId(), s.GetSpanId())] = struct{}{}
-	}
+	// Wait for the pipeline to settle, then snapshot what survived.
+	received := receivedKeys(sink.WaitSettled(time.Second, 10*time.Second))
 
 	if len(received) == 0 || len(received) >= len(sent) {
 		t.Fatalf("expected partial sampling: sent %d, received %d", len(sent), len(received))
 	}
-	for key := range received {
-		if _, ok := sent[key]; !ok {
-			t.Fatalf("received span %s that was never sent", key)
-		}
-	}
+	assertNoFabrication(t, sent, received)
 }
 
 // startPipeline starts a sink and a collector wired to it, registering cleanup.
@@ -180,9 +173,19 @@ type testingT interface {
 
 // generateAndSend emits n traces from topo into an OTLP exporter pointed at
 // the collector via the public GenerateTraces API and returns the set of span
-// identities sent. Identities come from a second in-memory exporter so the
-// test knows exactly what it pushed.
+// identities sent.
 func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed uint64) map[string]struct{} {
+	t.Helper()
+	return sentKeys(generateAndCapture(t, topo, endpoint, n, seed, nil))
+}
+
+// generateAndCapture emits n traces from topo into an OTLP exporter pointed at
+// the collector via the public GenerateTraces API and returns the spans sent.
+// The spans come from a second in-memory exporter attached to the same
+// TracerProvider, so the test knows exactly what it pushed, including parent
+// relationships. A non-nil idGen overrides the SDK's random trace/span ID
+// generator, letting tests replay the exact same span identities.
+func generateAndCapture(t testingT, topo *Topology, endpoint string, n int, seed uint64, idGen sdktrace.IDGenerator) []tracetest.SpanStub {
 	t.Helper()
 
 	ctx := context.Background()
@@ -194,10 +197,14 @@ func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed ui
 		t.Fatalf("otlptracehttp.New: %v", err)
 	}
 	captured := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
+	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithSyncer(otlp),
 		sdktrace.WithSyncer(captured),
-	)
+	}
+	if idGen != nil {
+		opts = append(opts, sdktrace.WithIDGenerator(idGen))
+	}
+	tp := sdktrace.NewTracerProvider(opts...)
 	defer func() { _ = tp.Shutdown(ctx) }()
 
 	if _, err := GenerateTraces(ctx, topo, TracerProviderSource(tp), GenerateOptions{Traces: n, Seed: seed}); err != nil {
@@ -207,8 +214,13 @@ func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed ui
 		t.Fatalf("ForceFlush: %v", err)
 	}
 
-	sent := make(map[string]struct{})
-	for _, s := range captured.GetSpans() {
+	return captured.GetSpans()
+}
+
+// sentKeys reduces captured spans to their identity set.
+func sentKeys(spans []tracetest.SpanStub) map[string]struct{} {
+	sent := make(map[string]struct{}, len(spans))
+	for _, s := range spans {
 		tid := s.SpanContext.TraceID()
 		sid := s.SpanContext.SpanID()
 		sent[spanKey(tid[:], sid[:])] = struct{}{}
@@ -216,21 +228,22 @@ func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed ui
 	return sent
 }
 
-// waitForSpans polls the sink until it holds at least want spans or a timeout
+// receivedKeys reduces the sink's captured spans to their identity set.
+func receivedKeys(spans []*tracepb.Span) map[string]struct{} {
+	received := make(map[string]struct{}, len(spans))
+	for _, s := range spans {
+		received[spanKey(s.GetTraceId(), s.GetSpanId())] = struct{}{}
+	}
+	return received
+}
+
+// waitForSpans blocks until the sink holds at least want spans or a timeout
 // elapses, then returns the identities of everything received.
 func waitForSpans(t testingT, sink *pipelinetest.Sink, want int) map[string]struct{} {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) && sink.Count() < want {
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	received := make(map[string]struct{})
-	for _, s := range sink.Spans() {
-		received[spanKey(s.GetTraceId(), s.GetSpanId())] = struct{}{}
-	}
-	return received
+	sink.WaitFor(want, 10*time.Second)
+	return receivedKeys(sink.Spans())
 }
 
 // assertSameSpans checks that the received identities are exactly the sent set.

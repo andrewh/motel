@@ -49,6 +49,7 @@ nav:
       - docs/how-to/validate-collector-pipeline.md
       - docs/how-to/stress-test-collector.md
       - docs/how-to/test-tail-sampling.md
+      - docs/how-to/test-sampling-integrity.md
       - docs/how-to/test-ottl-transforms.md
       - docs/how-to/test-alert-thresholds.md
       - docs/how-to/test-backend-integration.md

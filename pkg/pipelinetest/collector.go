@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -35,6 +36,23 @@ func CollectorBinary() (string, bool) {
 		return p, true
 	}
 	return "", false
+}
+
+// SupportsComponent reports whether the collector binary advertises the named
+// component (for example "tail_sampling") in its `components` output. It
+// returns false when no binary is available or the subcommand fails, so tests
+// can skip cleanly on collector builds that lack an optional component.
+func SupportsComponent(name string) bool {
+	bin, ok := CollectorBinary()
+	if !ok {
+		return false
+	}
+	out, err := exec.Command(bin, "components").Output() //nolint:gosec // binary path is operator-controlled
+	if err != nil {
+		return false
+	}
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+	return re.Match(out)
 }
 
 // passthroughConfig is the default pipeline: OTLP in, OTLP out, no processors.

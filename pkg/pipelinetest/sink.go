@@ -15,11 +15,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"time"
 
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
+
+// pollInterval is how often the wait helpers sample the sink's span count.
+const pollInterval = 20 * time.Millisecond
 
 // Sink is an in-process OTLP/HTTP trace receiver that records every span it
 // receives. A pipeline under test exports to Sink.URL; tests assert on the
@@ -98,6 +102,42 @@ func (s *Sink) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.spans)
+}
+
+// WaitFor blocks until the sink holds at least want spans or timeout elapses,
+// and reports whether the count was reached. Use it when the pipeline
+// conserves spans, so an exact expected count exists.
+func (s *Sink) WaitFor(want int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for s.Count() < want {
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(pollInterval)
+	}
+	return true
+}
+
+// WaitSettled blocks until no new span has arrived for idle, or until max
+// elapses, then returns a snapshot of the spans received so far. It is the
+// bounded "eventually received" assertion for lossy or transforming
+// pipelines: a sampler drops spans, so there is no exact count to wait for,
+// and a pipeline that buffers (for example tail sampling's decision wait)
+// releases spans in bursts. Choose idle longer than the pipeline's largest
+// internal delay so a quiet period means the pipeline has drained, not that
+// it is still deciding.
+func (s *Sink) WaitSettled(idle, max time.Duration) []*tracepb.Span {
+	deadline := time.Now().Add(max)
+	last := s.Count()
+	lastChange := time.Now()
+	for time.Now().Before(deadline) && time.Since(lastChange) < idle {
+		time.Sleep(pollInterval)
+		if n := s.Count(); n != last {
+			last = n
+			lastChange = time.Now()
+		}
+	}
+	return s.Spans()
 }
 
 // Reset discards all received spans, readying the sink for reuse.
