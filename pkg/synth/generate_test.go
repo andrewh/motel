@@ -162,6 +162,24 @@ func TestGenerateTraces_NilTracerSource(t *testing.T) {
 	}
 }
 
+func TestGenerateTraces_NilTopology(t *testing.T) {
+	_, tp := newCapturingProvider(t)
+
+	if _, err := GenerateTraces(context.Background(), nil, TracerProviderSource(tp), GenerateOptions{Traces: 1}); err == nil {
+		t.Fatal("expected error for nil topology")
+	}
+}
+
+func TestTracerProviderSource_NilProvider(t *testing.T) {
+	if src := TracerProviderSource(nil); src != nil {
+		t.Fatal("expected nil TracerSource for nil provider")
+	}
+
+	if _, err := GenerateTraces(context.Background(), generateTestChain(), TracerProviderSource(nil), GenerateOptions{Traces: 1}); err == nil {
+		t.Fatal("expected error when generating with a nil provider source")
+	}
+}
+
 func TestGenerateTraces_ZeroTraces(t *testing.T) {
 	exporter, tp := newCapturingProvider(t)
 

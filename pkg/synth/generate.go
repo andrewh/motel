@@ -30,8 +30,12 @@ type GenerateOptions struct {
 // TracerProviderSource adapts a trace.TracerProvider into a TracerSource that
 // names each tracer after the service it emits spans for. It accepts the API
 // interface rather than the SDK type, so any provider works — an SDK provider
-// wired to OTLP, an in-memory test exporter, or a no-op.
+// wired to OTLP, an in-memory test exporter, or a no-op. A nil provider yields
+// a nil TracerSource, which GenerateTraces rejects with an error.
 func TracerProviderSource(tp trace.TracerProvider) TracerSource {
+	if tp == nil {
+		return nil
+	}
 	return func(serviceName string) trace.Tracer { return tp.Tracer(serviceName) }
 }
 
@@ -47,6 +51,9 @@ func TracerProviderSource(tp trace.TracerProvider) TracerSource {
 func GenerateTraces(ctx context.Context, topo *Topology, tracers TracerSource, opts GenerateOptions) (*Stats, error) {
 	if tracers == nil {
 		return nil, fmt.Errorf("no tracer source provided")
+	}
+	if topo == nil {
+		return nil, fmt.Errorf("no topology provided")
 	}
 	if len(topo.Roots) == 0 {
 		return nil, fmt.Errorf("no root operations to generate traces from")
