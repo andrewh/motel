@@ -23,12 +23,13 @@ hand-written test traces miss. Three invariants pin the correct behaviour:
   produces the same keep/drop decision. This holds for any deterministic
   sampler, such as `probabilistic_sampler` in `hash_seed` mode.
 
-The invariants are implemented in `pkg/synth/pipeline_sampling_test.go` as
-`assertParentsKept`, `assertWholeTraces`, and `assertNoFabrication` (received
-spans must be a subset of sent spans), plus a replay test for consistency.
-motel generates the traces — varying depth, fan-out, and error mix — and
-[rapid](https://github.com/flyingmutant/rapid) shrinks any violation to the
-minimal trace shape that triggers it.
+The invariants are exported from `pkg/pipelinetest` as `CheckParentsKept`,
+`CheckWholeTraces`, and `CheckNoFabrication` (received spans must be a subset of
+sent spans), so any test — ours or yours — can assert them over a sink's output;
+`pkg/synth/pipeline_sampling_test.go` drives them against a real collector, plus
+a replay test for consistency. motel generates the traces — varying depth,
+fan-out, and error mix — and [rapid](https://github.com/flyingmutant/rapid)
+shrinks any violation to the minimal trace shape that triggers it.
 
 ## What you need
 
@@ -68,11 +69,12 @@ The suite contains:
 
 ## Example collector configs
 
-The tests render these configs themselves (filling in ports and the sink URL),
-but the processor blocks are what you would deploy. The head-sampling tests
-use `probabilistic_sampler` pinned to `hash_seed` mode, which makes the
-decision a pure function of the trace ID — deterministic across runs and
-identical for every span of a trace:
+The tests build these configs with `pipelinetest.TracesConfig`, which wraps a
+processors block in the shared receiver/exporter/health-check skeleton and fills
+in ports and the sink URL. The processor blocks below are what you would deploy.
+The head-sampling tests use `probabilistic_sampler` pinned to `hash_seed` mode,
+which makes the decision a pure function of the trace ID — deterministic across
+runs and identical for every span of a trace:
 
 ```yaml
 processors:
@@ -111,23 +113,64 @@ service:
 
 ## 3. Check your own sampling config
 
-`pipelinetest.Start` takes the collector config as a template, so a test for
-your production sampling policy is the existing test with a different
-processor block. Copy one of the pipeline constants from
-`pkg/synth/pipeline_sampling_test.go`, substitute your `tail_sampling`
-policies or sampler settings, and keep the assertions:
+The harness and the invariant checks are exported from `pkg/pipelinetest`, so a
+test for your own sampling policy composes them directly — no need to fork the
+motel test files. `pipelinetest.TracesConfig` builds a single-pipeline config
+from a processors block; `pipelinetest.Start` runs a collector against it and
+points it at a `Sink`; the `Check*` functions assert the invariants over the
+sink's output against a `pipelinetest.Sent` set you build while generating:
 
 ```go
-sink, collector := startPipeline(t, myProductionPipeline)
+sink := pipelinetest.NewSink()
+defer sink.Close()
 
-topo := loadTopology(t, passthroughTopology)
-sent := generateAndCapture(t, topo, collector.OTLPEndpoint, 40, 7, nil)
-spans := sink.WaitSettled(2*time.Second, 30*time.Second)
-received := receivedKeys(spans)
+// Your sampling policy is the only thing that changes.
+config := pipelinetest.TracesConfig(`  tail_sampling:
+    decision_wait: 5s
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+`, "tail_sampling")
 
-assertNoFabrication(t, sentKeys(sent), received)
-assertParentsKept(t, spans)
-assertWholeTraces(t, sent, received)
+collector, err := pipelinetest.Start(sink, config)
+if err != nil {
+	t.Fatal(err)
+}
+defer func() { _ = collector.Stop() }()
+
+// Generate traces through an OTLP exporter aimed at the collector, and record
+// their identities from a second in-memory exporter on the same provider.
+captured := tracetest.NewInMemoryExporter()
+otlp, _ := otlptracehttp.New(ctx,
+	otlptracehttp.WithEndpoint(collector.OTLPEndpoint),
+	otlptracehttp.WithInsecure())
+tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(otlp), sdktrace.WithSyncer(captured))
+if _, err := synth.GenerateTraces(ctx, topo, synth.TracerProviderSource(tp),
+	synth.GenerateOptions{Traces: 40, Seed: 7}); err != nil {
+	t.Fatal(err)
+}
+_ = tp.ForceFlush(ctx)
+
+sent := pipelinetest.NewSent()
+for _, s := range captured.GetSpans() {
+	tid, sid := s.SpanContext.TraceID(), s.SpanContext.SpanID()
+	sent.Add(tid[:], sid[:])
+}
+
+// A sampler drops spans, so wait for the pipeline to settle rather than for a
+// fixed count, then assert the invariants over the survivors.
+spans := sink.WaitSettled(6*time.Second, 30*time.Second)
+for _, check := range []error{
+	pipelinetest.CheckNoFabrication(sent, spans),
+	pipelinetest.CheckParentsKept(spans),
+	pipelinetest.CheckWholeTraces(sent, spans),
+} {
+	if check != nil {
+		t.Fatal(check)
+	}
+}
 ```
 
 Two details matter when adapting this:
@@ -137,8 +180,10 @@ Two details matter when adapting this:
   the bounded "eventually received" assertion: it returns once no new span has
   arrived for `idle`, capped at `max`.
 - **Choose `idle` longer than the pipeline's largest internal delay.** A tail
-  sampler is silent for `decision_wait` while traces sit in its buffer; an
-  `idle` shorter than that mistakes deciding for drained.
+  sampler is silent while traces sit in its buffer for `decision_wait` plus its
+  internal policy-evaluation tick (~1s); an `idle` shorter than that total
+  mistakes deciding for drained. Leave headroom for scheduling jitter — the
+  suite waits 4s against a 1s `decision_wait`.
 
 Policies that key on trace properties rather than the trace ID — latency,
 status code, attributes — still satisfy all three invariants: the decision is

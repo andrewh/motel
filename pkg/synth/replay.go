@@ -219,21 +219,33 @@ func (*ReplayIDGenerator) NewSpanID(ctx context.Context, _ trace.TraceID) trace.
 }
 
 func randomReplayIDs() (trace.TraceID, trace.SpanID) {
+	return randomTraceID(rand.Uint64), randomSpanID(rand.Uint64)
+}
+
+func randomReplaySpanID() trace.SpanID {
+	return randomSpanID(rand.Uint64)
+}
+
+// randomTraceID draws a valid (non-zero) trace ID, sourcing its 128 bits from
+// next. Callers supply the randomness — package rand for live generation, a
+// seeded generator for reproducible replays.
+func randomTraceID(next func() uint64) trace.TraceID {
 	tid := trace.TraceID{}
 	for {
-		binary.NativeEndian.PutUint64(tid[:traceIDHalfSize], rand.Uint64())
-		binary.NativeEndian.PutUint64(tid[traceIDHalfSize:], rand.Uint64())
+		binary.NativeEndian.PutUint64(tid[:traceIDHalfSize], next())
+		binary.NativeEndian.PutUint64(tid[traceIDHalfSize:], next())
 		if tid.IsValid() {
 			break
 		}
 	}
-	return tid, randomReplaySpanID()
+	return tid
 }
 
-func randomReplaySpanID() trace.SpanID {
+// randomSpanID draws a valid (non-zero) span ID from next, like randomTraceID.
+func randomSpanID(next func() uint64) trace.SpanID {
 	sid := trace.SpanID{}
 	for {
-		binary.NativeEndian.PutUint64(sid[:], rand.Uint64())
+		binary.NativeEndian.PutUint64(sid[:], next())
 		if sid.IsValid() {
 			break
 		}
