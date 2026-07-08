@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // BinaryEnv names the environment variable that overrides the collector
@@ -38,32 +40,86 @@ func CollectorBinary() (string, bool) {
 	return "", false
 }
 
-// SupportsComponent reports whether the collector binary advertises the named
-// component (for example "tail_sampling") in its `components` output. It
-// returns false when no binary is available or the subcommand fails, so tests
-// can skip cleanly on collector builds that lack an optional component.
+// SupportsComponent reports whether the collector binary advertises a
+// component with the given name in its `components` output (for example
+// "tail_sampling"), so tests can skip cleanly on builds that lack an optional
+// component. It parses the output structurally and matches component names
+// only, not module paths, and returns false when no binary is available or the
+// subcommand fails. The component set is resolved once per binary path.
 func SupportsComponent(name string) bool {
 	bin, ok := CollectorBinary()
 	if !ok {
 		return false
 	}
-	out, err := exec.Command(bin, "components").Output() //nolint:gosec // binary path is operator-controlled
+	names, err := componentNames(bin)
 	if err != nil {
 		return false
 	}
-	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
-	return re.Match(out)
+	_, ok = names[name]
+	return ok
 }
 
-// passthroughConfig is the default pipeline: OTLP in, OTLP out, no processors.
-// It exercises the harness end to end without changing the signal, so the only
-// invariant it can break is span loss.
-const passthroughConfig = `receivers:
+var (
+	componentsMu    sync.Mutex
+	componentsCache = map[string]map[string]struct{}{}
+)
+
+// componentNames returns the set of component names the binary advertises,
+// unioned across every component kind, caching the result per binary path. The
+// returned set is shared and must not be mutated. The collector subprocess runs
+// without the lock held, so a slow probe does not block other callers.
+func componentNames(bin string) (map[string]struct{}, error) {
+	componentsMu.Lock()
+	cached, ok := componentsCache[bin]
+	componentsMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+
+	out, err := exec.Command(bin, "components").Output() //nolint:gosec // binary path is operator-controlled
+	if err != nil {
+		return nil, err
+	}
+
+	type entry struct {
+		Name string `yaml:"name"`
+	}
+	var doc struct {
+		Receivers  []entry `yaml:"receivers"`
+		Processors []entry `yaml:"processors"`
+		Exporters  []entry `yaml:"exporters"`
+		Connectors []entry `yaml:"connectors"`
+		Extensions []entry `yaml:"extensions"`
+	}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		return nil, err
+	}
+
+	set := make(map[string]struct{})
+	for _, kind := range [][]entry{doc.Receivers, doc.Processors, doc.Exporters, doc.Connectors, doc.Extensions} {
+		for _, e := range kind {
+			if e.Name != "" {
+				set[e.Name] = struct{}{}
+			}
+		}
+	}
+
+	componentsMu.Lock()
+	componentsCache[bin] = set
+	componentsMu.Unlock()
+	return set, nil
+}
+
+// tracesConfigTemplate is the shared skeleton for a single-traces-pipeline
+// collector config: OTLP in, OTLP out, a health check. TracesConfig injects
+// the processor stage into the {{.ProcessorsBlock}} and {{.ProcessorsList}}
+// slots; Start fills in the remaining connection fields.
+const tracesConfigTemplate = `receivers:
   otlp:
     protocols:
       http:
         endpoint: 127.0.0.1:{{.OTLPHTTPPort}}
-exporters:
+{{.ProcessorsBlock}}exporters:
   otlphttp:
     endpoint: {{.SinkURL}}
     compression: none
@@ -75,13 +131,39 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [otlphttp]
+{{.ProcessorsList}}      exporters: [otlphttp]
   telemetry:
     metrics:
       level: none
     logs:
       level: warn
 `
+
+// TracesConfig renders a collector config for a single traces pipeline whose
+// processor stage is defs and names. defs is the YAML body of the top-level
+// `processors:` map, indented two spaces as it appears under that key (empty
+// for a pass-through pipeline); names are the processors the pipeline
+// references, in order. The result is a text/template Start renders with the
+// connection details (OTLPHTTPPort, HealthPort, SinkURL), so it is suitable to
+// pass straight to Start. Callers that vary only the processor stage share one
+// skeleton instead of copying the whole config.
+func TracesConfig(defs string, names ...string) string {
+	var block string
+	if strings.TrimSpace(defs) != "" {
+		block = "processors:\n" + defs
+		if !strings.HasSuffix(block, "\n") {
+			block += "\n"
+		}
+	}
+	var list string
+	if len(names) > 0 {
+		list = "      processors: [" + strings.Join(names, ", ") + "]\n"
+	}
+	return strings.NewReplacer(
+		"{{.ProcessorsBlock}}", block,
+		"{{.ProcessorsList}}", list,
+	).Replace(tracesConfigTemplate)
+}
 
 // configParams are the template fields the harness fills in. A custom config
 // passed to Start may reference any of them.
@@ -115,7 +197,7 @@ func Start(sink *Sink, config string) (*Collector, error) {
 		return nil, ErrNoCollector
 	}
 	if config == "" {
-		config = passthroughConfig
+		config = TracesConfig("")
 	}
 
 	otlpPort, err := freePort()

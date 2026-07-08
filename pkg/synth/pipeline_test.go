@@ -2,7 +2,6 @@ package synth
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -54,9 +53,11 @@ func TestPipeline_AllSpansRoundTrip(t *testing.T) {
 
 	topo := loadTopology(t, passthroughTopology)
 	sent := generateAndSend(t, topo, collector.OTLPEndpoint, 20, 1)
-	received := waitForSpans(t, sink, len(sent))
+	received := waitForSpans(t, sink, sent.Len())
 
-	assertSameSpans(t, sent, received)
+	if err := pipelinetest.CheckConservation(sent, received); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestPipeline_AllSpansRoundTripProperty is the property-testing direction the
@@ -64,6 +65,12 @@ func TestPipeline_AllSpansRoundTrip(t *testing.T) {
 // every span. One collector is reused across all draws.
 func TestPipeline_AllSpansRoundTripProperty(t *testing.T) {
 	sink, collector := startPipeline(t, "")
+
+	// Sent identities accumulate rather than resetting the sink between draws:
+	// a reset races an in-flight export from the previous draw and can
+	// misattribute a late span to the next draw. Over a running set, a late
+	// span is still a span that was sent.
+	sent := pipelinetest.NewSent()
 
 	rapid.Check(t, func(t *rapid.T) {
 		cfg := genSimpleConfig(t)
@@ -75,49 +82,26 @@ func TestPipeline_AllSpansRoundTripProperty(t *testing.T) {
 			t.Skip("no root operations")
 		}
 
-		sink.Reset()
 		seed := rapid.Uint64().Draw(t, "seed")
-		sent := generateAndSend(t, topo, collector.OTLPEndpoint, 5, seed)
-		if len(sent) == 0 {
+		before := sent.Len()
+		addSent(sent, generateAndCapture(t, topo, collector.OTLPEndpoint, 5, seed, nil))
+		if sent.Len() == before {
 			t.Skip("no spans generated")
 		}
-		received := waitForSpans(t, sink, len(sent))
+		received := waitForSpans(t, sink, sent.Len())
 
-		assertSameSpans(t, sent, received)
+		if err := pipelinetest.CheckConservation(sent, received); err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 
 // samplingPipeline drops roughly half of all traces. It is the negative
 // control: it proves the harness observes real pipeline behaviour rather than
 // echoing what was sent, and previews the sampling invariants of issue 74.
-const samplingPipeline = `receivers:
-  otlp:
-    protocols:
-      http:
-        endpoint: 127.0.0.1:{{.OTLPHTTPPort}}
-processors:
-  probabilistic_sampler:
+var samplingPipeline = pipelinetest.TracesConfig(`  probabilistic_sampler:
     sampling_percentage: 50
-exporters:
-  otlphttp:
-    endpoint: {{.SinkURL}}
-    compression: none
-extensions:
-  health_check:
-    endpoint: 127.0.0.1:{{.HealthPort}}
-service:
-  extensions: [health_check]
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [probabilistic_sampler]
-      exporters: [otlphttp]
-  telemetry:
-    metrics:
-      level: none
-    logs:
-      level: warn
-`
+`, "probabilistic_sampler")
 
 // TestPipeline_SamplingDropsSpans confirms the harness detects a pipeline that
 // transforms its input: a 50% sampler must keep some spans but not all, and
@@ -128,14 +112,16 @@ func TestPipeline_SamplingDropsSpans(t *testing.T) {
 	topo := loadTopology(t, passthroughTopology)
 	sent := generateAndSend(t, topo, collector.OTLPEndpoint, 40, 7)
 
-	// The sampler drops whole traces, so the sent count is never reached.
-	// Wait for the pipeline to settle, then snapshot what survived.
-	received := receivedKeys(sink.WaitSettled(time.Second, 10*time.Second))
+	// The sampler drops whole traces, so there is no exact count to wait for.
+	spans := sink.WaitSettled(time.Second, 10*time.Second)
+	received := pipelinetest.ReceivedKeys(spans)
 
-	if len(received) == 0 || len(received) >= len(sent) {
-		t.Fatalf("expected partial sampling: sent %d, received %d", len(sent), len(received))
+	if len(received) == 0 || len(received) >= sent.Len() {
+		t.Fatalf("expected partial sampling: sent %d, received %d", sent.Len(), len(received))
 	}
-	assertNoFabrication(t, sent, received)
+	if err := pipelinetest.CheckNoFabrication(sent, spans); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // startPipeline starts a sink and a collector wired to it, registering cleanup.
@@ -172,11 +158,21 @@ type testingT interface {
 }
 
 // generateAndSend emits n traces from topo into an OTLP exporter pointed at
-// the collector via the public GenerateTraces API and returns the set of span
-// identities sent.
-func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed uint64) map[string]struct{} {
+// the collector and returns the identities sent, as a pipelinetest.Sent.
+func generateAndSend(t testingT, topo *Topology, endpoint string, n int, seed uint64) *pipelinetest.Sent {
 	t.Helper()
-	return sentKeys(generateAndCapture(t, topo, endpoint, n, seed, nil))
+	sent := pipelinetest.NewSent()
+	addSent(sent, generateAndCapture(t, topo, endpoint, n, seed, nil))
+	return sent
+}
+
+// addSent records every captured span's identity into sent.
+func addSent(sent *pipelinetest.Sent, spans []tracetest.SpanStub) {
+	for _, s := range spans {
+		tid := s.SpanContext.TraceID()
+		sid := s.SpanContext.SpanID()
+		sent.Add(tid[:], sid[:])
+	}
 }
 
 // generateAndCapture emits n traces from topo into an OTLP exporter pointed at
@@ -217,51 +213,16 @@ func generateAndCapture(t testingT, topo *Topology, endpoint string, n int, seed
 	return captured.GetSpans()
 }
 
-// sentKeys reduces captured spans to their identity set.
-func sentKeys(spans []tracetest.SpanStub) map[string]struct{} {
-	sent := make(map[string]struct{}, len(spans))
-	for _, s := range spans {
-		tid := s.SpanContext.TraceID()
-		sid := s.SpanContext.SpanID()
-		sent[spanKey(tid[:], sid[:])] = struct{}{}
-	}
-	return sent
-}
-
-// receivedKeys reduces the sink's captured spans to their identity set.
-func receivedKeys(spans []*tracepb.Span) map[string]struct{} {
-	received := make(map[string]struct{}, len(spans))
-	for _, s := range spans {
-		received[spanKey(s.GetTraceId(), s.GetSpanId())] = struct{}{}
-	}
-	return received
-}
-
-// waitForSpans blocks until the sink holds at least want spans or a timeout
-// elapses, then returns the identities of everything received.
-func waitForSpans(t testingT, sink *pipelinetest.Sink, want int) map[string]struct{} {
+// waitForSpans blocks until the sink holds at least want spans, failing the
+// test if that count is not reached within the timeout, and returns every span
+// received.
+func waitForSpans(t testingT, sink *pipelinetest.Sink, want int) []*tracepb.Span {
 	t.Helper()
 
-	sink.WaitFor(want, 10*time.Second)
-	return receivedKeys(sink.Spans())
-}
-
-// assertSameSpans checks that the received identities are exactly the sent set.
-func assertSameSpans(t testingT, sent, received map[string]struct{}) {
-	t.Helper()
-
-	if len(received) != len(sent) {
-		t.Fatalf("span count mismatch: sent %d, received %d", len(sent), len(received))
+	if !sink.WaitFor(want, 10*time.Second) {
+		t.Fatalf("timed out waiting for %d spans; sink holds %d", want, sink.Count())
 	}
-	for key := range sent {
-		if _, ok := received[key]; !ok {
-			t.Fatalf("span %s sent but not received", key)
-		}
-	}
-}
-
-func spanKey(traceID, spanID []byte) string {
-	return hex.EncodeToString(traceID) + ":" + hex.EncodeToString(spanID)
+	return sink.Spans()
 }
 
 // loadTopology writes a topology to a temp file and builds it.
