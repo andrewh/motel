@@ -178,10 +178,14 @@ tests and the harness can therefore live entirely outside `package synth`.
 
 ## What later issues build on
 
-- **Issue 74 (sampling trace integrity).** Invariants over trace completeness
-  under head and tail sampling — a sampled trace keeps all or none of its
-  spans; tail sampling preserves whole traces. `TestPipeline_SamplingDropsSpans`
-  is the first step.
+- **Issue 74 (sampling trace integrity).** Implemented in
+  `pkg/synth/pipeline_sampling_test.go`: parent-child preservation, trace
+  completeness, and deterministic keep/drop decisions under head sampling
+  (`probabilistic_sampler` in hash_seed mode) and tail sampling
+  (`tail_sampling`, skipped on collector builds without it). The bounded
+  "eventually received" assertion this needed is `Sink.WaitSettled` in the
+  shared harness. See [Test sampling trace
+  integrity](../how-to/test-sampling-integrity.md).
 - **Issue 75 (filtering and routing).** Needs a richer collector build (the
   reference binary lacks a routing connector) and invariants over which spans
   survive a filter and where routed spans land.
@@ -198,7 +202,9 @@ tests and the harness can therefore live entirely outside `package synth`.
 - Free-port allocation has an inherent time-of-check/time-of-use race between
   closing the probe listener and the collector binding the port. Acceptable for
   a test harness; a retry-on-bind-failure loop would remove it.
-- Conservation invariants wait until the sink reaches the expected span count.
-  Lossy or transforming pipelines have no such fixed point, so those tests wait
-  a bounded settle period instead. Later invariants should express "eventually
-  received within a bound" explicitly to stay deterministic.
+- Conservation invariants wait until the sink reaches the expected span count
+  (`Sink.WaitFor`). Lossy or transforming pipelines have no such fixed point,
+  so their tests use `Sink.WaitSettled`, which returns once no new span has
+  arrived for an idle window, bounded by a deadline. The idle window must
+  exceed the pipeline's largest internal delay (for example tail sampling's
+  `decision_wait`), or a deciding pipeline is mistaken for a drained one.
