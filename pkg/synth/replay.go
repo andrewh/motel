@@ -228,12 +228,13 @@ func randomReplaySpanID() trace.SpanID {
 
 // randomTraceID draws a valid (non-zero) trace ID, sourcing its 128 bits from
 // next. Callers supply the randomness — package rand for live generation, a
-// seeded generator for reproducible replays.
+// seeded generator for reproducible replays. The byte layout uses a fixed
+// endianness so a seeded source yields the same IDs on any architecture.
 func randomTraceID(next func() uint64) trace.TraceID {
 	tid := trace.TraceID{}
 	for {
-		binary.NativeEndian.PutUint64(tid[:traceIDHalfSize], next())
-		binary.NativeEndian.PutUint64(tid[traceIDHalfSize:], next())
+		binary.BigEndian.PutUint64(tid[:traceIDHalfSize], next())
+		binary.BigEndian.PutUint64(tid[traceIDHalfSize:], next())
 		if tid.IsValid() {
 			break
 		}
@@ -245,7 +246,7 @@ func randomTraceID(next func() uint64) trace.TraceID {
 func randomSpanID(next func() uint64) trace.SpanID {
 	sid := trace.SpanID{}
 	for {
-		binary.NativeEndian.PutUint64(sid[:], next())
+		binary.BigEndian.PutUint64(sid[:], next())
 		if sid.IsValid() {
 			break
 		}

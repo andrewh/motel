@@ -60,8 +60,11 @@ func ReceivedKeys(received []*tracepb.Span) map[string]struct{} {
 	return keys
 }
 
-// CheckNoFabrication reports a received span that was never sent. A sampler
-// may only drop spans; it must never invent or duplicate identities.
+// CheckNoFabrication reports a received span whose identity was never sent: a
+// sampler may drop spans but must never invent new ones. It is deliberately a
+// subset check, not an exactly-once check — OTLP delivery is at-least-once, so
+// a correct pipeline may redeliver a span on retry, and that is not a
+// fabrication.
 func CheckNoFabrication(sent *Sent, received []*tracepb.Span) error {
 	for _, s := range received {
 		key := SpanKey(s.GetTraceId(), s.GetSpanId())
@@ -111,9 +114,11 @@ func CheckWholeTraces(sent *Sent, received []*tracepb.Span) error {
 	return nil
 }
 
-// CheckConservation reports any discrepancy between the spans sent and the
-// spans received: a pass-through pipeline must deliver every sent span exactly
-// once and fabricate none. This is the conservation invariant.
+// CheckConservation reports any discrepancy between the identities sent and the
+// identities received: a pass-through pipeline must deliver every sent span and
+// fabricate none. It compares identity sets, not raw counts, so redelivery of a
+// span (OTLP is at-least-once) is not a violation; only a missing or fabricated
+// identity is. This is the conservation invariant.
 func CheckConservation(sent *Sent, received []*tracepb.Span) error {
 	got := ReceivedKeys(received)
 	if len(got) != sent.Len() {

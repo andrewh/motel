@@ -65,13 +65,15 @@ var (
 )
 
 // componentNames returns the set of component names the binary advertises,
-// unioned across every component kind, caching the result per binary path.
+// unioned across every component kind, caching the result per binary path. The
+// returned set is shared and must not be mutated. The collector subprocess runs
+// without the lock held, so a slow probe does not block other callers.
 func componentNames(bin string) (map[string]struct{}, error) {
 	componentsMu.Lock()
-	defer componentsMu.Unlock()
-
-	if set, ok := componentsCache[bin]; ok {
-		return set, nil
+	cached, ok := componentsCache[bin]
+	componentsMu.Unlock()
+	if ok {
+		return cached, nil
 	}
 
 	out, err := exec.Command(bin, "components").Output() //nolint:gosec // binary path is operator-controlled
@@ -101,7 +103,10 @@ func componentNames(bin string) (map[string]struct{}, error) {
 			}
 		}
 	}
+
+	componentsMu.Lock()
 	componentsCache[bin] = set
+	componentsMu.Unlock()
 	return set, nil
 }
 
