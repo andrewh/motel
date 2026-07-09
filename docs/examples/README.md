@@ -41,6 +41,7 @@ motel run --stdout --duration 5s docs/examples/basic-topology.yaml
 
 | Directory | Description |
 |-----------|-------------|
+| [`compose/`](compose/README.md) | Docker Compose follow-along stack: collector with tail sampling, exporting to Jaeger. |
 | [`dsb/`](dsb/README.md) | DeathStarBench microservice topologies (Social Network, Hotel Reservation). |
 
 ## Further reading

@@ -13,6 +13,8 @@
 Describe your distributed system in YAML and motel generates realistic traces,
 metrics, and logs — no live services required.
 
+Already using `telemetrygen`? See [how motel compares](#motel-vs-telemetrygen).
+
 ## Install
 
 ```sh
@@ -82,6 +84,34 @@ Use cases:
 - **Import real traces** — `motel import` infers a topology from existing trace
   data, so you can replay and modify production patterns
 
+## motel vs telemetrygen
+
+[telemetrygen](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/cmd/telemetrygen)
+is the OpenTelemetry Collector's built-in generator, and it's the right tool
+for checking that the pipe is connected: it emits identical spans at a
+configurable rate. motel exists for the questions telemetrygen can't answer —
+whether your pipeline behaves *correctly* when the telemetry looks like
+production.
+
+|                      | telemetrygen                       | motel |
+|----------------------|------------------------------------|-------|
+| Trace shape          | identical flat spans               | arbitrary service topology, parallel/sequential calls |
+| Latency              | fixed span duration                | per-operation distributions (`30ms +/- 10ms`) |
+| Errors               | one status code for every span     | per-operation error rates |
+| Failure modes        | —                                  | time-windowed scenarios, backpressure, circuit breakers, queue rejection |
+| Traffic              | constant rate                      | uniform, diurnal, bursty, custom patterns |
+| Metrics & logs       | generated independently            | correlated — derived from the same topology as the traces |
+| Semantic conventions | generic attributes                 | semconv domains generate standard attributes per operation |
+| Replay production    | —                                  | `motel import` infers a topology from real trace data |
+
+Rule of thumb: use telemetrygen to smoke-test connectivity and soak raw
+throughput. Use motel when correctness depends on the *content* of the
+telemetry — [tail sampling](docs/how-to/test-tail-sampling.md),
+[OTTL transforms](docs/how-to/test-ottl-transforms.md),
+[alert thresholds](docs/how-to/test-alert-thresholds.md),
+[sampling integrity](docs/how-to/test-sampling-integrity.md), dashboards,
+and demos.
+
 ## Signals
 
 By default motel emits traces. Use `--signals` to add metrics and logs:
@@ -98,6 +128,7 @@ All three signal types are driven by the same topology.
 - [CLI reference](docs/reference/synth.md)
 - [DSL reference](cmd/motel/README.md) — full topology schema
 - [Example topologies](docs/examples/README.md)
+- [Follow-along Compose stack](docs/examples/compose/README.md) — collector with tail sampling + Jaeger, one `docker compose up` away
 - [Modelling your services](docs/how-to/model-your-services.md)
 - [How import infers a topology](docs/explanation/import-pipeline/README.md)
 - [How motel uses OTel semantic conventions](docs/explanation/semantic-conventions.md)

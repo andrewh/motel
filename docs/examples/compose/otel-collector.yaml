@@ -1,0 +1,56 @@
+# Collector pipeline with tail sampling, matching the policies in
+# docs/how-to/test-tail-sampling.md. Traces that survive sampling are
+# exported to Jaeger for inspection.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 1000
+    policies:
+      # Keep all traces with errors
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes:
+            - ERROR
+
+      # Keep traces slower than 500ms
+      - name: slow-traces
+        type: latency
+        latency:
+          threshold_ms: 500
+
+      # Keep all VIP customer traces
+      - name: vip-customers
+        type: string_attribute
+        string_attribute:
+          key: customer.tier
+          values:
+            - vip
+
+      # Sample 5% of remaining traces
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5
+
+exporters:
+  otlp_grpc/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling]
+      exporters: [otlp_grpc/jaeger]
