@@ -1,6 +1,9 @@
+# Image versions are pinned because the collector config format is
+# version-coupled (e.g. the otlp exporter was renamed otlp_grpc). Bump
+# both together and re-test.
 services:
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.156.0
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -11,7 +14,7 @@ services:
       - jaeger
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/jaeger:2.19.0
     # Jaeger's own OTLP ports are not published on the host — telemetry
     # must enter through the collector so the pipeline is exercised.
     ports:

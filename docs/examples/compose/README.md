@@ -46,9 +46,9 @@ Open <http://localhost:16686> and search for the `api-gateway` service.
 
 The topology emits ~750 traces (50/s for 15s), but the policies keep any
 trace that has an error, exceeds 500ms, or carries `customer.tier: vip` —
-plus 5% of everything else. In one sample run, motel reported 729 traces
-sent (57 containing errors) and Jaeger received 370: all 57 error traces,
-99 VIP traces, and 278 traces slower than 500ms (categories overlap).
+plus 5% of everything else. In one sample run, motel reported 724 traces
+sent (55 containing errors) and Jaeger received 359: all 55 error traces,
+87 VIP traces, and 271 traces slower than 500ms (categories overlap).
 Expect the same shape, heavily skewed towards the interesting traces:
 
 - **Errors** — filter with `error=true`; payment failures cluster in the
