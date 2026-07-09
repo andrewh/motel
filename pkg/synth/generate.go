@@ -25,6 +25,12 @@ type GenerateOptions struct {
 	// MaxSpansPerTrace bounds the spans emitted per trace.
 	// Zero applies DefaultMaxSpansPerTrace.
 	MaxSpansPerTrace int
+
+	// Observers are notified with a SpanInfo for each generated span, the
+	// same metadata Run and replay produce. This is a parallel observation
+	// channel alongside the TracerProvider: OTLP emission is unaffected, and
+	// a nil or empty slice preserves the exporter-only behavior exactly.
+	Observers []SpanObserver
 }
 
 // TracerProviderSource adapts a trace.TracerProvider into a TracerSource that
@@ -48,6 +54,10 @@ func TracerProviderSource(tp trace.TracerProvider) TracerSource {
 // simulation state; each starts from a root chosen by the trace's own
 // seed-derived RNG. Generation stops early when ctx is cancelled, returning
 // the statistics accumulated so far alongside the context's error.
+//
+// If opts.Observers is non-empty, each observer's Observe is called with a
+// SpanInfo for every generated span — the same metadata Run and replay
+// produce — alongside the OTLP emission through tracers.
 func GenerateTraces(ctx context.Context, topo *Topology, tracers TracerSource, opts GenerateOptions) (*Stats, error) {
 	if tracers == nil {
 		return nil, fmt.Errorf("no tracer source provided")
@@ -71,6 +81,7 @@ func GenerateTraces(ctx context.Context, topo *Topology, tracers TracerSource, o
 	engine := &Engine{
 		Topology:     topo,
 		Tracers:      tracers,
+		Observers:    opts.Observers,
 		linkRegistry: newSpanContextRegistry(topo),
 	}
 

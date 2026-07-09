@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `GenerateTraces` now forwards a `[]SpanObserver` (new `GenerateOptions.Observers`
+  field) so embedders can receive motel's authoritative per-span `SpanInfo`
+  (`ParentService`/`ParentOperation`, `IsError`, `Kind`, `Scenarios`, `Attrs`)
+  alongside OTLP emission, matching the observer hooks already exposed by `Run`
+  and replay. A nil or empty slice preserves the exporter-only behavior. (#240)
 - OTel baggage in topology definitions. A `baggage:` map can be declared at the
   service and/or operation level (operation entries overlay service entries).
   When a span starts, its declared baggage is set on the trace context and
