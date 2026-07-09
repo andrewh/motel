@@ -259,7 +259,8 @@ winning) is set on the context and **propagated to every descendant span**,
 including across the simulated service boundary.
 
 Keys must be valid [W3C baggage tokens](https://www.w3.org/TR/baggage/) so they
-survive propagation; values are arbitrary strings.
+survive propagation; values may be any valid UTF-8 string (which any value read
+from a YAML topology already is).
 
 Because motel emits spans directly to an OTLP endpoint in a single process,
 baggage is only observable to a downstream consumer when it is copied onto spans
