@@ -83,6 +83,57 @@ func TestGenerateTraces_EmitsExpectedSpans(t *testing.T) {
 	}
 }
 
+func TestGenerateTraces_NotifiesObservers(t *testing.T) {
+	topo := generateTestChain()
+	_, tp := newCapturingProvider(t)
+
+	obs := &recordingObserver{}
+	const n = 3
+	stats, err := GenerateTraces(context.Background(), topo, TracerProviderSource(tp),
+		GenerateOptions{Traces: n, Seed: 42, Observers: []SpanObserver{obs}})
+	if err != nil {
+		t.Fatalf("GenerateTraces: %v", err)
+	}
+
+	records := obs.get()
+	// The chain emits exactly three spans per trace, one Observe call each.
+	if int64(len(records)) != stats.Spans {
+		t.Fatalf("expected one SpanInfo per span (%d), got %d", stats.Spans, len(records))
+	}
+	if len(records) != 3*n {
+		t.Fatalf("expected %d SpanInfo records, got %d", 3*n, len(records))
+	}
+
+	// Verify parent attribution for the cross-service call backend.read,
+	// whose parent is gateway.handle.
+	var read SpanInfo
+	found := false
+	for _, r := range records {
+		if r.Service == "backend" && r.Operation == "read" {
+			read = r
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no SpanInfo recorded for backend.read")
+	}
+	if read.ParentService != "gateway" || read.ParentOperation != "handle" {
+		t.Fatalf("backend.read parent = %q/%q, want gateway/handle",
+			read.ParentService, read.ParentOperation)
+	}
+
+	// Root spans (gateway.handle) carry no parent attribution.
+	for _, r := range records {
+		if r.Service == "gateway" && r.Operation == "handle" {
+			if r.ParentService != "" || r.ParentOperation != "" {
+				t.Fatalf("root gateway.handle has parent %q/%q, want empty",
+					r.ParentService, r.ParentOperation)
+			}
+		}
+	}
+}
+
 func TestGenerateTraces_ReproducibleWithSeed(t *testing.T) {
 	run := func() (*Stats, []tracetest.SpanStub) {
 		topo := generateTestChain()
