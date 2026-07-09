@@ -50,6 +50,8 @@ and optional resource attributes.
 |------------------------|------|-------------|
 | `resource_attributes`  | map  | Static string key-value pairs attached to the OTel resource (not spans). Use for `deployment.environment`, `service.version`, `service.namespace`, etc. `service.name` and `motel.version` are set automatically and cannot be overridden |
 | `attributes`           | map  | Static string key-value pairs added to every span from this service |
+| `baggage`              | map  | Static string key-value pairs set as OTel baggage on every span from this service (see [baggage](#baggage)) |
+| `baggage_as_attributes`| bool | Surface baggage visible on this service's spans as `baggage.<key>` attributes (default: false; see [baggage](#baggage)) |
 | `metrics`              | list | Metric instruments emitted by this service (see [metrics](#metrics)) |
 | `logs`                 | list | Log records emitted for every span in this service (see [logs](#logs)) |
 | `operations`           | map  | Operation definitions (required) |
@@ -76,6 +78,8 @@ Each operation defines the span it produces.
 | `call_style` | string | `parallel` or `sequential` (default: parallel) |
 | `domain`     | string | Semconv shorthand (e.g. `http`) — auto-generates standard attributes |
 | `attributes` | map    | Per-span attribute generators (see below) |
+| `baggage`    | map    | Static string key-value pairs set as OTel baggage when this span starts, propagated to descendants (see [baggage](#baggage)) |
+| `baggage_as_attributes`| bool | Surface baggage visible on this span as `baggage.<key>` attributes; overrides the service-level default (see [baggage](#baggage)) |
 | `metrics`    | list   | Metric instruments scoped to this operation (see [metrics](#metrics)) |
 | `logs`       | list   | Log records scoped to this operation (see [logs](#logs)) |
 | `events`     | list   | Span events emitted during the operation (see below) |
@@ -242,6 +246,51 @@ services:
         duration: 15ms
         links:
           - producer.enqueue
+```
+
+### baggage
+
+[Baggage](https://opentelemetry.io/docs/specs/otel/baggage/api/) is a set of
+key-value pairs that travels with the trace context across service boundaries —
+distinct from span attributes, which stay on a single span. A `baggage:` map can
+be declared at the service and/or operation level. When a span starts, its
+declared baggage (service entries overlaid with operation entries, operation
+winning) is set on the context and **propagated to every descendant span**,
+including across the simulated service boundary.
+
+Keys must be valid [W3C baggage tokens](https://www.w3.org/TR/baggage/) so they
+survive propagation; values are arbitrary strings.
+
+Because motel emits spans directly to an OTLP endpoint in a single process,
+baggage is only observable to a downstream consumer when it is copied onto spans
+as attributes — which is exactly what many collector processors do in
+production. Set `baggage_as_attributes: true` (at the service or operation level)
+to surface the baggage visible on a span — inherited *and* declared — as
+`baggage.<key>` attributes. An operation-level `baggage_as_attributes` overrides
+the service-level default.
+
+```yaml
+services:
+  gateway:
+    # Every gateway span sets these; they propagate to all downstream spans.
+    baggage:
+      tenant.id: acme
+      session.plan: enterprise
+    operations:
+      GET /checkout:
+        duration: 20ms +/- 5ms
+        calls:
+          - payments.charge
+  payments:
+    # Surface inherited baggage as baggage.tenant.id / baggage.session.plan
+    # attributes on every payments span, mirroring a baggage-copy processor.
+    baggage_as_attributes: true
+    operations:
+      charge:
+        duration: 40ms +/- 10ms
+        # Operation-level baggage overrides the inherited value for descendants.
+        baggage:
+          tenant.id: acme-payments
 ```
 
 ### duration format

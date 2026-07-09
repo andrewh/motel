@@ -1,0 +1,52 @@
+# OTel baggage propagation across a topology
+#
+# Baggage is a set of key/value pairs that travels with the trace context across
+# service boundaries — distinct from span attributes, which stay on one span.
+# Here the gateway sets tenant/session baggage on every request; it propagates to
+# every downstream span. The payments service copies the inherited baggage onto
+# its spans as `baggage.<key>` attributes (baggage_as_attributes), mirroring a
+# collector baggage-copy processor, so it is observable to a downstream OTLP
+# consumer. The `charge` operation overrides one baggage value for its own
+# descendants.
+#
+# Run:
+#   motel run --stdout --duration 5s docs/examples/baggage.yaml
+# Look for `baggage.tenant.id` / `baggage.session.plan` attributes on the
+# payments.charge and ledger.record spans.
+
+version: 1
+
+services:
+  gateway:
+    # Declared once at the service level; propagates to the whole trace.
+    baggage:
+      tenant.id: acme
+      session.plan: enterprise
+    operations:
+      GET /checkout:
+        duration: 20ms +/- 5ms
+        calls:
+          - payments.charge
+
+  payments:
+    # Surface all baggage visible on these spans (inherited + declared) as
+    # baggage.<key> attributes, the way a baggage-copy processor would.
+    baggage_as_attributes: true
+    operations:
+      charge:
+        duration: 40ms +/- 10ms
+        error_rate: 1%
+        # Operation-level baggage overrides the inherited value for descendants.
+        baggage:
+          tenant.id: acme-payments
+        calls:
+          - ledger.record
+
+  ledger:
+    baggage_as_attributes: true
+    operations:
+      record:
+        duration: 15ms +/- 4ms
+
+traffic:
+  rate: 20/s

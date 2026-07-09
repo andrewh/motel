@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -452,6 +453,15 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	// CLIENT otherwise.
 	kind := spanKindFor(e.Topology, op, parent, isAsync, isProducer)
 
+	// Baggage: overlay this operation's declared baggage onto whatever was
+	// inherited from the parent context, then propagate the combined set to
+	// descendant spans via the context. baggageAsAttributes surfaces it below.
+	inheritedBaggage := baggageToMap(baggage.FromContext(ctx))
+	mergedBaggage := overlayBaggageMap(inheritedBaggage, op.Baggage)
+	if len(op.Baggage) > 0 {
+		ctx = baggage.ContextWithBaggage(ctx, buildBaggage(mergedBaggage))
+	}
+
 	startAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
 		attribute.String("synth.operation", op.Name),
@@ -495,6 +505,9 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 	}
 	for _, a := range opAttrs {
 		spanAttrs = append(spanAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
+	}
+	if op.BaggageAsAttributes {
+		spanAttrs = append(spanAttrs, baggageAttributesFromMap(mergedBaggage)...)
 	}
 	span.SetAttributes(spanAttrs...)
 

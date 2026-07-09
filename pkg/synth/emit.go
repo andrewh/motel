@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -69,6 +70,12 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 				parentCtx = live[plan.ParentIndex].Ctx
 			} else {
 				parentCtx = ctx
+			}
+
+			// Place the span's baggage on the context so it propagates as real
+			// OTel baggage (planTrace already resolved the inherited + declared set).
+			if len(plan.Baggage) > 0 {
+				parentCtx = baggage.ContextWithBaggage(parentCtx, buildBaggage(plan.Baggage))
 			}
 
 			startOpts := []trace.SpanStartOption{
