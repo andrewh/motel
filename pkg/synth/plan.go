@@ -34,6 +34,11 @@ type SpanPlan struct {
 	Rejected        bool
 	RejectionReason string
 	LinkRefs        []LinkRef
+	// Baggage is the full baggage set visible while this span is active
+	// (inherited from the parent plan plus this operation's declared baggage).
+	// Children read their parent's Baggage to inherit; emitTrace places it on
+	// the context so it propagates as real OTel baggage.
+	Baggage map[string]string
 }
 
 // planTrace recursively plans spans for an operation and its downstream calls.
@@ -89,6 +94,15 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 
 	kind := spanKindFor(e.Topology, op, parent, isAsync, isProducer)
 
+	// Baggage: inherit from the parent plan (the plan phase has no context to
+	// carry OTel baggage), overlay this operation's declared baggage, and store
+	// the combined set so children inherit and emitTrace can propagate it.
+	var inheritedBaggage map[string]string
+	if parentIndex >= 0 {
+		inheritedBaggage = (*plans)[parentIndex].Baggage
+	}
+	mergedBaggage := overlayBaggageMap(inheritedBaggage, op.Baggage)
+
 	startAttrs := []attribute.KeyValue{
 		attribute.String("synth.service", op.Service.Name),
 		attribute.String("synth.operation", op.Name),
@@ -103,6 +117,9 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 	}
 	for _, a := range opAttrs {
 		spanAttrs = append(spanAttrs, typedAttribute(a.Key, a.Gen.Generate(e.Rng)))
+	}
+	if op.BaggageAsAttributes {
+		spanAttrs = append(spanAttrs, baggageAttributesFromMap(mergedBaggage)...)
 	}
 
 	ownError := false
@@ -138,6 +155,7 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 		Attrs:       spanAttrs,
 		Scenarios:   scenarioNames,
 		LinkRefs:    linkRefs,
+		Baggage:     mergedBaggage,
 	}
 	*plans = append(*plans, plan)
 

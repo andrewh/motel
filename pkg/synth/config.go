@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/baggage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -105,11 +106,13 @@ type rawConfig struct {
 
 // rawServiceConfig is the YAML representation of a service before normalisation.
 type rawServiceConfig struct {
-	ResourceAttributes map[string]string             `yaml:"resource_attributes,omitempty"`
-	Attributes         map[string]string             `yaml:"attributes,omitempty"`
-	Metrics            []MetricConfig                `yaml:"metrics,omitempty"`
-	Logs               []LogConfig                   `yaml:"logs,omitempty"`
-	Operations         map[string]rawOperationConfig `yaml:"operations"`
+	ResourceAttributes  map[string]string             `yaml:"resource_attributes,omitempty"`
+	Attributes          map[string]string             `yaml:"attributes,omitempty"`
+	Baggage             map[string]string             `yaml:"baggage,omitempty"`
+	BaggageAsAttributes *bool                         `yaml:"baggage_as_attributes,omitempty"`
+	Metrics             []MetricConfig                `yaml:"metrics,omitempty"`
+	Logs                []LogConfig                   `yaml:"logs,omitempty"`
+	Operations          map[string]rawOperationConfig `yaml:"operations"`
 }
 
 // CallConfig describes a downstream call in the YAML DSL.
@@ -221,47 +224,53 @@ func (lc *LinkConfig) UnmarshalYAML(value *yaml.Node) error {
 
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
-	Domain         string                          `yaml:"domain,omitempty"`
-	Duration       string                          `yaml:"duration"`
-	ErrorRate      string                          `yaml:"error_rate,omitempty"`
-	Calls          []CallConfig                    `yaml:"calls,omitempty"`
-	CallStyle      string                          `yaml:"call_style,omitempty"`
-	Attributes     map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
-	Events         []EventConfig                   `yaml:"events,omitempty"`
-	Links          []LinkConfig                    `yaml:"links,omitempty"`
-	Metrics        []MetricConfig                  `yaml:"metrics,omitempty"`
-	Logs           []LogConfig                     `yaml:"logs,omitempty"`
-	QueueDepth     int                             `yaml:"queue_depth,omitempty"`
-	Backpressure   *BackpressureConfig             `yaml:"backpressure,omitempty"`
-	CircuitBreaker *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
+	Domain              string                          `yaml:"domain,omitempty"`
+	Duration            string                          `yaml:"duration"`
+	ErrorRate           string                          `yaml:"error_rate,omitempty"`
+	Calls               []CallConfig                    `yaml:"calls,omitempty"`
+	CallStyle           string                          `yaml:"call_style,omitempty"`
+	Attributes          map[string]AttributeValueConfig `yaml:"attributes,omitempty"`
+	Baggage             map[string]string               `yaml:"baggage,omitempty"`
+	BaggageAsAttributes *bool                           `yaml:"baggage_as_attributes,omitempty"`
+	Events              []EventConfig                   `yaml:"events,omitempty"`
+	Links               []LinkConfig                    `yaml:"links,omitempty"`
+	Metrics             []MetricConfig                  `yaml:"metrics,omitempty"`
+	Logs                []LogConfig                     `yaml:"logs,omitempty"`
+	QueueDepth          int                             `yaml:"queue_depth,omitempty"`
+	Backpressure        *BackpressureConfig             `yaml:"backpressure,omitempty"`
+	CircuitBreaker      *CircuitBreakerConfig           `yaml:"circuit_breaker,omitempty"`
 }
 
 // ServiceConfig describes a service in the topology.
 type ServiceConfig struct {
-	Name               string
-	ResourceAttributes map[string]string
-	Attributes         map[string]string
-	Metrics            []MetricConfig
-	Logs               []LogConfig
-	Operations         []OperationConfig
+	Name                string
+	ResourceAttributes  map[string]string
+	Attributes          map[string]string
+	Baggage             map[string]string
+	BaggageAsAttributes *bool
+	Metrics             []MetricConfig
+	Logs                []LogConfig
+	Operations          []OperationConfig
 }
 
 // OperationConfig describes an operation within a service.
 type OperationConfig struct {
-	Name           string
-	Domain         string
-	Duration       string
-	ErrorRate      string
-	Calls          []CallConfig
-	CallStyle      string
-	Attributes     map[string]AttributeValueConfig
-	Events         []EventConfig
-	Links          []LinkConfig
-	Metrics        []MetricConfig
-	Logs           []LogConfig
-	QueueDepth     int
-	Backpressure   *BackpressureConfig
-	CircuitBreaker *CircuitBreakerConfig
+	Name                string
+	Domain              string
+	Duration            string
+	ErrorRate           string
+	Calls               []CallConfig
+	CallStyle           string
+	Attributes          map[string]AttributeValueConfig
+	Baggage             map[string]string
+	BaggageAsAttributes *bool
+	Events              []EventConfig
+	Links               []LinkConfig
+	Metrics             []MetricConfig
+	Logs                []LogConfig
+	QueueDepth          int
+	Backpressure        *BackpressureConfig
+	CircuitBreaker      *CircuitBreakerConfig
 }
 
 // TrafficConfig describes the traffic generation pattern.
@@ -429,11 +438,13 @@ func ParseConfig(data []byte) (*Config, error) {
 	for _, name := range serviceNames {
 		rawSvc := raw.Services[name]
 		svc := ServiceConfig{
-			Name:               name,
-			ResourceAttributes: rawSvc.ResourceAttributes,
-			Attributes:         rawSvc.Attributes,
-			Metrics:            rawSvc.Metrics,
-			Logs:               rawSvc.Logs,
+			Name:                name,
+			ResourceAttributes:  rawSvc.ResourceAttributes,
+			Attributes:          rawSvc.Attributes,
+			Baggage:             rawSvc.Baggage,
+			BaggageAsAttributes: rawSvc.BaggageAsAttributes,
+			Metrics:             rawSvc.Metrics,
+			Logs:                rawSvc.Logs,
 		}
 
 		opNames := make([]string, 0, len(rawSvc.Operations))
@@ -445,20 +456,22 @@ func ParseConfig(data []byte) (*Config, error) {
 		for _, opName := range opNames {
 			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
-				Name:           opName,
-				Domain:         rawOp.Domain,
-				Duration:       rawOp.Duration,
-				ErrorRate:      rawOp.ErrorRate,
-				Calls:          rawOp.Calls,
-				CallStyle:      rawOp.CallStyle,
-				Attributes:     rawOp.Attributes,
-				Events:         rawOp.Events,
-				Links:          rawOp.Links,
-				Metrics:        rawOp.Metrics,
-				Logs:           rawOp.Logs,
-				QueueDepth:     rawOp.QueueDepth,
-				Backpressure:   rawOp.Backpressure,
-				CircuitBreaker: rawOp.CircuitBreaker,
+				Name:                opName,
+				Domain:              rawOp.Domain,
+				Duration:            rawOp.Duration,
+				ErrorRate:           rawOp.ErrorRate,
+				Calls:               rawOp.Calls,
+				CallStyle:           rawOp.CallStyle,
+				Attributes:          rawOp.Attributes,
+				Baggage:             rawOp.Baggage,
+				BaggageAsAttributes: rawOp.BaggageAsAttributes,
+				Events:              rawOp.Events,
+				Links:               rawOp.Links,
+				Metrics:             rawOp.Metrics,
+				Logs:                rawOp.Logs,
+				QueueDepth:          rawOp.QueueDepth,
+				Backpressure:        rawOp.Backpressure,
+				CircuitBreaker:      rawOp.CircuitBreaker,
 			})
 		}
 		cfg.Services = append(cfg.Services, svc)
@@ -522,6 +535,9 @@ func ValidateConfig(cfg *Config) error {
 			if reservedResourceAttribute[k] {
 				return fmt.Errorf("service %q: resource_attributes must not contain reserved key %q (set automatically)", svc.Name, k)
 			}
+		}
+		if err := validateBaggage(svc.Baggage, fmt.Sprintf("service %q", svc.Name)); err != nil {
+			return err
 		}
 		knownServices[svc.Name] = true
 		metricNames := make(map[string]bool)
@@ -594,6 +610,10 @@ func ValidateConfig(cfg *Config) error {
 				if _, err := NewAttributeGenerator(attrCfg); err != nil {
 					return fmt.Errorf("service %q operation %q: attribute %q: %w", svc.Name, op.Name, attrName, err)
 				}
+			}
+
+			if err := validateBaggage(op.Baggage, fmt.Sprintf("service %q operation %q", svc.Name, op.Name)); err != nil {
+				return err
 			}
 
 			for i, evt := range op.Events {
@@ -1051,6 +1071,27 @@ func validateLogConfig(lc LogConfig, prefix string) error {
 	for attrName, attrCfg := range lc.Attributes {
 		if _, err := NewAttributeGenerator(attrCfg); err != nil {
 			return fmt.Errorf("%s: attribute %q: %w", prefix, attrName, err)
+		}
+	}
+	return nil
+}
+
+// validateBaggage checks baggage keys and values for a service or operation.
+// Keys must be valid W3C baggage tokens (RFC 7230) so they survive propagation
+// across the simulated service boundary; values must be valid UTF-8. prefix
+// identifies the scope in error messages.
+func validateBaggage(bag map[string]string, prefix string) error {
+	for _, k := range sortedKeys(bag) {
+		if k == "" {
+			return fmt.Errorf("%s: baggage key must not be empty", prefix)
+		}
+		// NewMember enforces the W3C token grammar on the key; a plain
+		// alphanumeric placeholder value keeps the check key-focused.
+		if _, err := baggage.NewMember(k, "x"); err != nil {
+			return fmt.Errorf("%s: invalid baggage key %q (must be a valid W3C baggage token): %w", prefix, k, err)
+		}
+		if _, err := baggage.NewMemberRaw(k, bag[k]); err != nil {
+			return fmt.Errorf("%s: invalid baggage value for key %q: %w", prefix, k, err)
 		}
 	}
 	return nil

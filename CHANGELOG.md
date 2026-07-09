@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- OTel baggage in topology definitions. A `baggage:` map can be declared at the
+  service and/or operation level (operation entries overlay service entries).
+  When a span starts, its declared baggage is set on the trace context and
+  propagates to every descendant span, including across the simulated service
+  boundary. Set `baggage_as_attributes: true` at the service or operation level
+  (operation overrides service) to surface the baggage visible on a span —
+  inherited and declared — as `baggage.<key>` attributes, mirroring collector
+  baggage-copy processors so it is observable to a downstream OTLP consumer.
+  Baggage keys are validated as W3C baggage tokens. Works in both batch and
+  realtime emission. See `docs/examples/baggage.yaml`. (#212)
+
 ## [0.11.0] - 2026-07-08
 
 ### Changed

@@ -47,6 +47,7 @@ type Service struct {
 	Operations         map[string]*Operation
 	ResourceAttributes map[string]string
 	Attributes         map[string]string
+	Baggage            map[string]string
 	Metrics            []MetricDefinition
 	Logs               []LogDefinition
 }
@@ -80,21 +81,28 @@ type Link struct {
 
 // Operation represents a resolved operation with pointers to downstream calls.
 type Operation struct {
-	Service        *Service
-	Name           string
-	Ref            string
-	Duration       Distribution
-	ErrorRate      float64
-	Calls          []Call
-	CallStyle      string
-	Attributes     Attributes
-	Events         []Event
-	Links          []Link
-	Metrics        []MetricDefinition
-	Logs           []LogDefinition
-	QueueDepth     int
-	Backpressure   *ResolvedBackpressure
-	CircuitBreaker *ResolvedCircuitBreaker
+	Service    *Service
+	Name       string
+	Ref        string
+	Duration   Distribution
+	ErrorRate  float64
+	Calls      []Call
+	CallStyle  string
+	Attributes Attributes
+	// Baggage is the operation's declared baggage: service-level entries merged
+	// with operation-level entries (operation wins). Set on the context when the
+	// span starts and propagated to descendant spans.
+	Baggage map[string]string
+	// BaggageAsAttributes surfaces the baggage visible while the span is active
+	// (inherited plus declared) as baggage.<key> span attributes.
+	BaggageAsAttributes bool
+	Events              []Event
+	Links               []Link
+	Metrics             []MetricDefinition
+	Logs                []LogDefinition
+	QueueDepth          int
+	Backpressure        *ResolvedBackpressure
+	CircuitBreaker      *ResolvedCircuitBreaker
 }
 
 // Call represents a resolved downstream call with optional modifiers.
@@ -136,6 +144,7 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 			Operations:         make(map[string]*Operation, len(svcCfg.Operations)),
 			ResourceAttributes: svcCfg.ResourceAttributes,
 			Attributes:         svcCfg.Attributes,
+			Baggage:            svcCfg.Baggage,
 		}
 		if len(svcCfg.Metrics) > 0 {
 			resolved, err := resolveMetrics(svcCfg.Metrics, svcCfg.Name, "")
@@ -185,15 +194,25 @@ func BuildTopology(cfg *Config, resolvers ...DomainResolver) (*Topology, error) 
 					attrs[name] = gen
 				}
 			}
+			// Effective baggage-as-attributes: operation overrides service default.
+			baggageAsAttrs := false
+			if svcCfg.BaggageAsAttributes != nil {
+				baggageAsAttrs = *svcCfg.BaggageAsAttributes
+			}
+			if opCfg.BaggageAsAttributes != nil {
+				baggageAsAttrs = *opCfg.BaggageAsAttributes
+			}
 			op := &Operation{
-				Service:    svc,
-				Name:       opCfg.Name,
-				Ref:        svcCfg.Name + "." + opCfg.Name,
-				Duration:   dist,
-				ErrorRate:  errorRate,
-				CallStyle:  opCfg.CallStyle,
-				Attributes: NewAttributes(attrs),
-				QueueDepth: opCfg.QueueDepth,
+				Service:             svc,
+				Name:                opCfg.Name,
+				Ref:                 svcCfg.Name + "." + opCfg.Name,
+				Duration:            dist,
+				ErrorRate:           errorRate,
+				CallStyle:           opCfg.CallStyle,
+				Attributes:          NewAttributes(attrs),
+				Baggage:             mergeDeclaredBaggage(svcCfg.Baggage, opCfg.Baggage),
+				BaggageAsAttributes: baggageAsAttrs,
+				QueueDepth:          opCfg.QueueDepth,
 			}
 			if len(opCfg.Metrics) > 0 {
 				resolved, mErr := resolveMetrics(opCfg.Metrics, svcCfg.Name, opCfg.Name)
