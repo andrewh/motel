@@ -97,7 +97,7 @@ func TestGenerateTraces_NotifiesObservers(t *testing.T) {
 
 	records := obs.get()
 	// The chain emits exactly three spans per trace, one Observe call each.
-	if len(records) != int(stats.Spans) {
+	if int64(len(records)) != stats.Spans {
 		t.Fatalf("expected one SpanInfo per span (%d), got %d", stats.Spans, len(records))
 	}
 	if len(records) != 3*n {
