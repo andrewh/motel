@@ -58,6 +58,7 @@ nav:
       - docs/how-to/visualise-traces.md
   - Examples:
       - Overview: docs/examples/README.md
+      - docs/examples/compose/README.md
       - docs/examples/dsb/README.md
   - Explanation:
       - docs/explanation/import-pipeline/README.md

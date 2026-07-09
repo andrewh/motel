@@ -1,0 +1,18 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC (motel --protocol grpc)
+      - "4318:4318" # OTLP HTTP (motel --protocol http/protobuf)
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    # Jaeger's own OTLP ports are not published on the host — telemetry
+    # must enter through the collector so the pipeline is exercised.
+    ports:
+      - "16686:16686" # Jaeger UI

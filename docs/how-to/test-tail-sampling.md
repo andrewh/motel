@@ -7,6 +7,10 @@ This guide shows how to use motel to generate traces that exercise tail sampling
 - motel installed
 - An OpenTelemetry Collector binary — download `otelcol-contrib` from the [collector releases](https://github.com/open-telemetry/opentelemetry-collector-releases/releases), which includes the tail sampling processor
 
+Prefer Docker? The [Compose follow-along stack](../examples/compose/README.md)
+runs a collector with this guide's exact sampling policies plus Jaeger for
+inspecting the sampled traces — steps 2 and 3 become `docker compose up`.
+
 ## 1. Create a topology with varied trace characteristics
 
 Tail sampling decisions depend on trace properties: duration, error status, attributes. To test policies effectively, your topology should produce a predictable mix of these characteristics.
