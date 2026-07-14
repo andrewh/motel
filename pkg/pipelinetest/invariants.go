@@ -17,6 +17,9 @@ func SpanKey(traceID, spanID []byte) string {
 
 // ParseSpanKey decodes a SpanKey back into its raw trace and span ID bytes,
 // so identities that were reduced to keys can still be recorded via Sent.Add.
+// It enforces the OTLP ID sizes — a 16-byte trace ID and an 8-byte span ID —
+// so a malformed key fails here rather than surfacing later as an identity
+// that matches nothing.
 func ParseSpanKey(key string) (traceID, spanID []byte, err error) {
 	tid, sid, ok := strings.Cut(key, ":")
 	if !ok {
@@ -25,8 +28,14 @@ func ParseSpanKey(key string) (traceID, spanID []byte, err error) {
 	if traceID, err = hex.DecodeString(tid); err != nil {
 		return nil, nil, fmt.Errorf("span key %q: %w", key, err)
 	}
+	if len(traceID) != 16 {
+		return nil, nil, fmt.Errorf("span key %q: trace ID is %d bytes, want 16", key, len(traceID))
+	}
 	if spanID, err = hex.DecodeString(sid); err != nil {
 		return nil, nil, fmt.Errorf("span key %q: %w", key, err)
+	}
+	if len(spanID) != 8 {
+		return nil, nil, fmt.Errorf("span key %q: span ID is %d bytes, want 8", key, len(spanID))
 	}
 	return traceID, spanID, nil
 }

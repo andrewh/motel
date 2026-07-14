@@ -90,7 +90,9 @@ func TestParseSpanKey(t *testing.T) {
 	if string(gotTid) != string(tid) || string(gotSid) != string(sid) {
 		t.Fatal("ParseSpanKey round-trip changed the IDs")
 	}
-	for _, bad := range []string{"nocolon", "zz:00", "00:zz"} {
+	short := SpanKey(spanID(1), spanID(1)) // 8-byte trace ID
+	long := SpanKey(tid, tid)              // 16-byte span ID
+	for _, bad := range []string{"nocolon", "zz:00", "00:zz", ":", SpanKey(nil, sid), SpanKey(tid, nil), short, long} {
 		if _, _, err := ParseSpanKey(bad); err == nil {
 			t.Fatalf("ParseSpanKey accepted malformed key %q", bad)
 		}
