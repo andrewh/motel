@@ -171,6 +171,7 @@ type configParams struct {
 	OTLPHTTPPort int
 	HealthPort   int
 	SinkURL      string
+	SinkURLs     []string
 }
 
 // Collector is a running OpenTelemetry Collector subprocess.
@@ -192,9 +193,21 @@ type Collector struct {
 // The caller owns the returned Collector and must call Stop. If no collector
 // binary is available, Start returns ErrNoCollector.
 func Start(sink *Sink, config string) (*Collector, error) {
+	return StartMulti(config, sink)
+}
+
+// StartMulti is Start for pipelines with more than one destination, such as a
+// routing pipeline that fans traces out to several backends. Each sink is one
+// backend; the config template addresses them positionally as
+// {{index .SinkURLs 0}}, {{index .SinkURLs 1}}, and so on. {{.SinkURL}}
+// remains an alias for the first sink, so single-sink configs work unchanged.
+func StartMulti(config string, sinks ...*Sink) (*Collector, error) {
 	bin, ok := CollectorBinary()
 	if !ok {
 		return nil, ErrNoCollector
+	}
+	if len(sinks) == 0 {
+		return nil, errors.New("no sinks provided")
 	}
 	if config == "" {
 		config = TracesConfig("")
@@ -209,10 +222,15 @@ func Start(sink *Sink, config string) (*Collector, error) {
 		return nil, fmt.Errorf("allocate health port: %w", err)
 	}
 
+	urls := make([]string, len(sinks))
+	for i, s := range sinks {
+		urls[i] = s.URL()
+	}
 	rendered, err := renderConfig(config, configParams{
 		OTLPHTTPPort: otlpPort,
 		HealthPort:   healthPort,
-		SinkURL:      sink.URL(),
+		SinkURL:      urls[0],
+		SinkURLs:     urls,
 	})
 	if err != nil {
 		return nil, err

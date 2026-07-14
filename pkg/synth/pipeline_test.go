@@ -180,8 +180,10 @@ func addSent(sent *pipelinetest.Sent, spans []tracetest.SpanStub) {
 // The spans come from a second in-memory exporter attached to the same
 // TracerProvider, so the test knows exactly what it pushed, including parent
 // relationships. A non-nil idGen overrides the SDK's random trace/span ID
-// generator, letting tests replay the exact same span identities.
-func generateAndCapture(t testingT, topo *Topology, endpoint string, n int, seed uint64, idGen sdktrace.IDGenerator) []tracetest.SpanStub {
+// generator, letting tests replay the exact same span identities. Extra
+// TracerProvider options (for example a resource carrying routing attributes)
+// are appended as given.
+func generateAndCapture(t testingT, topo *Topology, endpoint string, n int, seed uint64, idGen sdktrace.IDGenerator, tpOpts ...sdktrace.TracerProviderOption) []tracetest.SpanStub {
 	t.Helper()
 
 	ctx := context.Background()
@@ -200,6 +202,7 @@ func generateAndCapture(t testingT, topo *Topology, endpoint string, n int, seed
 	if idGen != nil {
 		opts = append(opts, sdktrace.WithIDGenerator(idGen))
 	}
+	opts = append(opts, tpOpts...)
 	tp := sdktrace.NewTracerProvider(opts...)
 	defer func() { _ = tp.Shutdown(ctx) }()
 

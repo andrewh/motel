@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Filtering and routing invariants for collector pipeline testing.
+  `pkg/pipelinetest` gains `CheckFilterCorrectness` (a filter's output is
+  exactly the caller's keep/drop partition of the sent spans),
+  `CheckRoutingConsistency` (no trace split across backends),
+  `CheckRouteCompleteness` (no span falls through the routing rules), and
+  `ParseSpanKey`. Multi-backend pipelines are driven by the new `StartMulti`,
+  which exposes each sink to the config template as `{{index .SinkURLs N}}`
+  (`Start` and `{{.SinkURL}}` are unchanged). Property tests in
+  `pkg/synth/pipeline_filter_test.go` and `pkg/synth/pipeline_routing_test.go`
+  assert the invariants against a real collector — skipping per-component on
+  builds without `filter`/`routing` — and demonstrate the misconfigurations
+  they catch: per-span routing splitting traces, and a defaultless routing
+  table silently discarding unmatched spans. See
+  `docs/how-to/test-filtering-routing.md`. (#75)
 - `GenerateTraces` now forwards a `[]SpanObserver` (new `GenerateOptions.Observers`
   field) so embedders can receive motel's authoritative per-span `SpanInfo`
   (`ParentService`/`ParentOperation`, `IsError`, `Kind`, `Scenarios`, `Attrs`)

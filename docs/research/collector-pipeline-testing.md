@@ -186,9 +186,16 @@ tests and the harness can therefore live entirely outside `package synth`.
   "eventually received" assertion this needed is `Sink.WaitSettled` in the
   shared harness. See [Test sampling trace
   integrity](../how-to/test-sampling-integrity.md).
-- **Issue 75 (filtering and routing).** Needs a richer collector build (the
-  reference binary lacks a routing connector) and invariants over which spans
-  survive a filter and where routed spans land.
+- **Issue 75 (filtering and routing).** Implemented in
+  `pkg/synth/pipeline_filter_test.go` and `pkg/synth/pipeline_routing_test.go`:
+  filter correctness (the output is exactly the client-side partition of sent
+  spans by the filter's predicate), routing consistency (no trace split across
+  backends), and rule completeness (no span falls through the routing table),
+  plus violation tests showing each invariant catch its misconfiguration.
+  Multi-backend pipelines needed `StartMulti` in the shared harness, which
+  exposes several sinks to the config template as `{{index .SinkURLs N}}`;
+  tests skip per-component (`filter`, `routing`) on collector builds that lack
+  one. See [Test filtering and routing](../how-to/test-filtering-routing.md).
 - **Issue 76 (batching and ordering).** Invariants over batch boundaries and
   span ordering; the sink already records arrival order.
 - **Issue 77 (swarm over processor configs).** Generates collector configs as
