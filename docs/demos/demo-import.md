@@ -1,5 +1,10 @@
 # motel: Importing Topology from Traces
 
+> Historical walkthrough: the outputs below predate own-time inference and
+> typed operation attributes. Current imports subtract downstream time, retain
+> constant attributes on operations, and emit structured evidence. See the
+> [current import/save/edit walkthrough](../how-to/import-and-change-latency.md).
+
 *2026-02-15T20:54:56Z by Showboat 0.5.0*
 
 The `motel import` command reverses the normal workflow: instead of writing a topology by hand, you feed in real trace data and it infers one for you. This is useful for bootstrapping a synth topology from production traces or from another tracing tool's output.

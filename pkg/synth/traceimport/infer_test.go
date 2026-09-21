@@ -56,10 +56,13 @@ func TestImport_StdouttraceFixture(t *testing.T) {
 	assert.Contains(t, yaml, "postgres.query")
 	assert.Contains(t, yaml, "redis.get")
 
-	// Verify service attributes
-	assert.Contains(t, yaml, "deployment.environment: production")
-	assert.Contains(t, yaml, "db.system: postgresql")
-	assert.Contains(t, yaml, "db.system: redis")
+	cfg, err := synth.ParseConfig(result.YAML)
+	require.NoError(t, err)
+	topology, err := synth.BuildTopology(cfg, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "production", topology.Services["gateway"].Operations["GET /users"].Attributes.Get("deployment.environment").Generate(nil))
+	assert.Equal(t, "postgresql", topology.Services["postgres"].Operations["query"].Attributes.Get("db.system").Generate(nil))
+	assert.Equal(t, "redis", topology.Services["redis"].Operations["get"].Attributes.Get("db.system").Generate(nil))
 
 	// Verify traffic rate is present
 	assert.Contains(t, yaml, "rate:")

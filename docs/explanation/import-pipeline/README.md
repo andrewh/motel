@@ -1,5 +1,10 @@
 # How `motel import` Builds a Topology from Traces
 
+> Historical walkthrough: the outputs below predate own-time inference and
+> typed operation attributes. Current imports subtract downstream time, retain
+> constant attributes on operations, and emit structured evidence. See the
+> [current import/save/edit walkthrough](../../how-to/import-and-change-latency.md).
+
 This document walks through the inference pipeline step by step, using
 4 real traces generated from a small topology. Every decision the code
 makes is shown against the actual data.

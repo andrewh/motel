@@ -523,6 +523,7 @@ func importCmd() *cobra.Command {
 		metaProfile      string
 		metaIncludeEmpty bool
 		recordPath       string
+		reportPath       string
 	)
 
 	cmd := &cobra.Command{
@@ -566,6 +567,14 @@ func importCmd() *cobra.Command {
 				return err
 			}
 
+			if reportPath != "" {
+				if err := os.WriteFile(reportPath, []byte(result.MarkdownReport()), 0o600); err != nil {
+					return fmt.Errorf("writing import report: %w", err)
+				}
+			}
+			if _, err := fmt.Fprint(cmd.ErrOrStderr(), result.Summary()); err != nil {
+				return fmt.Errorf("writing import summary: %w", err)
+			}
 			_, err = cmd.OutOrStdout().Write(result.YAML)
 			return err
 		},
@@ -575,6 +584,7 @@ func importCmd() *cobra.Command {
 	cmd.Flags().IntVar(&minTraces, "min-traces", 1, "minimum traces for statistical accuracy (warns if fewer)")
 	cmd.Flags().StringVar(&metaProfile, "profile", "", "profile filter for --format meta-summary: ads, fetch, or raas")
 	cmd.Flags().BoolVar(&metaIncludeEmpty, "include-empty", false, "include empty children_set rows for --format meta-summary")
+	cmd.Flags().StringVar(&reportPath, "report", "", "write a Markdown report of the original import evidence")
 	cmd.Flags().StringVar(&recordPath, "record", "", "also write a replay recording sidecar (newline-delimited JSON) to this path for use with 'mode: replay'")
 
 	return cmd

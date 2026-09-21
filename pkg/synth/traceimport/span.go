@@ -18,15 +18,17 @@ import (
 
 // Span is the format-independent representation of a trace span.
 type Span struct {
-	TraceID    string
-	SpanID     string
-	ParentID   string // empty for root spans
-	Service    string
-	Operation  string
-	StartTime  time.Time
-	EndTime    time.Time
-	IsError    bool
-	Attributes map[string]string
+	TraceID         string
+	SpanID          string
+	ParentID        string // empty for root spans
+	Service         string
+	Operation       string
+	StartTime       time.Time
+	EndTime         time.Time
+	IsError         bool
+	Attributes      map[string]string
+	TypedAttributes map[string]any
+	ResourceKeys    []string
 }
 
 // Format identifies the input trace format.
@@ -204,14 +206,13 @@ type sdkStatus struct {
 const (
 	serviceNameKey       = "service.name"
 	synthServiceKey      = "synth.service"
+	synthOperationKey    = "synth.operation"
+	synthScenariosKey    = "synth.scenarios"
 	unknownServicePrefix = "unknown_service"
 )
 
 // excludedAttributes are engine-internal or infrastructure attributes to omit.
 var excludedAttributes = map[string]bool{
-	synthServiceKey:          true,
-	"synth.operation":        true,
-	"synth.scenarios":        true,
 	"telemetry.sdk.language": true,
 	"telemetry.sdk.name":     true,
 	"telemetry.sdk.version":  true,
@@ -236,7 +237,7 @@ func parseStdouttraceReader(r io.Reader) ([]Span, error) {
 		}
 
 		var evt stdouttraceEvent
-		if err := json.Unmarshal(line, &evt); err != nil {
+		if err := decodeNumbers(line, &evt); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 
@@ -260,23 +261,27 @@ func parseStdouttraceReader(r io.Reader) ([]Span, error) {
 
 		// Flatten attributes, excluding engine-internal ones
 		attrs := make(map[string]string)
+		typed := make(map[string]any)
 		for _, attr := range evt.Attributes {
-			if excludedAttributes[attr.Key] {
+			typed[attr.Key] = sdkScalar(attr)
+			if excludedAttributes[attr.Key] || reservedEngineAttribute(attr.Key) {
 				continue
 			}
 			attrs[attr.Key] = fmt.Sprint(attr.Value.Value)
 		}
 
 		spans = append(spans, Span{
-			TraceID:    evt.SpanContext.TraceID,
-			SpanID:     evt.SpanContext.SpanID,
-			ParentID:   parentID,
-			Service:    service,
-			Operation:  evt.Name,
-			StartTime:  evt.StartTime,
-			EndTime:    evt.EndTime,
-			IsError:    evt.Status.Code == "Error",
-			Attributes: attrs,
+			TraceID:         evt.SpanContext.TraceID,
+			SpanID:          evt.SpanContext.SpanID,
+			ParentID:        parentID,
+			Service:         service,
+			Operation:       evt.Name,
+			StartTime:       evt.StartTime,
+			EndTime:         evt.EndTime,
+			IsError:         evt.Status.Code == "Error",
+			Attributes:      attrs,
+			TypedAttributes: typed,
+			ResourceKeys:    sdkKeys(evt.Resource),
 		})
 	}
 
@@ -321,23 +326,27 @@ func parseOTLP(data []byte) ([]Span, error) {
 				}
 
 				attrs := make(map[string]string)
+				typed := make(map[string]any)
 				for _, attr := range span.Attributes {
-					if excludedAttributes[attr.Key] {
+					typed[attr.Key] = attr.Value.scalar()
+					if excludedAttributes[attr.Key] || reservedEngineAttribute(attr.Key) {
 						continue
 					}
 					attrs[attr.Key] = attr.Value.asString()
 				}
 
 				spans = append(spans, Span{
-					TraceID:    span.TraceID.hex(),
-					SpanID:     span.SpanID.hex(),
-					ParentID:   parentID,
-					Service:    svc,
-					Operation:  span.Name,
-					StartTime:  time.Unix(0, int64(span.StartTimeUnixNano)), //nolint:gosec // nanosecond timestamps are always positive
-					EndTime:    time.Unix(0, int64(span.EndTimeUnixNano)),   //nolint:gosec // nanosecond timestamps are always positive
-					IsError:    span.Status.Code.isError(),
-					Attributes: attrs,
+					TraceID:         span.TraceID.hex(),
+					SpanID:          span.SpanID.hex(),
+					ParentID:        parentID,
+					Service:         svc,
+					Operation:       span.Name,
+					StartTime:       time.Unix(0, int64(span.StartTimeUnixNano)), //nolint:gosec // nanosecond timestamps are always positive
+					EndTime:         time.Unix(0, int64(span.EndTimeUnixNano)),   //nolint:gosec // nanosecond timestamps are always positive
+					IsError:         span.Status.Code.isError(),
+					Attributes:      attrs,
+					TypedAttributes: typed,
+					ResourceKeys:    otlpKeys(rs.Resource.Attributes),
 				})
 			}
 		}
@@ -430,10 +439,12 @@ type jaegerRef struct {
 }
 
 type jaegerProcess struct {
-	ServiceName string `json:"serviceName"`
+	ServiceName string      `json:"serviceName"`
+	Tags        []jaegerTag `json:"tags"`
 }
 
 type jaegerTag struct {
+	Type  string          `json:"type"`
 	Key   string          `json:"key"`
 	Value json.RawMessage `json:"value"`
 }
@@ -461,8 +472,10 @@ func parseJaeger(data []byte) ([]Span, error) {
 			endTime := time.UnixMicro(js.StartTime + js.Duration)
 
 			attrs := make(map[string]string)
+			typed := make(map[string]any)
 			isError := false
 			for _, tag := range js.Tags {
+				typed[tag.Key] = jaegerScalar(tag)
 				val := jaegerTagString(tag.Value)
 				if tag.Key == "error" && val == "true" {
 					isError = true
@@ -471,15 +484,17 @@ func parseJaeger(data []byte) ([]Span, error) {
 			}
 
 			spans = append(spans, Span{
-				TraceID:    js.TraceID,
-				SpanID:     js.SpanID,
-				ParentID:   parentID,
-				Service:    service,
-				Operation:  js.OperationName,
-				StartTime:  startTime,
-				EndTime:    endTime,
-				IsError:    isError,
-				Attributes: attrs,
+				TraceID:         js.TraceID,
+				SpanID:          js.SpanID,
+				ParentID:        parentID,
+				Service:         service,
+				Operation:       js.OperationName,
+				StartTime:       startTime,
+				EndTime:         endTime,
+				IsError:         isError,
+				Attributes:      attrs,
+				TypedAttributes: typed,
+				ResourceKeys:    jaegerResourceKeys(js, trace.Processes),
 			})
 		}
 	}
@@ -767,4 +782,8 @@ func otlpJSONScalarText(data []byte) (string, bool, error) {
 		return s, true, nil
 	}
 	return string(data), true, nil
+}
+
+func reservedEngineAttribute(key string) bool {
+	return key == synthServiceKey || key == synthOperationKey || key == synthScenariosKey
 }

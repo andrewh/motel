@@ -13,6 +13,7 @@ import (
 
 // inferredConfig is the map-based YAML structure matching the synth DSL.
 type inferredConfig struct {
+	Import   *ImportEvidence            `yaml:"import,omitempty"`
 	Version  int                        `yaml:"version"`
 	Services map[string]inferredService `yaml:"services"`
 	Traffic  map[string]string          `yaml:"traffic"`
@@ -24,10 +25,12 @@ type inferredService struct {
 }
 
 type inferredOperation struct {
-	Duration  string `yaml:"duration"`
-	ErrorRate string `yaml:"error_rate,omitempty"`
-	CallStyle string `yaml:"call_style,omitempty"`
-	Calls     []any  `yaml:"calls,omitempty"`
+	Attributes map[string]synth.AttributeValueConfig `yaml:"attributes,omitempty"`
+	Import     *OperationEvidence                    `yaml:"import,omitempty"`
+	Duration   string                                `yaml:"duration"`
+	ErrorRate  string                                `yaml:"error_rate,omitempty"`
+	CallStyle  string                                `yaml:"call_style,omitempty"`
+	Calls      []any                                 `yaml:"calls,omitempty"`
 }
 
 // inferredCallRich is the mapping form when probability or count is needed.
@@ -65,7 +68,7 @@ func MarshalConfig(collector *StatsCollector, serviceAttrs map[string]map[string
 			// Call style: only set if sequential (parallel is the default)
 			if vote, ok := svcStats.CallStyles[opName]; ok {
 				if vote.Sequential > vote.Parallel {
-					op.CallStyle = "sequential"
+					op.CallStyle = inferredSequential
 				}
 			}
 

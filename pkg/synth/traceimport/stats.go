@@ -11,12 +11,15 @@ import (
 
 // OpStats accumulates statistics for a single (service, operation) pair.
 type OpStats struct {
-	DurationCount int
-	DurationMean  float64
-	DurationM2    float64
-	ErrorCount    int
-	TotalCount    int
-	Calls         map[string]*CallStats // key: "targetService.targetOp"
+	OwnObservations   []float64
+	TotalObservations []float64
+	TimingAnomalies   int
+	DurationCount     int
+	DurationMean      float64
+	DurationM2        float64
+	ErrorCount        int
+	TotalCount        int
+	Calls             map[string]*CallStats // key: "targetService.targetOp"
 }
 
 // CallStats separates how often a call happens from how many times it happens.
@@ -95,8 +98,18 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	// failure marks this invocation as failed.
 	calls, contErr := foldedCalls(node, path)
 
-	duration := node.Span.EndTime.Sub(node.Span.StartTime)
+	duration := ownTime(node, calls)
 	op.RecordDuration(duration, 1)
+	op.OwnObservations = append(op.OwnObservations, float64(duration))
+	op.TotalObservations = append(op.TotalObservations, float64(max(0, node.Span.EndTime.Sub(node.Span.StartTime))))
+	if node.Span.EndTime.Before(node.Span.StartTime) {
+		op.TimingAnomalies++
+	}
+	for _, child := range calls {
+		if child.Span.StartTime.Before(node.Span.StartTime) || child.Span.EndTime.After(node.Span.EndTime) || child.Span.EndTime.Before(child.Span.StartTime) {
+			op.TimingAnomalies++
+		}
+	}
 	op.TotalCount++
 	if node.Span.IsError || contErr {
 		op.ErrorCount++
@@ -285,7 +298,7 @@ func isSequential(children []*SpanNode) bool {
 }
 
 func formatDurationStats(mean time.Duration, stddev time.Duration) string {
-	meanStr := roundDuration(mean).String()
+	meanStr := max(time.Microsecond, roundDuration(mean)).String()
 	if stddev == 0 || float64(stddev) < float64(mean)*0.01 {
 		return meanStr
 	}
@@ -320,4 +333,35 @@ func FormatErrorRate(errors, total int) string {
 		return fmt.Sprintf("%.0f%%", rate)
 	}
 	return fmt.Sprintf("%.2f%%", rate)
+}
+
+func ownTime(node *SpanNode, calls []*SpanNode) time.Duration {
+	type interval struct{ start, end time.Time }
+	intervals := make([]interval, 0, len(calls))
+	for _, child := range calls {
+		start, end := child.Span.StartTime, child.Span.EndTime
+		if start.Before(node.Span.StartTime) {
+			start = node.Span.StartTime
+		}
+		if end.After(node.Span.EndTime) {
+			end = node.Span.EndTime
+		}
+		if end.After(start) {
+			intervals = append(intervals, interval{start, end})
+		}
+	}
+	sort.Slice(intervals, func(i, j int) bool { return intervals[i].start.Before(intervals[j].start) })
+	var occupied time.Duration
+	end := node.Span.StartTime
+	for _, span := range intervals {
+		start := span.start
+		if start.Before(end) {
+			start = end
+		}
+		if span.end.After(start) {
+			occupied += span.end.Sub(start)
+			end = span.end
+		}
+	}
+	return max(0, node.Span.EndTime.Sub(node.Span.StartTime)-occupied)
 }

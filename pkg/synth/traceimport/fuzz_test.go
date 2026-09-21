@@ -42,10 +42,9 @@ func FuzzMarshalRoundTrip(f *testing.F) {
 		collector := NewStatsCollector()
 		collector.CollectFromTrees(trees)
 
-		serviceAttrs := inferServiceAttributes(spans)
 		windowSecs := computeWindow(trees)
 
-		yamlBytes, err := MarshalConfig(collector, serviceAttrs, len(trees), len(spans), windowSecs)
+		yamlBytes, err := MarshalConfig(collector, nil, len(trees), len(spans), windowSecs)
 		if err != nil {
 			t.Fatalf("MarshalConfig: %v", err)
 		}

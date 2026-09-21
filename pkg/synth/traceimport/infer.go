@@ -33,7 +33,8 @@ type Options struct {
 // see the field comments.
 type Result struct {
 	// YAML is the inferred synth topology.
-	YAML []byte
+	YAML     []byte
+	Evidence *ImportEvidence
 	// TraceCount is the number of source traces. For Meta summary imports it is
 	// the total weighted parent-sample count rather than a literal trace count.
 	TraceCount int
@@ -88,14 +89,14 @@ func Import(r io.Reader, opts Options) (Result, error) {
 	collector.CollectFromTrees(trees)
 	reportConfidenceDiagnostics(collector, opts.MinTraces, opts.Warnings)
 
-	// Step 4: Infer service-level constant attributes
-	serviceAttrs := inferServiceAttributes(spans)
+	// Span attributes are assessed per operation after latency inference.
+	// Resource metadata is reported as omitted, rather than promoted.
 
 	// Step 5: Compute traffic rate window
 	windowSecs := computeWindow(trees)
 
 	// Step 6: Marshal to YAML
-	yamlBytes, err := MarshalConfig(collector, serviceAttrs, traceCount, len(spans), windowSecs)
+	yamlBytes, err := MarshalConfig(collector, nil, traceCount, len(spans), windowSecs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -120,59 +121,23 @@ func Import(r io.Reader, opts Options) (Result, error) {
 			"services), which motel's acyclic model cannot represent", err)
 	}
 
+	evidence, err := assessImport(collector, trees, cfg, opts.MinTraces)
+	if err != nil {
+		return Result{}, err
+	}
+	yamlBytes, err = attachEvidence(yamlBytes, evidence)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := validateRoundTrip(yamlBytes); err != nil {
+		return Result{}, fmt.Errorf("validating topology with import evidence: %w", err)
+	}
 	return Result{
+		Evidence:   evidence,
 		YAML:       yamlBytes,
 		TraceCount: traceCount,
 		SpanCount:  len(spans),
 	}, nil
-}
-
-// inferServiceAttributes finds attributes with the same value on every span of a service.
-func inferServiceAttributes(spans []Span) map[string]map[string]string {
-	type attrAccum struct {
-		value    string
-		count    int
-		constant bool
-	}
-
-	// Per-service: attribute key -> accumulator
-	svcAccum := make(map[string]map[string]*attrAccum)
-	svcCounts := make(map[string]int)
-
-	for _, s := range spans {
-		svcCounts[s.Service]++
-		accum, ok := svcAccum[s.Service]
-		if !ok {
-			accum = make(map[string]*attrAccum)
-			svcAccum[s.Service] = accum
-		}
-		for k, v := range s.Attributes {
-			a, ok := accum[k]
-			if !ok {
-				accum[k] = &attrAccum{value: v, count: 1, constant: true}
-			} else {
-				a.count++
-				if a.value != v {
-					a.constant = false
-				}
-			}
-		}
-	}
-
-	result := make(map[string]map[string]string)
-	for svc, accum := range svcAccum {
-		total := svcCounts[svc]
-		attrs := make(map[string]string)
-		for k, a := range accum {
-			if a.constant && a.count == total {
-				attrs[k] = a.value
-			}
-		}
-		if len(attrs) > 0 {
-			result[svc] = attrs
-		}
-	}
-	return result
 }
 
 // computeWindow returns the time window in seconds between first and last root spans.
