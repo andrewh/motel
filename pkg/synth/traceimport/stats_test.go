@@ -135,8 +135,9 @@ func TestCollector_FoldsSelfNestedSpans(t *testing.T) {
 	// The nested transaction is a continuation, not a second invocation.
 	assert.Equal(t, 1, tx.TotalCount, "nested same-op span must not inflate the count")
 	assert.Equal(t, 1, tx.Calls["svc.db-write"].Count)
-	// Duration reflects the outermost span (24ms), not a blend with the inner one.
-	assert.Equal(t, 24*time.Millisecond, tx.meanDuration())
+	// Own time uses the outermost span (24ms) minus its effective downstream
+	// call (7ms); the nested continuation contributes no additional duration.
+	assert.Equal(t, 17*time.Millisecond, tx.meanDuration())
 }
 
 // TestCollector_FoldsIndirectSelfNesting covers recursion through a different

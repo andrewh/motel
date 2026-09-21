@@ -1781,3 +1781,23 @@ func TestNewRunRng(t *testing.T) {
 		assert.NotEqual(t, a.Uint64(), b.Uint64())
 	})
 }
+
+func TestImportReport(t *testing.T) {
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.md")
+	root := rootCmd()
+	root.SetArgs([]string{"import", "../../pkg/synth/traceimport/testdata/single-trace-otlp.json", "--report", report})
+	var out, diagnostics bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&diagnostics)
+	require.NoError(t, root.Execute())
+	require.Contains(t, diagnostics.String(), "insufficient evidence")
+	require.NotContains(t, out.String(), "# Trace import report")
+	data, err := os.ReadFile(report)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "# Trace import report")
+	require.Contains(t, string(data), "insufficient_evidence")
+	cfg, err := synth.ParseConfig(out.Bytes())
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Import)
+}

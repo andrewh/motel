@@ -177,7 +177,13 @@ Reads trace spans or supported summary data and generates a YAML topology. If no
 | `--format` | string | `auto` | Input format: `auto`, `stdouttrace`, `otlp`, `jaeger`, or `meta-summary` |
 | `--include-empty` | bool | false | Include empty `children_set` rows for `--format meta-summary` |
 | `--min-traces` | int | 1 | Minimum traces for statistical accuracy (warns if fewer) |
+| `--report` | string |  | Save a Markdown report derived from structured import evidence |
 | `--profile` | string |  | Profile filter for `--format meta-summary`: `ads`, `fetch`, or `raas` |
+
+Span-based imports preserve typed constant operation attributes and save latency
+and omission evidence under `import` mappings. These mappings have no runtime
+effect. See [import, reuse, and edit](../how-to/import-and-change-latency.md) and
+[assessment policy](../explanation/import-evidence.md).
 
 The `auto` format detector examines the JSON structure to determine whether the input is stdouttrace JSON (one span per line), OTLP JSON (batched export format), or Jaeger JSON such as Grafana Explore Tempo downloads.
 Use `--format meta-summary` to import the Meta ATC 2023

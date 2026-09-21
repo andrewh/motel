@@ -86,6 +86,7 @@ const ModeReplay = "replay"
 
 // Config is the top-level YAML configuration for a synthetic topology.
 type Config struct {
+	Import    any              `yaml:"import,omitempty"`
 	Version   int              `yaml:"version"`
 	Mode      string           `yaml:"mode,omitempty"`
 	Recording string           `yaml:"recording,omitempty"`
@@ -96,6 +97,7 @@ type Config struct {
 
 // rawConfig mirrors Config but uses a map for services to match the YAML structure.
 type rawConfig struct {
+	Import    any                         `yaml:"import,omitempty"`
 	Version   *int                        `yaml:"version"`
 	Mode      string                      `yaml:"mode,omitempty"`
 	Recording string                      `yaml:"recording,omitempty"`
@@ -224,6 +226,7 @@ func (lc *LinkConfig) UnmarshalYAML(value *yaml.Node) error {
 
 // rawOperationConfig is the YAML representation of an operation before normalisation.
 type rawOperationConfig struct {
+	Import              any                             `yaml:"import,omitempty"`
 	Domain              string                          `yaml:"domain,omitempty"`
 	Duration            string                          `yaml:"duration"`
 	ErrorRate           string                          `yaml:"error_rate,omitempty"`
@@ -255,6 +258,7 @@ type ServiceConfig struct {
 
 // OperationConfig describes an operation within a service.
 type OperationConfig struct {
+	Import              any `yaml:"import,omitempty"`
 	Name                string
 	Domain              string
 	Duration            string
@@ -422,6 +426,7 @@ func ParseConfig(data []byte) (*Config, error) {
 
 	cfg := &Config{
 		Version:   *raw.Version,
+		Import:    raw.Import,
 		Mode:      raw.Mode,
 		Recording: raw.Recording,
 		Traffic:   raw.Traffic,
@@ -457,6 +462,7 @@ func ParseConfig(data []byte) (*Config, error) {
 			rawOp := rawSvc.Operations[opName]
 			svc.Operations = append(svc.Operations, OperationConfig{
 				Name:                opName,
+				Import:              rawOp.Import,
 				Domain:              rawOp.Domain,
 				Duration:            rawOp.Duration,
 				ErrorRate:           rawOp.ErrorRate,
