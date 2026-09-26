@@ -165,7 +165,7 @@ or a full mapping.
 | `probability`  | float  | Chance of executing (0-1, default: always) |
 | `condition`    | string | `on-error` or `on-success` — only fire based on caller's own error state |
 | `count`        | int    | Number of times to repeat the call |
-| `timeout`      | string | Cap child span duration (Go duration, e.g. `100ms`) |
+| `timeout`      | string | Limit how long the caller waits; the child retains its simulated duration (Go duration, e.g. `100ms`) |
 | `retries`      | int    | Retry count on child failure |
 | `retry_backoff`| string | Constant delay between retries (Go duration) |
 | `async`        | bool   | Fire-and-forget: child runs independently, parent does not wait. Child span kind is CONSUMER instead of CLIENT. Errors do not cascade to parent. Cannot combine with `retries` or `timeout` |
@@ -697,7 +697,8 @@ condition fires. All three signal types are driven by the same topology — see
 is only used for rate control between traces. This means you can generate hours
 of simulated traffic in seconds.
 
-**Cascading failure.** Per-call `timeout` caps child span duration. `retries`
+**Cascading failure.** Per-call `timeout` limits how long the caller waits;
+the child span retains its simulated duration. `retries`
 re-executes the child call with constant `retry_backoff` delay. Child errors
 cascade upward — a failing child marks its parent span as errored. The
 `on-error` and `on-success` conditions evaluate the caller's own error rate,
