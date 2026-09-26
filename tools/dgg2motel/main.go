@@ -226,7 +226,6 @@ func convertOne(data []byte) (string, error) {
 			fmt.Fprintf(&b, "      %s:\n", op.name)
 			fmt.Fprintf(&b, "        duration: %s\n", durationForLabel(op.label))
 
-			// Add calls.
 			if len(op.calls) > 0 {
 				b.WriteString("        calls:\n")
 				for _, c := range op.calls {

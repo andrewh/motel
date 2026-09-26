@@ -205,7 +205,6 @@ func emitCmd() *cobra.Command {
 				return nil
 			}
 
-			// Parse --attr key=value pairs
 			opAttrs := make(map[string]synth.AttributeValueConfig, len(attrs))
 			for _, a := range attrs {
 				k, v, ok := strings.Cut(a, "=")
@@ -215,7 +214,6 @@ func emitCmd() *cobra.Command {
 				opAttrs[k] = synth.AttributeValueConfig{Value: v}
 			}
 
-			// Build a Config programmatically
 			cfg := &synth.Config{
 				Version: synth.CurrentVersion,
 				Services: []synth.ServiceConfig{
@@ -1022,7 +1020,6 @@ func runGenerate(ctx context.Context, configPath string, opts runOptions) error 
 		Realtime:         opts.realtime,
 	}
 
-	// Handle OS signals for graceful shutdown
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

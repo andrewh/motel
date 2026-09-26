@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Phase 1: Individual Type Generators ---
+// --- Individual Type Generators ---
 
 func TestGeneratorFor_Enum(t *testing.T) {
 	t.Parallel()
@@ -195,7 +195,7 @@ func TestGeneratorFor_Boolean(t *testing.T) {
 	assert.Equal(t, 2, wc.TotalWeight)
 }
 
-// --- Phase 2: Error Cases ---
+// --- Error Cases ---
 
 func TestGeneratorFor_Template(t *testing.T) {
 	t.Parallel()
@@ -225,7 +225,7 @@ func TestGeneratorFor_EmptyType(t *testing.T) {
 	assert.Contains(t, err.Error(), "no type information")
 }
 
-// --- Phase 3: Group Generation ---
+// --- Group Generation ---
 
 func TestGeneratorsFor_BasicGroup(t *testing.T) {
 	t.Parallel()
@@ -300,7 +300,7 @@ func TestGeneratorsFor_EmptyGroup(t *testing.T) {
 	assert.Empty(t, gens)
 }
 
-// --- Phase 4: Embedded Smoke Tests ---
+// --- Embedded Smoke Tests ---
 
 func TestGeneratorFor_RealHTTPMethod(t *testing.T) {
 	t.Parallel()
