@@ -40,9 +40,6 @@ type dggEdge struct {
 	Compara string `json:"compara"`
 }
 
-// motel topology structures — just enough to marshal YAML by hand
-// (avoids pulling in a YAML library for a standalone tool).
-
 // funcRE matches DGG node names with a _funcN suffix, e.g. "MS_normal+2.1_func2".
 // The greedy (.+) assumes _funcN only appears as a terminal suffix in DGG output.
 var funcRE = regexp.MustCompile(`^(.+)_(func\d+)$`)
