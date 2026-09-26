@@ -475,13 +475,19 @@ func (e *Engine) walkTrace(ctx context.Context, op, parent *Operation, startTime
 		trace.WithSpanKind(kind),
 		trace.WithAttributes(startAttrs...),
 	}
-	if len(op.Links) > 0 && e.linkRegistry != nil {
+	if len(op.Links) > 0 {
 		var links []trace.Link
+		// Sample even unresolved links so RNG consumption does not depend on
+		// wall-clock link availability in realtime mode.
 		for _, linked := range op.Links {
+			attrs := attributeKeyValues(linked.Attributes, e.Rng)
+			if e.linkRegistry == nil {
+				continue
+			}
 			if sc, ok := e.linkRegistry.load(linked.Operation.Ref); ok {
 				links = append(links, trace.Link{
 					SpanContext: sc,
-					Attributes:  attributeKeyValues(linked.Attributes, e.Rng),
+					Attributes:  attrs,
 				})
 			}
 		}

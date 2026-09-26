@@ -583,3 +583,48 @@ func TestPlanTraceProducerKind(t *testing.T) {
 	assert.Equal(t, trace.SpanKindServer, byOp["submit"].Kind)
 	assert.Equal(t, trace.SpanKindProducer, byOp["publish"].Kind, "producer callee is a PRODUCER span in realtime mode")
 }
+
+func TestTraceModesEventsAndLinks(t *testing.T) {
+	for _, availability := range []string{"no registry", "unresolved", "resolved"} {
+		t.Run(availability, func(t *testing.T) {
+			cfg, err := LoadConfig("../../docs/examples/span-events.yaml")
+			require.NoError(t, err)
+			randomAttrs := map[string]AttributeValueConfig{"sample": {Range: []int64{1, 1000000}}}
+			cfg.Services[0].Operations[0].Attributes = randomAttrs
+			cfg.Services[0].Operations[0].ErrorRate = "0.4"
+			cfg.Services[0].Operations[0].Events[0].Attributes = randomAttrs
+			cfg.Services[0].Operations[0].Links = []LinkConfig{{Ref: "database.query", Attributes: randomAttrs}}
+			walk, walkExporter, walkTP := newTestEngine(t, cfg)
+			plan, planExporter, planTP := newTestEngine(t, cfg)
+			sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{1}})
+			for _, engine := range []*Engine{walk, plan} {
+				engine.Rng = rand.New(rand.NewPCG(99, 7))
+				if availability != "no registry" {
+					engine.linkRegistry = newSpanContextRegistry(engine.Topology)
+				}
+				if availability == "resolved" {
+					engine.linkRegistry.store("database.query", sc)
+				}
+			}
+			start := time.Unix(1700000000, 0).UTC()
+			walk.walkTrace(context.Background(), walk.Topology.Roots[0], nil, start, 0, nil, nil, &Stats{}, new(int), DefaultMaxSpansPerTrace, false, false)
+			var plans []SpanPlan
+			plan.planTrace(plan.Topology.Roots[0], nil, -1, start, 0, nil, nil, &Stats{}, &plans, new(int), DefaultMaxSpansPerTrace, false, false)
+			emitTrace(context.Background(), plans, start, start, plan.Tracers, nil, &realtimeStats{}, plan.linkRegistry)
+			require.NoError(t, walkTP.ForceFlush(context.Background()))
+			require.NoError(t, planTP.ForceFlush(context.Background()))
+			want, got := walkExporter.GetSpans(), planExporter.GetSpans()
+			require.Len(t, got, len(want))
+			for i := range want {
+				assert.Equal(t, want[i].Name, got[i].Name)
+				assert.Equal(t, want[i].StartTime, got[i].StartTime)
+				assert.Equal(t, want[i].EndTime, got[i].EndTime)
+				assert.ElementsMatch(t, want[i].Attributes, got[i].Attributes)
+				assert.Equal(t, want[i].Events, got[i].Events)
+				assert.Equal(t, want[i].Links, got[i].Links)
+				assert.Equal(t, want[i].Status, got[i].Status)
+			}
+			assert.Equal(t, walk.Rng.Uint64(), plan.Rng.Uint64())
+		})
+	}
+}
