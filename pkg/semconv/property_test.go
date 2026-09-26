@@ -3,6 +3,8 @@
 package semconv
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -178,21 +180,40 @@ func TestProperty_Registry_MergeDoesNotMutateOriginal(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g1 := genGroup(t, "a", "dom")
 		g2 := genGroup(t, "b", "dom")
+		if rapid.Bool().Draw(t, "overlap") {
+			g2.ID = g1.ID
+		}
+		for _, group := range []*Group{&g1, &g2} {
+			group.Attributes[0].Examples.Values = []any{
+				[]any{rapid.Int().Draw(t, "example")},
+				map[string]any{"value": rapid.String().Draw(t, "nested-value")},
+			}
+			group.Attributes[0].Type.Members = []EnumMember{{ID: "member", Value: rapid.Int().Draw(t, "member-value")}}
+		}
 
 		regA := buildRegistry([]Group{g1})
 		regB := buildRegistry([]Group{g2})
 
-		origACount := len(regA.Groups())
-		origBCount := len(regB.Groups())
-
+		snapshot := func(reg *Registry) []byte {
+			domains := make([]string, len(reg.groups))
+			for i, group := range reg.groups {
+				domains[i] = group.domain
+			}
+			data, err := json.Marshal([]any{reg.groups, domains, reg.byGroupID, reg.byAttrID, reg.byDomain, reg.byMetricName})
+			if err != nil {
+				t.Fatalf("snapshot registry: %v", err)
+			}
+			return data
+		}
+		beforeA, beforeB := snapshot(regA), snapshot(regB)
 		_ = regA.Merge(regB)
+		if !bytes.Equal(beforeA, snapshot(regA)) {
+			t.Fatal("merge mutated regA contents or indexes")
+		}
+		if !bytes.Equal(beforeB, snapshot(regB)) {
+			t.Fatal("merge mutated regB contents or indexes")
+		}
 
-		if len(regA.Groups()) != origACount {
-			t.Fatalf("regA mutated: was %d groups, now %d", origACount, len(regA.Groups()))
-		}
-		if len(regB.Groups()) != origBCount {
-			t.Fatalf("regB mutated: was %d groups, now %d", origBCount, len(regB.Groups()))
-		}
 	})
 }
 
