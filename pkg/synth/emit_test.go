@@ -29,16 +29,16 @@ func TestBuildEvents(t *testing.T) {
 	require.Len(t, events, 4)
 
 	// Verify sorted order: start0, start1, end1, end0
-	assert.False(t, events[0].IsEnd)
+	assert.Equal(t, spanStart, events[0].Kind)
 	assert.Equal(t, 0, events[0].Index)
 
-	assert.False(t, events[1].IsEnd)
+	assert.Equal(t, spanStart, events[1].Kind)
 	assert.Equal(t, 1, events[1].Index)
 
-	assert.True(t, events[2].IsEnd)
+	assert.Equal(t, spanEnd, events[2].Kind)
 	assert.Equal(t, 1, events[2].Index)
 
-	assert.True(t, events[3].IsEnd)
+	assert.Equal(t, spanEnd, events[3].Kind)
 	assert.Equal(t, 0, events[3].Index)
 }
 
@@ -55,15 +55,15 @@ func TestBuildEventsSimultaneous(t *testing.T) {
 	require.Len(t, events, 4)
 
 	// At same time: starts before ends, lower index first for starts
-	assert.False(t, events[0].IsEnd)
+	assert.Equal(t, spanStart, events[0].Kind)
 	assert.Equal(t, 0, events[0].Index)
-	assert.False(t, events[1].IsEnd)
+	assert.Equal(t, spanStart, events[1].Kind)
 	assert.Equal(t, 1, events[1].Index)
 
 	// Ends: higher index first (children end before parents)
-	assert.True(t, events[2].IsEnd)
+	assert.Equal(t, spanEnd, events[2].Kind)
 	assert.Equal(t, 1, events[2].Index)
-	assert.True(t, events[3].IsEnd)
+	assert.Equal(t, spanEnd, events[3].Kind)
 	assert.Equal(t, 0, events[3].Index)
 }
 
@@ -349,3 +349,105 @@ func TestEmitTraceObservers(t *testing.T) {
 type observerFunc func(SpanInfo)
 
 func (f observerFunc) Observe(info SpanInfo) { f(info) }
+
+type cancelOnOperationStart struct {
+	operation string
+	cancel    context.CancelFunc
+}
+
+func (o cancelOnOperationStart) Observe(SpanInfo) {}
+
+func (o cancelOnOperationStart) ObserveStart(_, operation string) {
+	if operation == o.operation {
+		o.cancel()
+	}
+}
+
+func TestEmitTraceCancellationPreservesOnlyReachedEvents(t *testing.T) {
+	for _, afterEvent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before event", true: "after event"}[afterEvent], func(t *testing.T) {
+			exporter := tracetest.NewInMemoryExporter()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+			t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			start := time.Now()
+			const eventDelay = time.Millisecond
+			const spanDuration = time.Hour
+			plans := []SpanPlan{{
+				Index: 0, ParentIndex: -1, Service: "svc", Operation: "root",
+				StartTime: start, EndTime: start.Add(spanDuration),
+				Events: []EventPlan{
+					{Name: "first", Timestamp: start.Add(eventDelay), Attributes: []attribute.KeyValue{attribute.String("key", "value")}},
+					{Name: "future", Timestamp: start.Add(spanDuration / 2)},
+				},
+			}}
+			cancelOperation := "root"
+			if afterEvent {
+				cancelOperation = "cancel"
+				plans = append(plans, SpanPlan{
+					Index: 1, ParentIndex: 0, Service: "svc", Operation: cancelOperation,
+					StartTime: start.Add(2 * eventDelay), EndTime: start.Add(spanDuration),
+				})
+			}
+			tracers := func(name string) trace.Tracer { return tp.Tracer(name) }
+			emitTrace(ctx, plans, start, start, tracers, []SpanObserver{cancelOnOperationStart{cancelOperation, cancel}}, &realtimeStats{}, nil)
+			spans := exporter.GetSpans()
+			require.Len(t, spans, len(plans))
+			root := spans[len(spans)-1]
+			require.Equal(t, "root", root.Name)
+			assert.Equal(t, "cancelled", root.Status.Description)
+			if afterEvent {
+				require.Len(t, root.Events, 1)
+				assert.Equal(t, "first", root.Events[0].Name)
+				assert.Equal(t, start.Add(eventDelay), root.Events[0].Time)
+				assert.Equal(t, plans[0].Events[0].Attributes, root.Events[0].Attributes)
+			} else {
+				assert.Empty(t, root.Events)
+			}
+		})
+	}
+}
+
+func TestEmitTraceEventsAtSpanBoundaries(t *testing.T) {
+	for _, realtime := range []bool{false, true} {
+		mode := "instant"
+		if realtime {
+			mode = "realtime"
+		}
+		t.Run(mode, func(t *testing.T) {
+			for _, duration := range []time.Duration{0, time.Millisecond} {
+				t.Run(duration.String(), func(t *testing.T) {
+					exporter := tracetest.NewInMemoryExporter()
+					tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+					t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+					start := time.Now()
+					end := start.Add(duration)
+					plans := []SpanPlan{{
+						Index: 0, ParentIndex: -1, Service: "svc", Operation: "op",
+						StartTime: start, EndTime: end,
+						Events: []EventPlan{
+							{Name: "start", Timestamp: start},
+							{Name: "end-first", Timestamp: end},
+							{Name: "end-second", Timestamp: end},
+							{Name: "outside", Timestamp: end.Add(time.Hour)},
+						},
+					}}
+					tracers := func(name string) trace.Tracer { return tp.Tracer(name) }
+					if realtime {
+						emitTrace(context.Background(), plans, start, start, tracers, nil, &realtimeStats{}, nil)
+					} else {
+						emitTraceInstant(plans, tracers, nil, &realtimeStats{})
+					}
+					spans := exporter.GetSpans()
+					require.Len(t, spans, 1)
+					require.Len(t, spans[0].Events, 3)
+					for i, want := range plans[0].Events[:3] {
+						assert.Equal(t, want.Name, spans[0].Events[i].Name)
+						assert.Equal(t, want.Timestamp, spans[0].Events[i].Time)
+					}
+				})
+			}
+		})
+	}
+}

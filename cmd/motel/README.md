@@ -204,6 +204,10 @@ Span events are timestamped annotations emitted during an operation's span via
 `span.AddEvent()`. Use them for cache misses, query starts, connection
 acquisitions, message receipts, and similar intra-span occurrences.
 
+In `--realtime` mode, events are emitted when their simulated timestamps are
+reached. Cancellation omits pending events. Events at the span start or end
+are included; events scheduled after the span ends are omitted.
+
 | Field        | Type   | Description |
 |-------------|--------|-------------|
 | `name`       | string | Event name (required) |
