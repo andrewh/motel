@@ -85,10 +85,10 @@ func alwaysLog(severity, body string) LogDefinition {
 	return LogDefinition{Severity: severity, Body: body, Probability: 1.0}
 }
 
-func logAttrMap(r sdklog.Record) map[string]otellog.Value {
-	attrs := map[string]otellog.Value{}
-	r.WalkAttributes(func(kv otellog.KeyValue) bool {
-		attrs[kv.Key] = kv.Value
+func logAttrMap(r sdklog.Record) map[string]attribute.Value {
+	attrs := map[string]attribute.Value{}
+	r.WalkAttributes(func(kv attribute.KeyValue) bool {
+		attrs[string(kv.Key)] = kv.Value
 		return true
 	})
 	return attrs
@@ -232,8 +232,8 @@ func TestLogObserverAttributes(t *testing.T) {
 	require.Len(t, records, 1)
 
 	attrMap := map[string]string{}
-	records[0].WalkAttributes(func(kv otellog.KeyValue) bool {
-		attrMap[kv.Key] = kv.Value.AsString()
+	records[0].WalkAttributes(func(kv attribute.KeyValue) bool {
+		attrMap[string(kv.Key)] = kv.Value.AsString()
 		return true
 	})
 	assert.Equal(t, "POST /orders", attrMap["operation.name"])
@@ -410,9 +410,9 @@ func TestLogObserverTopologyTypedAttributes(t *testing.T) {
 	records := exporter.get()
 	require.Len(t, records, 1)
 	attrs := logAttrMap(records[0])
-	assert.Equal(t, otellog.KindString, attrs["app.flow"].Kind())
+	assert.Equal(t, attribute.STRING, attrs["app.flow"].Type())
 	assert.Equal(t, "checkout", attrs["app.flow"].AsString())
-	assert.Equal(t, otellog.KindInt64, attrs["app.retries"].Kind())
+	assert.Equal(t, attribute.INT64, attrs["app.retries"].Type())
 	assert.Equal(t, int64(42), attrs["app.retries"].AsInt64())
 }
 
