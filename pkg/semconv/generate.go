@@ -26,10 +26,6 @@ func GeneratorFor(attr *Attribute) (synth.AttributeGenerator, error) {
 		return generatorForScalar(attr, int64(0))
 	case typ == "double":
 		return generatorForScalar(attr, float64(0.0))
-	case strings.HasPrefix(typ, "template["):
-		return nil, fmt.Errorf("unsupported type: %s", typ)
-	case strings.HasSuffix(typ, "[]"):
-		return nil, fmt.Errorf("unsupported type: %s", typ)
 	case typ == "":
 		return nil, fmt.Errorf("no type information")
 	default:
