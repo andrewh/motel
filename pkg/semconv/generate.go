@@ -21,11 +21,11 @@ func GeneratorFor(attr *Attribute) (synth.AttributeGenerator, error) {
 	case typ == "boolean":
 		return equalWeightChoice([]any{false, true}), nil
 	case typ == "string":
-		return generatorForScalar(attr, "unknown")
+		return generatorForScalar(attr, "unknown"), nil
 	case typ == "int":
-		return generatorForScalar(attr, int64(0))
+		return generatorForScalar(attr, int64(0)), nil
 	case typ == "double":
-		return generatorForScalar(attr, float64(0.0))
+		return generatorForScalar(attr, float64(0.0)), nil
 	case typ == "":
 		return nil, fmt.Errorf("no type information")
 	default:
@@ -63,12 +63,12 @@ func generatorForEnum(attr *Attribute) (synth.AttributeGenerator, error) {
 	return nil, fmt.Errorf("enum with no members")
 }
 
-func generatorForScalar(attr *Attribute, fallback any) (synth.AttributeGenerator, error) {
+func generatorForScalar(attr *Attribute, fallback any) synth.AttributeGenerator {
 	examples := scalarExamples(attr)
 	if len(examples) > 0 {
-		return equalWeightChoice(examples), nil
+		return equalWeightChoice(examples)
 	}
-	return &synth.StaticValue{Value: fallback}, nil
+	return &synth.StaticValue{Value: fallback}
 }
 
 func equalWeightChoice(values []any) *synth.WeightedChoice {
