@@ -96,7 +96,8 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	// flattening through any continuation spans so their calls attach here.
 	// contErr reports whether any folded continuation span errored, so a nested
 	// failure marks this invocation as failed.
-	calls, contErr := foldedCalls(node, path)
+	calls, contErr, anomalies := foldedCalls(node, path)
+	op.TimingAnomalies += anomalies
 
 	duration := ownTime(node, calls)
 	op.RecordDuration(duration, 1)
@@ -104,11 +105,6 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 	op.TotalObservations = append(op.TotalObservations, float64(max(0, node.Span.EndTime.Sub(node.Span.StartTime))))
 	if node.Span.EndTime.Before(node.Span.StartTime) {
 		op.TimingAnomalies++
-	}
-	for _, child := range calls {
-		if child.Span.StartTime.Before(node.Span.StartTime) || child.Span.EndTime.After(node.Span.EndTime) || child.Span.EndTime.Before(child.Span.StartTime) {
-			op.TimingAnomalies++
-		}
 	}
 	op.TotalCount++
 	if node.Span.IsError || contErr {
@@ -156,7 +152,8 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 }
 
 // foldedCalls returns the spans representing genuine downstream calls from the
-// operation rooted at node, and whether any folded continuation span errored. A
+// operation rooted at node, whether any folded continuation span errored, and
+// the number of invalid child intervals encountered before or during folding. A
 // direct child whose (service, operation) is not on the path is a real call. A
 // child that is on the path is a continuation of an enclosing operation
 // (depth-bounded recursion such as a nested transaction); its own real calls are
@@ -164,14 +161,18 @@ func (c *StatsCollector) walkNode(node *SpanNode, ancestors []string) {
 // self- or back-edge, and its error status is propagated via errored so the
 // folded invocation inherits a nested failure. path lists the
 // "service.operation" refs on the route to node, including node itself.
-func foldedCalls(node *SpanNode, path []string) (calls []*SpanNode, errored bool) {
+func foldedCalls(node *SpanNode, path []string) (calls []*SpanNode, errored bool, anomalies int) {
 	for _, child := range node.Children {
+		if child.Span.StartTime.Before(node.Span.StartTime) || child.Span.EndTime.After(node.Span.EndTime) || child.Span.EndTime.Before(child.Span.StartTime) {
+			anomalies++
+		}
 		childRef := child.Span.Service + "." + child.Span.Operation
 		if containsString(path, childRef) {
 			if child.Span.IsError {
 				errored = true
 			}
-			sub, subErr := foldedCalls(child, path)
+			sub, subErr, subAnomalies := foldedCalls(child, path)
+			anomalies += subAnomalies
 			calls = append(calls, sub...)
 			if subErr {
 				errored = true
@@ -180,7 +181,7 @@ func foldedCalls(node *SpanNode, path []string) (calls []*SpanNode, errored bool
 			calls = append(calls, child)
 		}
 	}
-	return calls, errored
+	return calls, errored, anomalies
 }
 
 func containsString(haystack []string, needle string) bool {

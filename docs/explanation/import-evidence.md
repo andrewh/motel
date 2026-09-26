@@ -55,7 +55,10 @@ avoids false precision for very short spans. For sub-millisecond systems,
 Own-time assessment samples the actual parsed duration string after rounding
 and uses the existing normal sampler with zero clamping. Total-time assessment
 runs `synth.GenerateTraces` on the emitted execution model with seed 253 and
-2,048 traces, collecting elapsed spans through its observer API. Rarely visited
+up to 2,048 traces, collecting elapsed spans through its observer API, with a
+100,000-span budget across the assessment. Budget exhaustion produces
+`insufficient_evidence` with an `assessment_span_budget` reason. Metadata records
+the span budget and actual modeled trace and span counts. Rarely visited
 operations may have insufficient modeled samples even in a large capture.
 The same fixed seed is used for 2,048 own-time draws per operation. The capture
 records these settings. No fit is promised to generalize to future traffic.

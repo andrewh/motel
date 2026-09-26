@@ -263,8 +263,11 @@ func parseStdouttraceReader(r io.Reader) ([]Span, error) {
 		attrs := make(map[string]string)
 		typed := make(map[string]any)
 		for _, attr := range evt.Attributes {
+			if excludedAttributes[attr.Key] {
+				continue
+			}
 			typed[attr.Key] = sdkScalar(attr)
-			if excludedAttributes[attr.Key] || reservedEngineAttribute(attr.Key) {
+			if reservedEngineAttribute(attr.Key) {
 				continue
 			}
 			attrs[attr.Key] = fmt.Sprint(attr.Value.Value)
@@ -328,8 +331,11 @@ func parseOTLP(data []byte) ([]Span, error) {
 				attrs := make(map[string]string)
 				typed := make(map[string]any)
 				for _, attr := range span.Attributes {
+					if excludedAttributes[attr.Key] {
+						continue
+					}
 					typed[attr.Key] = attr.Value.scalar()
-					if excludedAttributes[attr.Key] || reservedEngineAttribute(attr.Key) {
+					if reservedEngineAttribute(attr.Key) {
 						continue
 					}
 					attrs[attr.Key] = attr.Value.asString()
@@ -475,6 +481,9 @@ func parseJaeger(data []byte) ([]Span, error) {
 			typed := make(map[string]any)
 			isError := false
 			for _, tag := range js.Tags {
+				if excludedAttributes[tag.Key] {
+					continue
+				}
 				typed[tag.Key] = jaegerScalar(tag)
 				val := jaegerTagString(tag.Value)
 				if tag.Key == "error" && val == "true" {

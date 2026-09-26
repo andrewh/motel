@@ -168,12 +168,12 @@ func jaegerResourceKeys(span jaegerSpan, processes map[string]*jaegerProcess) []
 }
 
 func assessAttributes(trees []*TraceTree, evidence *ImportEvidence) {
-	grouped := map[string][]Span{}
+	grouped := map[OperationKey][]Span{}
 	evidence.ResourceOmissions = map[string]int{}
 	for _, tree := range trees {
 		for _, node := range tree.AllNodes {
 			span := node.Span
-			ref := span.Service + "." + span.Operation
+			ref := OperationKey{span.Service, span.Operation}
 			grouped[ref] = append(grouped[ref], span)
 			for _, key := range span.ResourceKeys {
 				if key != serviceNameKey {
