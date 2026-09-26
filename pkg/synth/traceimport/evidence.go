@@ -24,26 +24,30 @@ const (
 	statusInsufficient     = "insufficient_evidence"
 	minimumFitObservations = 100
 	modelSamples           = 2048
+	modelSpanBudget        = 100_000
 	fitRelativeTolerance   = 0.20
 	fitAbsoluteTolerance   = time.Millisecond
 	assessmentSeed         = 253
 )
 
 type ImportEvidence struct {
-	RequestedMinSamples int                           `yaml:"requested_min_samples"`
-	ResourceOmissions   map[string]int                `yaml:"resource_omissions"`
-	SourceTraceCount    int                           `yaml:"source_trace_count"`
-	SourceSpanCount     int                           `yaml:"source_span_count"`
-	MissingParentCount  int                           `yaml:"missing_parent_count"`
-	WindowSeconds       float64                       `yaml:"window_seconds"`
-	TrafficRateBasis    string                        `yaml:"traffic_rate_basis"`
-	MinimumObservations int                           `yaml:"minimum_observations"`
-	RelativeTolerance   float64                       `yaml:"relative_tolerance"`
-	AbsoluteToleranceNS int64                         `yaml:"absolute_tolerance_ns"`
-	ModelSamples        int                           `yaml:"model_samples"`
-	ModelSeed           uint64                        `yaml:"model_seed"`
-	Reasons             []string                      `yaml:"reasons"`
-	Operations          map[string]*OperationEvidence `yaml:"-"`
+	RequestedMinSamples int                                 `yaml:"requested_min_samples"`
+	ResourceOmissions   map[string]int                      `yaml:"resource_omissions"`
+	SourceTraceCount    int                                 `yaml:"source_trace_count"`
+	SourceSpanCount     int                                 `yaml:"source_span_count"`
+	MissingParentCount  int                                 `yaml:"missing_parent_count"`
+	WindowSeconds       float64                             `yaml:"window_seconds"`
+	TrafficRateBasis    string                              `yaml:"traffic_rate_basis"`
+	MinimumObservations int                                 `yaml:"minimum_observations"`
+	RelativeTolerance   float64                             `yaml:"relative_tolerance"`
+	AbsoluteToleranceNS int64                               `yaml:"absolute_tolerance_ns"`
+	ModelSamples        int                                 `yaml:"model_samples"`
+	ModelSpanBudget     int                                 `yaml:"model_span_budget"`
+	ModeledSpans        int                                 `yaml:"modeled_spans"`
+	ModeledTraces       int                                 `yaml:"modeled_traces"`
+	ModelSeed           uint64                              `yaml:"model_seed"`
+	Reasons             []string                            `yaml:"reasons"`
+	Operations          map[OperationKey]*OperationEvidence `yaml:"-"`
 }
 
 type OperationEvidence struct {
@@ -76,10 +80,15 @@ type FitEvidence struct {
 	Reasons          []string  `yaml:"reasons"`
 }
 
-type modelObserver map[string][]float64
+type OperationKey struct {
+	Service   string `yaml:"service"`
+	Operation string `yaml:"operation"`
+}
+
+type modelObserver map[OperationKey][]float64
 
 func (o modelObserver) Observe(s synth.SpanInfo) {
-	ref := s.Service + "." + s.Operation
+	ref := OperationKey{s.Service, s.Operation}
 	o[ref] = append(o[ref], float64(s.Duration))
 }
 
@@ -90,7 +99,7 @@ func assessImport(collector *StatsCollector, trees []*TraceTree, cfg *synth.Conf
 		MinimumObservations: minimumFitObservations, RelativeTolerance: fitRelativeTolerance,
 		AbsoluteToleranceNS: int64(fitAbsoluteTolerance), ModelSamples: modelSamples, ModelSeed: assessmentSeed,
 		Reasons:    []string{"capture_completeness_unknown", "independent_operation_and_call_sampling", "original_import_only"},
-		Operations: make(map[string]*OperationEvidence), TrafficRateBasis: "observed_root_window",
+		Operations: make(map[OperationKey]*OperationEvidence), TrafficRateBasis: "observed_root_window",
 	}
 	if evidence.SourceTraceCount < evidence.RequestedMinSamples {
 		evidence.Reasons = append(evidence.Reasons, "below_requested_trace_count")
@@ -114,9 +123,26 @@ func assessImport(collector *StatsCollector, trees []*TraceTree, cfg *synth.Conf
 		return nil, fmt.Errorf("building assessment topology: %w", err)
 	}
 	totals := modelObserver{}
-	stats, err := synth.GenerateTraces(context.Background(), topo, synth.TracerProviderSource(noop.NewTracerProvider()), synth.GenerateOptions{Traces: modelSamples, Seed: assessmentSeed, Observers: []synth.SpanObserver{totals}})
-	if err != nil {
-		return nil, fmt.Errorf("generating assessment traces: %w", err)
+	generatedSpans, generatedTraces, boundedTraces := 0, 0, 0
+	for i := 0; i < modelSamples && generatedSpans < modelSpanBudget; i++ {
+		stats, err := synth.GenerateTraces(context.Background(), topo, synth.TracerProviderSource(noop.NewTracerProvider()), synth.GenerateOptions{
+			Traces: 1, Seed: assessmentSeed + uint64(i),
+			MaxSpansPerTrace: min(synth.DefaultMaxSpansPerTrace, modelSpanBudget-generatedSpans),
+			Observers:        []synth.SpanObserver{totals},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("generating assessment traces: %w", err)
+		}
+		generatedSpans += int(stats.Spans)
+		generatedTraces++
+		boundedTraces += int(stats.SpansBounded)
+	}
+	evidence.ModelSpanBudget = modelSpanBudget
+	evidence.ModeledSpans = generatedSpans
+	evidence.ModeledTraces = generatedTraces
+	budgetExhausted := generatedTraces < modelSamples
+	if budgetExhausted {
+		evidence.Reasons = append(evidence.Reasons, "assessment_span_budget")
 	}
 	for _, svcName := range sortedStringKeys(collector.Services) {
 		svc := collector.Services[svcName]
@@ -129,7 +155,7 @@ func assessImport(collector *StatsCollector, trees []*TraceTree, cfg *synth.Conf
 				own[i] = float64(op.Duration.Sample(rng))
 			}
 			latency := LatencyEvidence{ObservationCount: opStats.TotalCount, TimingAnomalyCount: opStats.TimingAnomalies,
-				OwnTime: assessFit(opStats.OwnObservations, own), TotalTime: assessFit(opStats.TotalObservations, totals[op.Ref]),
+				OwnTime: assessFit(opStats.OwnObservations, own), TotalTime: assessFit(opStats.TotalObservations, totals[OperationKey{svcName, opName}]),
 				Reasons: []string{"own_time_subtracts_clipped_child_interval_union", "unobserved_children_remain_in_own_time"},
 			}
 			if opStats.TimingAnomalies > 0 {
@@ -138,10 +164,13 @@ func assessImport(collector *StatsCollector, trees []*TraceTree, cfg *synth.Conf
 			if evidence.MissingParentCount > 0 {
 				latency.Reasons = append(latency.Reasons, "incomplete_capture")
 			}
-			if stats.SpansBounded > 0 {
+			if boundedTraces > 0 {
 				latency.Reasons = append(latency.Reasons, "regeneration_span_limit")
 			}
-			if opStats.TimingAnomalies > 0 || evidence.MissingParentCount > 0 || stats.SpansBounded > 0 {
+			if budgetExhausted {
+				latency.Reasons = append(latency.Reasons, "assessment_span_budget")
+			}
+			if budgetExhausted || opStats.TimingAnomalies > 0 || evidence.MissingParentCount > 0 || boundedTraces > 0 {
 				latency.OwnTime.ImportStatus = statusInsufficient
 				latency.TotalTime.ImportStatus = statusInsufficient
 			}
@@ -155,7 +184,7 @@ func assessImport(collector *StatsCollector, trees []*TraceTree, cfg *synth.Conf
 					latency.ImportStatus = statusPoorFit
 				}
 			}
-			evidence.Operations[op.Ref] = &OperationEvidence{Latency: latency, Inference: assessInference(opStats, svc.CallStyles[opName], evidence.RequestedMinSamples)}
+			evidence.Operations[OperationKey{svcName, opName}] = &OperationEvidence{Latency: latency, Inference: assessInference(opStats, svc.CallStyles[opName], evidence.RequestedMinSamples)}
 		}
 	}
 	assessAttributes(trees, evidence)
@@ -198,7 +227,7 @@ func attachEvidence(data []byte, evidence *ImportEvidence) ([]byte, error) {
 	cfg.Import = evidence
 	for svcName, svc := range cfg.Services {
 		for opName, op := range svc.Operations {
-			op.Import = evidence.Operations[svcName+"."+opName]
+			op.Import = evidence.Operations[OperationKey{svcName, opName}]
 			op.Attributes = make(map[string]synth.AttributeValueConfig, len(op.Import.RetainedAttributes))
 			for key, attr := range op.Import.RetainedAttributes {
 				if value, ok := attr.Value.(float64); ok {
@@ -239,18 +268,38 @@ func (r Result) MarkdownReport() string {
 	if r.Evidence == nil {
 		return b.String()
 	}
-	b.WriteString("\n| Operation | Own-time assessment | Total-time assessment | Observations |\n| --- | --- | --- | --- |\n")
-	for _, ref := range sortedStringKeys(r.Evidence.Operations) {
+	b.WriteString("\n| Service | Operation | Own-time assessment | Total-time assessment | Observations |\n| --- | --- | --- | --- | --- |\n")
+	for _, ref := range sortedOperationKeys(r.Evidence.Operations) {
 		op := r.Evidence.Operations[ref]
-		fmt.Fprintf(&b, "| %s | %s | %s | %d |\n", strings.NewReplacer("|", "\\|", "\n", " ").Replace(ref), op.Latency.OwnTime.ImportStatus, op.Latency.TotalTime.ImportStatus, op.Latency.ObservationCount)
+		escape := strings.NewReplacer("|", "\\|", "\n", " ")
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %d |\n", escape.Replace(ref.Service), escape.Replace(ref.Operation), op.Latency.OwnTime.ImportStatus, op.Latency.TotalTime.ImportStatus, op.Latency.ObservationCount)
 	}
 	b.WriteString("\n## Structured evidence\n\n```yaml\n")
 	data, _ := yaml.Marshal(r.Evidence)
 	b.Write(data)
-	for _, ref := range sortedStringKeys(r.Evidence.Operations) {
-		data, _ = yaml.Marshal(map[string]*OperationEvidence{ref: r.Evidence.Operations[ref]})
-		b.Write(data)
+	operations := map[string]map[string]*OperationEvidence{}
+	for key, op := range r.Evidence.Operations {
+		if operations[key.Service] == nil {
+			operations[key.Service] = map[string]*OperationEvidence{}
+		}
+		operations[key.Service][key.Operation] = op
 	}
+	data, _ = yaml.Marshal(map[string]any{"operations": operations})
+	b.Write(data)
 	b.WriteString("```\n")
 	return b.String()
+}
+
+func sortedOperationKeys(operations map[OperationKey]*OperationEvidence) []OperationKey {
+	keys := make([]OperationKey, 0, len(operations))
+	for key := range operations {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Service != keys[j].Service {
+			return keys[i].Service < keys[j].Service
+		}
+		return keys[i].Operation < keys[j].Operation
+	})
+	return keys
 }

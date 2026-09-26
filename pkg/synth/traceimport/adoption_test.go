@@ -76,7 +76,7 @@ func TestImportLatencyEvidence(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Import)
 		require.Equal(t, count, result.Evidence.SourceTraceCount)
-		op := result.Evidence.Operations["api.handle"]
+		op := result.Evidence.Operations[OperationKey{"api", "handle"}]
 		require.Equal(t, count, op.Latency.ObservationCount)
 		want := "insufficient_evidence"
 		if count == 100 {
@@ -86,7 +86,7 @@ func TestImportLatencyEvidence(t *testing.T) {
 		require.Equal(t, want, op.Latency.TotalTime.ImportStatus)
 		require.Equal(t, float64(30*time.Millisecond), op.Latency.TotalTime.Observed.MedianNS)
 		require.Equal(t, float64(30*time.Millisecond), op.Latency.TotalTime.Modeled.MedianNS)
-		require.Contains(t, result.MarkdownReport(), "api.handle")
+		require.Contains(t, result.MarkdownReport(), "api | handle")
 		for _, operation := range cfg.Services[0].Operations {
 			require.NotNil(t, operation.Import)
 		}
@@ -127,7 +127,7 @@ func TestImportTypedOperationAttributes(t *testing.T) {
 	require.Equal(t, 42, attrs["size"].Value)
 	require.IsType(t, float64(0), attrs["ratio"].Value)
 	require.Equal(t, false, attrs["cached"].Value)
-	evidence := result.Evidence.Operations["api.handle"].Attributes
+	evidence := result.Evidence.Operations[OperationKey{"api", "handle"}].Attributes
 	require.Equal(t, "partial_presence", evidence.Keys["partial"].Reasons[0])
 	require.Equal(t, "varying_value_or_type", evidence.Keys["varies"].Reasons[0])
 	require.Equal(t, "unsupported_value", evidence.Keys["array"].Reasons[0])
@@ -174,7 +174,7 @@ func TestImportFitLimitations(t *testing.T) {
 			}
 			result, err := Import(strings.NewReader(input), Options{Format: FormatStdouttrace, Warnings: io.Discard})
 			require.NoError(t, err)
-			latency := result.Evidence.Operations["api.handle"].Latency
+			latency := result.Evidence.Operations[OperationKey{"api", "handle"}].Latency
 			require.Equal(t, tc.want, latency.ImportStatus)
 			require.Equal(t, tc.ownStatus, latency.OwnTime.ImportStatus)
 			if tc.name == "bimodal" {
@@ -275,7 +275,7 @@ func TestImportTypeDistinctAttributes(t *testing.T) {
 	cfg, err := synth.ParseConfig(result.YAML)
 	require.NoError(t, err)
 	require.Empty(t, cfg.Services[0].Operations[0].Attributes)
-	require.Contains(t, result.Evidence.Operations["api.handle"].Attributes.Keys["number"].Reasons, "varying_value_or_type")
+	require.Contains(t, result.Evidence.Operations[OperationKey{"api", "handle"}].Attributes.Keys["number"].Reasons, "varying_value_or_type")
 }
 
 func TestImportRejectsTrailingJSON(t *testing.T) {
@@ -309,7 +309,7 @@ func TestImportConfidenceEvidence(t *testing.T) {
 	result, err := Import(strings.NewReader(input), Options{Format: FormatStdouttrace, MinTraces: 5, Warnings: &warnings})
 	require.NoError(t, err)
 	require.Equal(t, 5, result.Evidence.RequestedMinSamples)
-	evidence := result.Evidence.Operations["api.handle"].Inference
+	evidence := result.Evidence.Operations[OperationKey{"api", "handle"}].Inference
 	require.Contains(t, evidence.Reasons, "below_requested_operation_samples")
 	require.Equal(t, 1, evidence.Calls["api.child1"].PresentCount)
 	require.Contains(t, evidence.Calls["api.child1"].Reasons, "below_requested_call_samples")
