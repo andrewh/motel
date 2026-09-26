@@ -24,17 +24,7 @@ const baggageAttributePrefix = "baggage."
 // entries overlaid with operation-level entries, with the operation winning on
 // key conflicts. Returns nil when neither level declares baggage.
 func mergeDeclaredBaggage(service, operation map[string]string) map[string]string {
-	if len(service) == 0 && len(operation) == 0 {
-		return nil
-	}
-	merged := make(map[string]string, len(service)+len(operation))
-	for k, v := range service {
-		merged[k] = v
-	}
-	for k, v := range operation {
-		merged[k] = v
-	}
-	return merged
+	return overlayBaggageMap(service, operation)
 }
 
 // overlayBaggageMap overlays an operation's declared baggage onto the baggage
