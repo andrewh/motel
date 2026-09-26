@@ -15,6 +15,13 @@ type LinkRef struct {
 	Attributes []attribute.KeyValue
 }
 
+// EventPlan holds a configured span event and its sampled attributes.
+type EventPlan struct {
+	Name       string
+	Timestamp  time.Time
+	Attributes []attribute.KeyValue
+}
+
 // SpanPlan holds pre-computed data for a single span, ready for deferred emission.
 type SpanPlan struct {
 	Index           int
@@ -34,6 +41,7 @@ type SpanPlan struct {
 	Rejected        bool
 	RejectionReason string
 	LinkRefs        []LinkRef
+	Events          []EventPlan
 	// Baggage is the full baggage set visible while this span is active
 	// (inherited from the parent plan plus this operation's declared baggage).
 	// Children read their parent's Baggage to inherit; emitTrace places it on
@@ -42,9 +50,9 @@ type SpanPlan struct {
 }
 
 // planTrace recursively plans spans for an operation and its downstream calls.
-// It mirrors walkTrace exactly: same RNG consumption order, same SimulationState
-// mutations, same timing logic. The only difference is that it appends to plans
-// instead of creating OTel spans.
+// It samples links, attributes, events, errors, and durations in walkTrace order.
+// Link contexts are resolved during emission, so their availability can differ
+// from immediate emission. Observer notifications also follow emission timing.
 // parent is the calling operation, nil for roots; it determines the span kind
 // for same-service sync callees.
 // Returns the span end time and whether the span errored.
@@ -111,6 +119,14 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 		startAttrs = append(startAttrs, attribute.StringSlice("synth.scenarios", scenarioNames))
 	}
 
+	var linkRefs []LinkRef
+	for _, linked := range op.Links {
+		linkRefs = append(linkRefs, LinkRef{
+			Ref:        linked.Operation.Ref,
+			Attributes: attributeKeyValues(linked.Attributes, e.Rng),
+		})
+	}
+
 	spanAttrs := make([]attribute.KeyValue, 0, len(op.Service.Attributes)+len(opAttrs))
 	for k, v := range op.Service.Attributes {
 		spanAttrs = append(spanAttrs, attribute.String(k, v))
@@ -120,6 +136,11 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 	}
 	if op.BaggageAsAttributes {
 		spanAttrs = append(spanAttrs, baggageAttributesFromMap(mergedBaggage)...)
+	}
+
+	var events []EventPlan
+	for _, evt := range op.Events {
+		events = append(events, EventPlan{Name: evt.Name, Timestamp: startTime.Add(evt.Delay), Attributes: attributeKeyValues(evt.Attributes, e.Rng)})
 	}
 
 	ownError := false
@@ -134,14 +155,6 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 	preCallDuration := ownDuration / 2
 	childStartTime := startTime.Add(preCallDuration)
 
-	var linkRefs []LinkRef
-	for _, linked := range op.Links {
-		linkRefs = append(linkRefs, LinkRef{
-			Ref:        linked.Operation.Ref,
-			Attributes: attributeKeyValues(linked.Attributes, e.Rng),
-		})
-	}
-
 	// Append a placeholder plan entry; EndTime and IsError are filled in after children.
 	plan := SpanPlan{
 		Index:       index,
@@ -155,6 +168,7 @@ func (e *Engine) planTrace(op, parent *Operation, parentIndex int, startTime tim
 		Attrs:       spanAttrs,
 		Scenarios:   scenarioNames,
 		LinkRefs:    linkRefs,
+		Events:      events,
 		Baggage:     mergedBaggage,
 	}
 	*plans = append(*plans, plan)

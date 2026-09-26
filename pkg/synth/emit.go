@@ -103,6 +103,9 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)
 			}
+			for _, event := range plan.Events {
+				span.AddEvent(event.Name, trace.WithTimestamp(event.Timestamp), trace.WithAttributes(event.Attributes...))
+			}
 			notifySpanStart(observers, plan.Service, plan.Operation)
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
 		} else {
