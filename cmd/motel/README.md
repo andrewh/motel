@@ -693,9 +693,10 @@ condition fires. All three signal types are driven by the same topology — see
 
 ## Design Decisions
 
-**Synthetic timestamps.** The engine does not sleep per span. Wall-clock time
-is only used for rate control between traces. This means you can generate hours
-of simulated traffic in seconds.
+**Synthetic timestamps.** In the default mode, the engine does not sleep per
+span; wall-clock time controls the rate between traces. With
+[`--realtime`](../../docs/reference/synth.md), span starts and ends are paced
+to match their simulated timestamps.
 
 **Cascading failure.** Per-call `timeout` limits how long the caller waits;
 the child span retains its simulated duration. `retries`
