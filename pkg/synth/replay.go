@@ -426,7 +426,7 @@ func replayTraceFailed(plans []SpanPlan) bool {
 
 // emitTraceInstant emits a planned trace immediately (no wall-clock pacing),
 // stamping each span with its planned timestamps. It mirrors emitTrace's
-// Start/End ordering via buildEvents but skips the scheduling timer.
+// Start/Event/End ordering via buildEvents but skips the scheduling timer.
 func emitTraceInstant(plans []SpanPlan, tracers TracerSource, observers []SpanObserver, rstats *realtimeStats) {
 	if len(plans) == 0 {
 		return
@@ -436,7 +436,8 @@ func emitTraceInstant(plans []SpanPlan, tracers TracerSource, observers []SpanOb
 
 	for _, ev := range events {
 		plan := &plans[ev.Index]
-		if !ev.IsEnd {
+		switch ev.Kind {
+		case spanStart:
 			parentCtx := context.Background()
 			if plan.ParentIndex >= 0 && live[plan.ParentIndex].Ctx != nil {
 				parentCtx = live[plan.ParentIndex].Ctx
@@ -454,7 +455,12 @@ func emitTraceInstant(plans []SpanPlan, tracers TracerSource, observers []SpanOb
 			}
 			notifySpanStart(observers, plan.Service, plan.Operation)
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
-		} else {
+		case spanConfiguredEvent:
+			if span := live[ev.Index].Span; span != nil {
+				event := plan.Events[ev.EventIndex]
+				span.AddEvent(event.Name, trace.WithTimestamp(event.Timestamp), trace.WithAttributes(event.Attributes...))
+			}
+		case spanEnd:
 			ls := live[ev.Index]
 			if ls.Span == nil {
 				continue

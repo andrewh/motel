@@ -14,11 +14,20 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// spanEvent is a scheduled Start or End at a wall-clock time.
+type spanEventKind int
+
+const (
+	spanStart spanEventKind = iota
+	spanConfiguredEvent
+	spanEnd
+)
+
+// spanEvent schedules a span start, configured event, or end at a wall-clock time.
 type spanEvent struct {
-	SimTime time.Time
-	Index   int
-	IsEnd   bool
+	SimTime    time.Time
+	Index      int
+	Kind       spanEventKind
+	EventIndex int
 }
 
 // realtimeStats holds atomic counters accumulated during emission.
@@ -62,9 +71,17 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 		case <-timer.C:
 		}
 
+		// Cancellation wins even when the next scheduled action is already due.
+		// Otherwise select can randomly emit another event after cancellation.
+		if ctx.Err() != nil {
+			endAllOpen(live, plans, observers, rstats)
+			return
+		}
+
 		plan := &plans[ev.Index]
 
-		if !ev.IsEnd {
+		switch ev.Kind {
+		case spanStart:
 			var parentCtx context.Context
 			if plan.ParentIndex >= 0 {
 				parentCtx = live[plan.ParentIndex].Ctx
@@ -103,12 +120,14 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 			if len(plan.Attrs) > 0 {
 				span.SetAttributes(plan.Attrs...)
 			}
-			for _, event := range plan.Events {
-				span.AddEvent(event.Name, trace.WithTimestamp(event.Timestamp), trace.WithAttributes(event.Attributes...))
-			}
 			notifySpanStart(observers, plan.Service, plan.Operation)
 			live[ev.Index] = liveSpan{Span: span, Ctx: spanCtx}
-		} else {
+		case spanConfiguredEvent:
+			if span := live[ev.Index].Span; span != nil {
+				event := plan.Events[ev.EventIndex]
+				span.AddEvent(event.Name, trace.WithTimestamp(event.Timestamp), trace.WithAttributes(event.Attributes...))
+			}
+		case spanEnd:
 			ls := live[ev.Index]
 			if ls.Span == nil {
 				continue
@@ -119,31 +138,37 @@ func emitTrace(ctx context.Context, plans []SpanPlan, baseSimTime time.Time, bas
 	}
 }
 
-// buildEvents creates a sorted list of Start and End events from span plans.
+// buildEvents orders starts before configured events before ends at equal times.
+// Events after the planned end are omitted because the span is no longer active.
 func buildEvents(plans []SpanPlan) []spanEvent {
 	events := make([]spanEvent, 0, len(plans)*2)
 	for i := range plans {
 		events = append(events,
-			spanEvent{SimTime: plans[i].StartTime, Index: i, IsEnd: false},
-			spanEvent{SimTime: plans[i].EndTime, Index: i, IsEnd: true},
+			spanEvent{SimTime: plans[i].StartTime, Index: i, Kind: spanStart},
+			spanEvent{SimTime: plans[i].EndTime, Index: i, Kind: spanEnd},
 		)
+		for j, event := range plans[i].Events {
+			if event.Timestamp.After(plans[i].EndTime) {
+				continue
+			}
+			events = append(events, spanEvent{SimTime: event.Timestamp, Index: i, Kind: spanConfiguredEvent, EventIndex: j})
+		}
 	}
 	slices.SortFunc(events, func(a, b spanEvent) int {
 		if c := a.SimTime.Compare(b.SimTime); c != 0 {
 			return c
 		}
-		// Start before End at the same time.
-		if a.IsEnd != b.IsEnd {
-			if a.IsEnd {
-				return 1
-			}
-			return -1
+		if c := cmp.Compare(a.Kind, b.Kind); c != 0 {
+			return c
 		}
 		// Among ends, higher index first (children end before parents).
-		if a.IsEnd {
+		if a.Kind == spanEnd {
 			return cmp.Compare(b.Index, a.Index)
 		}
-		return cmp.Compare(a.Index, b.Index)
+		if c := cmp.Compare(a.Index, b.Index); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.EventIndex, b.EventIndex)
 	})
 	return events
 }
