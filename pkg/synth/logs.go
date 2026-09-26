@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -248,8 +249,8 @@ func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *
 	}
 	timestamp = timestamp.Add(tpl.delay)
 
-	attrs := make([]log.KeyValue, 0, len(tpl.attrGens)+1)
-	attrs = append(attrs, log.String("operation.name", info.Operation))
+	attrs := make([]attribute.KeyValue, 0, len(tpl.attrGens)+1)
+	attrs = append(attrs, attribute.String("operation.name", info.Operation))
 	for _, a := range tpl.attrGens {
 		attrs = append(attrs, logKeyValue(a.Key, attrValues[a.Key]))
 	}
@@ -258,7 +259,7 @@ func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *
 	rec.SetTimestamp(timestamp)
 	rec.SetSeverity(tpl.severity)
 	rec.SetSeverityText(tpl.severityText)
-	rec.SetBody(log.StringValue(interpolateBody(tpl.body, attrValues, info)))
+	rec.SetBody(attribute.StringValue(interpolateBody(tpl.body, attrValues, info)))
 	rec.AddAttributes(attrs...)
 	logger.Emit(ctx, rec)
 }
@@ -266,8 +267,8 @@ func (l *LogObserver) emitTemplate(ctx context.Context, logger log.Logger, tpl *
 // emitDerived emits the built-in ERROR and WARN log records for services
 // without topology log definitions.
 func (l *LogObserver) emitDerived(ctx context.Context, logger log.Logger, info SpanInfo) {
-	attrs := []log.KeyValue{
-		log.String("operation.name", info.Operation),
+	attrs := []attribute.KeyValue{
+		attribute.String("operation.name", info.Operation),
 	}
 
 	if info.IsError {
@@ -275,7 +276,7 @@ func (l *LogObserver) emitDerived(ctx context.Context, logger log.Logger, info S
 		rec.SetTimestamp(info.Timestamp)
 		rec.SetSeverity(log.SeverityError)
 		rec.SetSeverityText(logSeverityError)
-		rec.SetBody(log.StringValue(fmt.Sprintf("error in %s %s", info.Service, info.Operation)))
+		rec.SetBody(attribute.StringValue(fmt.Sprintf("error in %s %s", info.Service, info.Operation)))
 		rec.AddAttributes(attrs...)
 		logger.Emit(ctx, rec)
 	}
@@ -285,7 +286,7 @@ func (l *LogObserver) emitDerived(ctx context.Context, logger log.Logger, info S
 		rec.SetTimestamp(info.Timestamp)
 		rec.SetSeverity(log.SeverityWarn)
 		rec.SetSeverityText(logSeverityWarn)
-		rec.SetBody(log.StringValue(fmt.Sprintf(
+		rec.SetBody(attribute.StringValue(fmt.Sprintf(
 			"slow operation %s %s: %s (threshold %s)",
 			info.Service, info.Operation, info.Duration, l.slowThreshold,
 		)))
@@ -322,20 +323,20 @@ func interpolateBody(body string, logAttrs map[string]any, info SpanInfo) string
 	})
 }
 
-// logKeyValue converts a generated attribute value to a typed log.KeyValue.
-func logKeyValue(key string, value any) log.KeyValue {
+// logKeyValue converts a generated attribute value to a typed attribute.KeyValue.
+func logKeyValue(key string, value any) attribute.KeyValue {
 	switch v := value.(type) {
 	case string:
-		return log.String(key, v)
+		return attribute.String(key, v)
 	case bool:
-		return log.Bool(key, v)
+		return attribute.Bool(key, v)
 	case int:
-		return log.Int(key, v)
+		return attribute.Int(key, v)
 	case int64:
-		return log.Int64(key, v)
+		return attribute.Int64(key, v)
 	case float64:
-		return log.Float64(key, v)
+		return attribute.Float64(key, v)
 	default:
-		return log.String(key, fmt.Sprint(v))
+		return attribute.String(key, fmt.Sprint(v))
 	}
 }
