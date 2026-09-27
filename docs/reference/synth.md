@@ -211,6 +211,7 @@ motel preview <topology.yaml | URL> [flags]
 | `--duration` | duration | inferred from topology | Preview duration |
 | `--format` | `svg` or `html` | `svg` | Output format |
 | `--run-duration` | duration | `1s` | HTML simulation duration, at most `10s` |
+| `--slow-threshold` | duration | `1s` | HTML slow-log threshold; `0` disables slow logs |
 | `--seed` | integer | `1` | HTML simulation seed |
 | `--max-traces` | integer | `200` | HTML simulation trace cap, at most `200` |
 | `--output`, `-o` | string | stdout | Output file path |

@@ -29,9 +29,10 @@ const (
 )
 
 type previewRunOptions struct {
-	duration  time.Duration
-	seed      uint64
-	maxTraces int
+	duration      time.Duration
+	slowThreshold time.Duration
+	seed          uint64
+	maxTraces     int
 }
 
 type previewAttribute struct {
@@ -45,6 +46,9 @@ func (o previewRunOptions) validate() error {
 	}
 	if o.maxTraces <= 0 || o.maxTraces > maxPreviewTraces {
 		return fmt.Errorf("--max-traces must be between 1 and %d", maxPreviewTraces)
+	}
+	if o.slowThreshold < 0 {
+		return fmt.Errorf("--slow-threshold must not be negative, got %s", o.slowThreshold)
 	}
 	return nil
 }
@@ -84,6 +88,7 @@ type previewMetric struct {
 	Type       string                      `json:"type"`
 	Unit       string                      `json:"unit,omitempty"`
 	Service    string                      `json:"service"`
+	Resource   map[string]previewAttribute `json:"resource,omitempty"`
 	Value      string                      `json:"value"`
 	TimeMs     int64                       `json:"time_ms"`
 	StartMs    int64                       `json:"start_ms"`
@@ -99,6 +104,7 @@ type previewMetric struct {
 type previewLog struct {
 	TimeMs     int64                       `json:"time_ms"`
 	Service    string                      `json:"service"`
+	Resource   map[string]previewAttribute `json:"resource,omitempty"`
 	Severity   string                      `json:"severity"`
 	Body       string                      `json:"body"`
 	TraceID    string                      `json:"trace_id,omitempty"`
@@ -107,14 +113,15 @@ type previewLog struct {
 }
 
 type previewCapture struct {
-	Duration     string          `json:"duration"`
-	Seed         uint64          `json:"seed"`
-	MaxTraces    int             `json:"max_traces"`
-	Stats        *synth.Stats    `json:"stats"`
-	Spans        []previewSpan   `json:"spans"`
-	Metrics      []previewMetric `json:"metrics"`
-	Logs         []previewLog    `json:"logs"`
-	DroppedSpans int             `json:"dropped_spans"`
+	Duration      string          `json:"duration"`
+	SlowThreshold string          `json:"slow_threshold"`
+	Seed          uint64          `json:"seed"`
+	MaxTraces     int             `json:"max_traces"`
+	Stats         *synth.Stats    `json:"stats"`
+	Spans         []previewSpan   `json:"spans"`
+	Metrics       []previewMetric `json:"metrics"`
+	Logs          []previewLog    `json:"logs"`
+	DroppedSpans  int             `json:"dropped_spans"`
 }
 
 type previewSpanExporter struct {
@@ -152,7 +159,7 @@ func (e *previewSpanExporter) ExportSpans(_ context.Context, spans []sdktrace.Re
 			StartMs:      span.StartTime().UnixMilli(),
 			DurationMs:   float64(span.EndTime().Sub(span.StartTime()).Microseconds()) / 1000,
 			Status:       span.Status().Code.String(),
-			Resource:     spanAttributes(span.Resource().Attributes()),
+			Resource:     previewResourceAttributes(span.Resource()),
 			Attributes:   attrs,
 		}
 		for _, event := range span.Events() {
@@ -207,6 +214,7 @@ func (e *previewLogExporter) Records() []previewLog {
 		item := previewLog{
 			TimeMs:     record.Timestamp().UnixMilli(),
 			Service:    resourceService(record.Resource()),
+			Resource:   previewResourceAttributes(record.Resource()),
 			Severity:   record.SeverityText(),
 			Body:       record.Body().AsString(),
 			TraceID:    record.TraceID().String(),
@@ -235,7 +243,12 @@ func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenario
 	logProviders := make([]*sdklog.LoggerProvider, 0, len(topo.Services))
 	logs := &previewLogExporter{}
 	for _, name := range sortedServiceNames(topo) {
-		res := resource.NewSchemaless(attribute.String("service.name", name))
+		attrs := make([]attribute.KeyValue, 0, 1+len(topo.Services[name].ResourceAttributes))
+		attrs = append(attrs, attribute.String("service.name", name))
+		for key, value := range topo.Services[name].ResourceAttributes {
+			attrs = append(attrs, attribute.String(key, value))
+		}
+		res := resource.NewSchemaless(attrs...)
 		traceProviders[name] = sdktrace.NewTracerProvider(
 			sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(spans)),
 			sdktrace.WithResource(res),
@@ -275,7 +288,7 @@ func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenario
 			stopMetrics()
 		}
 	}()
-	logObserver, err := synth.NewLogObserver(loggers, topo, 0, rand.New(rand.NewPCG(opts.seed^0x8ebc6af09c88c6e3, opts.seed^0x589965cc75374cc3)))
+	logObserver, err := synth.NewLogObserver(loggers, topo, opts.slowThreshold, rand.New(rand.NewPCG(opts.seed^0x8ebc6af09c88c6e3, opts.seed^0x589965cc75374cc3)))
 	if err != nil {
 		return nil, fmt.Errorf("creating preview log observer: %w", err)
 	}
@@ -299,13 +312,14 @@ func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenario
 	stopMetrics()
 	stopMetrics = nil
 	result := &previewCapture{
-		Duration:  opts.duration.String(),
-		Seed:      opts.seed,
-		MaxTraces: opts.maxTraces,
-		Stats:     stats,
-		Spans:     []previewSpan{},
-		Metrics:   []previewMetric{},
-		Logs:      []previewLog{},
+		Duration:      opts.duration.String(),
+		SlowThreshold: opts.slowThreshold.String(),
+		Seed:          opts.seed,
+		MaxTraces:     opts.maxTraces,
+		Stats:         stats,
+		Spans:         []previewSpan{},
+		Metrics:       []previewMetric{},
+		Logs:          []previewLog{},
 	}
 	capturedSpans, droppedSpans := spans.Records()
 	result.Spans = append(result.Spans, capturedSpans...)
@@ -357,14 +371,23 @@ func resourceService(res *resource.Resource) string {
 	return value.AsString()
 }
 
+func previewResourceAttributes(res *resource.Resource) map[string]previewAttribute {
+	if res == nil {
+		return nil
+	}
+	return spanAttributes(res.Attributes())
+}
+
 func previewMetricRecords(rm metricdata.ResourceMetrics, limit int) []previewMetric {
 	service := resourceService(rm.Resource)
+	resourceAttrs := previewResourceAttributes(rm.Resource)
 	var result []previewMetric
 	for _, scope := range rm.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			if len(result) >= limit {
 				return result
 			}
+			start := len(result)
 			switch data := metric.Data.(type) {
 			case metricdata.Gauge[int64]:
 				result = append(result, previewNumberMetrics(metric.Name, "gauge", metric.Unit, service, data.DataPoints, limit-len(result))...)
@@ -378,6 +401,9 @@ func previewMetricRecords(rm metricdata.ResourceMetrics, limit int) []previewMet
 				result = append(result, previewHistogramMetrics(metric.Name, metric.Unit, service, data.DataPoints, limit-len(result))...)
 			case metricdata.Histogram[float64]:
 				result = append(result, previewHistogramMetrics(metric.Name, metric.Unit, service, data.DataPoints, limit-len(result))...)
+			}
+			for i := start; i < len(result); i++ {
+				result[i].Resource = resourceAttrs
 			}
 		}
 	}

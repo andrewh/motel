@@ -57,12 +57,17 @@ func TestPreviewCommand(t *testing.T) {
 version: 1
 services:
   api:
+    resource_attributes:
+      deployment.environment: preview
     metrics:
       - name: api.requests
         type: counter
     logs:
       - severity: INFO
         body: handled request
+      - severity: WARN
+        body: slow request
+        condition: slow
     operations:
       request:
         duration: 10ms
@@ -91,7 +96,7 @@ scenarios:
           - target: cache.get
 `)
 		root := rootCmd()
-		root.SetArgs([]string{"preview", "--format", "html", "--duration", "8s", path})
+		root.SetArgs([]string{"preview", "--format", "html", "--duration", "8s", "--slow-threshold", "1ms", path})
 		var out bytes.Buffer
 		root.SetOut(&out)
 		require.NoError(t, root.Execute())
@@ -117,6 +122,35 @@ scenarios:
 		assert.NotEmpty(t, capture.Spans)
 		assert.NotEmpty(t, capture.Metrics)
 		assert.NotEmpty(t, capture.Logs)
+		assert.Equal(t, "1ms", capture.SlowThreshold)
+		wantResource := previewAttribute{Type: "STRING", Value: "preview"}
+		var apiSpans, apiMetrics, apiLogs int
+		for _, span := range capture.Spans {
+			if span.Service == "api" {
+				apiSpans++
+				assert.Equal(t, wantResource, span.Resource["deployment.environment"])
+			}
+		}
+		for _, metric := range capture.Metrics {
+			if metric.Service == "api" {
+				apiMetrics++
+				assert.Equal(t, wantResource, metric.Resource["deployment.environment"])
+			}
+		}
+		var slowLogs int
+		for _, record := range capture.Logs {
+			if record.Service == "api" {
+				apiLogs++
+				assert.Equal(t, wantResource, record.Resource["deployment.environment"])
+			}
+			if record.Body == "slow request" {
+				slowLogs++
+			}
+		}
+		assert.Positive(t, apiSpans)
+		assert.Positive(t, apiMetrics)
+		assert.Positive(t, apiLogs)
+		assert.Positive(t, slowLogs)
 	})
 
 	t.Run("rejects unknown format", func(t *testing.T) {
@@ -127,17 +161,18 @@ scenarios:
 		require.ErrorContains(t, err, "unsupported preview format")
 	})
 
-	t.Run("rejects unbounded HTML runs", func(t *testing.T) {
+	t.Run("rejects invalid HTML run options", func(t *testing.T) {
 		t.Parallel()
 		for _, args := range [][]string{
 			{"preview", "--format", "html", "--run-duration", "11s", "ignored.yaml"},
 			{"preview", "--format", "html", "--max-traces", "201", "ignored.yaml"},
+			{"preview", "--format", "html", "--slow-threshold", "-1s", "ignored.yaml"},
 		} {
 			root := rootCmd()
 			root.SetArgs(args)
 			err := root.Execute()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "must be")
+			assert.Contains(t, err.Error(), "must")
 		}
 	})
 

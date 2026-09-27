@@ -15,12 +15,13 @@ import (
 
 func previewCmd() *cobra.Command {
 	var (
-		duration    time.Duration
-		runDuration time.Duration
-		output      string
-		format      string
-		seed        uint64
-		maxTraces   int
+		duration      time.Duration
+		runDuration   time.Duration
+		slowThreshold time.Duration
+		output        string
+		format        string
+		seed          uint64
+		maxTraces     int
 	)
 
 	cmd := &cobra.Command{
@@ -37,12 +38,13 @@ func previewCmd() *cobra.Command {
 			return cobra.ExactArgs(1)(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPreview(cmd, args[0], duration, output, format, previewRunOptions{duration: runDuration, seed: seed, maxTraces: maxTraces})
+			return runPreview(cmd, args[0], duration, output, format, previewRunOptions{duration: runDuration, slowThreshold: slowThreshold, seed: seed, maxTraces: maxTraces})
 		},
 	}
 
 	cmd.Flags().DurationVar(&duration, "duration", 0, "preview duration (default: inferred from topology)")
 	cmd.Flags().DurationVar(&runDuration, "run-duration", time.Second, "simulation duration in HTML report (maximum: 10s)")
+	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow logs in HTML report (0 disables)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout)")
 	cmd.Flags().StringVar(&format, "format", "svg", "output format: svg or html")
 	cmd.Flags().Uint64Var(&seed, "seed", 1, "simulation seed in HTML report")
