@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -15,6 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestPreviewCommand(t *testing.T) {
@@ -151,6 +156,28 @@ scenarios:
 		assert.Positive(t, apiMetrics)
 		assert.Positive(t, apiLogs)
 		assert.Positive(t, slowLogs)
+	})
+
+	t.Run("bounds a low traffic capture to run duration", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  api:
+    operations:
+      request:
+        duration: 1ms
+traffic:
+  rate: 1/m
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"preview", "--format", "html", "--run-duration", "100ms", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+		started := time.Now()
+		require.NoError(t, root.Execute())
+		assert.Less(t, time.Since(started), 1500*time.Millisecond)
+		assert.Contains(t, out.String(), "Captured run")
 	})
 
 	t.Run("rejects unknown format", func(t *testing.T) {
@@ -478,4 +505,67 @@ func TestPreviewCapturePreservesAttributeTypes(t *testing.T) {
 	assert.Equal(t, previewAttribute{Type: "INT64", Value: int64(128)}, attrs["bytes"])
 	assert.Equal(t, previewAttribute{Type: "BOOL", Value: false}, attrs["cached"])
 	assert.Equal(t, previewAttribute{Type: "FLOAT64", Value: 1.25}, attrs["ratio"])
+}
+
+func TestPreviewCapturePreservesSubMillisecondTiming(t *testing.T) {
+	t.Parallel()
+	exporter := &previewSpanExporter{}
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exporter)))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	start := time.Unix(1_700_000_000, 123_456_789)
+	parentCtx, parent := provider.Tracer("test").Start(context.Background(), "parent", trace.WithTimestamp(start))
+	_, child := provider.Tracer("test").Start(parentCtx, "child", trace.WithTimestamp(start.Add(500*time.Nanosecond)))
+	child.End(trace.WithTimestamp(start.Add(time.Microsecond)))
+	parent.End(trace.WithTimestamp(start.Add(1500 * time.Nanosecond)))
+	spans, dropped := exporter.Records()
+	require.Zero(t, dropped)
+	require.Len(t, spans, 2)
+	var childSpan previewSpan
+	for _, span := range spans {
+		if span.Name == "child" {
+			childSpan = span
+		}
+	}
+	assert.InDelta(t, 0.0005, childSpan.DurationMs, 0.0000001)
+	report, err := preparePreviewRunReport(&previewCapture{Spans: spans})
+	require.NoError(t, err)
+	require.Len(t, report.Traces, 1)
+	for _, row := range report.Traces[0].Spans {
+		if row.Name == "child" {
+			assert.InDelta(t, 0.0005, row.StartMs, 0.0000001)
+			assert.Equal(t, "0.0005", row.StartLabel)
+			assert.Equal(t, "0.0005", row.DurationLabel)
+		}
+	}
+}
+
+func TestPreviewMetricSumKinds(t *testing.T) {
+	t.Parallel()
+	metrics := metricdata.ResourceMetrics{ScopeMetrics: []metricdata.ScopeMetrics{{Metrics: []metricdata.Metrics{
+		{Name: "requests", Data: metricdata.Sum[int64]{IsMonotonic: true, Temporality: metricdata.CumulativeTemporality, DataPoints: []metricdata.DataPoint[int64]{{Value: 4}}}},
+		{Name: "active", Data: metricdata.Sum[int64]{IsMonotonic: false, Temporality: metricdata.DeltaTemporality, DataPoints: []metricdata.DataPoint[int64]{{Value: 2}}}},
+	}}}}
+	records := previewMetricRecords(metrics, 2)
+	require.Len(t, records, 2)
+	assert.Equal(t, "counter", records[0].Type)
+	assert.Equal(t, "CumulativeTemporality", records[0].Temporality)
+	assert.Equal(t, "up-down counter", records[1].Type)
+	assert.Equal(t, "DeltaTemporality", records[1].Temporality)
+}
+
+func TestPreviewReportsDroppedLogs(t *testing.T) {
+	t.Parallel()
+	exporter := &previewLogExporter{}
+	records := make([]sdklog.Record, maxPreviewLogs+3)
+	require.NoError(t, exporter.Export(context.Background(), records))
+	logs, dropped := exporter.Records()
+	require.Len(t, logs, maxPreviewLogs)
+	assert.Equal(t, 3, dropped)
+	report, err := preparePreviewRunReport(&previewCapture{Stats: &synth.Stats{}, Logs: logs, DroppedLogs: dropped})
+	require.NoError(t, err)
+	assert.Equal(t, 3, report.DroppedLogs)
+	assert.Contains(t, report.RawJSON, `"dropped_logs": 3`)
+	var out bytes.Buffer
+	require.NoError(t, previewHTMLTemplate.Execute(&out, previewReport{Run: report}))
+	assert.Contains(t, out.String(), "3 omitted by the capture limit")
 }

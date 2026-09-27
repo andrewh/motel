@@ -8,7 +8,7 @@ an exhaustive view of every scenario.
 | Report | Source | Shows |
 |--------|--------|-------|
 | [Circuit breaker](preview-circuit-breaker.html) | [`circuit-breaker.yaml`](../circuit-breaker.yaml) | Service calls and scenario changes; 200 generated traces. |
-| [Metrics](preview-metrics.html) | [`topology-driven-metrics.yaml`](../topology-driven-metrics.yaml) | Gauge, histogram, and sum data points. |
+| [Metrics](preview-metrics.html) | [`topology-driven-metrics.yaml`](../topology-driven-metrics.yaml) | Gauge, histogram, counter, and up-down counter data points. |
 | [Logs](preview-logs.html) | [`topology-driven-logs.yaml`](../topology-driven-logs.yaml) | Log records with multiple severities. |
 | [Resource attributes](preview-resource-attributes.html) | [`resource-attributes.yaml`](../resource-attributes.yaml) | Per-service resource fields in captured spans. |
 | [Imported traces](imported-example-preview.html) | [`imported-example.yaml`](imported-example.yaml) | A topology inferred from the synthetic [`import-capture.jsonl`](../import-capture.jsonl) fixture; five regenerated traces. |

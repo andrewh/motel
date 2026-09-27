@@ -220,7 +220,7 @@ motel preview <topology.yaml | URL> [flags]
 motel preview --format html --run-duration 5s -o preview.html topology.yaml
 ```
 
-The HTML capture stores at most 1,000 spans, 500 metric data points, and 500 logs. The report states when spans are omitted by the capture limit. `--duration` controls the traffic chart window; `--run-duration` controls the actual simulation.
+The HTML capture stores at most 1,000 spans, 500 metric data points, and 500 logs. The report states when spans or logs are omitted by the capture limit. `--duration` controls the traffic chart window; `--run-duration` controls the actual simulation.
 
 ### version
 

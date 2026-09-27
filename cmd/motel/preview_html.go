@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/andrewh/motel/pkg/synth"
 )
@@ -37,6 +38,7 @@ type previewRunReport struct {
 	RawJSON       string
 	CapturedSpans int
 	DroppedSpans  int
+	DroppedLogs   int
 }
 
 type previewTrace struct {
@@ -45,16 +47,18 @@ type previewTrace struct {
 }
 
 type previewSpanRow struct {
-	Service    string
-	Name       string
-	Kind       string
-	StartMs    float64
-	DurationMs float64
-	Status     string
-	Depth      int
-	Left       float64
-	Width      float64
-	SpanID     string
+	Service       string
+	Name          string
+	Kind          string
+	StartMs       float64
+	DurationMs    float64
+	StartLabel    string
+	DurationLabel string
+	Status        string
+	Depth         int
+	Left          float64
+	Width         float64
+	SpanID        string
 }
 
 type previewService struct {
@@ -173,6 +177,7 @@ func preparePreviewRunReport(capture *previewCapture) (previewRunReport, error) 
 		RawJSON:       string(raw),
 		CapturedSpans: len(capture.Spans),
 		DroppedSpans:  capture.DroppedSpans,
+		DroppedLogs:   capture.DroppedLogs,
 	}
 	byTrace := make(map[string][]previewSpan)
 	for _, span := range capture.Spans {
@@ -183,23 +188,24 @@ func preparePreviewRunReport(capture *previewCapture) (previewRunReport, error) 
 		ids = append(ids, id)
 	}
 	slices.SortFunc(ids, func(a, b string) int {
-		startA, startB := byTrace[a][0].StartMs, byTrace[b][0].StartMs
-		if startA < startB {
-			return -1
-		}
-		if startA > startB {
-			return 1
+		startA, startB := byTrace[a][0].StartTime, byTrace[b][0].StartTime
+		if !startA.Equal(startB) {
+			return startA.Compare(startB)
 		}
 		return strings.Compare(a, b)
 	})
 	for _, id := range ids {
 		spans := byTrace[id]
-		first := spans[0].StartMs
-		last := float64(first)
+		first := spans[0].StartTime
+		last := spans[0].EndTime
 		byID := make(map[string]previewSpan, len(spans))
 		for _, span := range spans {
-			first = min(first, span.StartMs)
-			last = max(last, float64(span.StartMs)+span.DurationMs)
+			if span.StartTime.Before(first) {
+				first = span.StartTime
+			}
+			if span.EndTime.After(last) {
+				last = span.EndTime
+			}
 			byID[span.SpanID] = span
 		}
 		trace := previewTrace{ID: id}
@@ -214,26 +220,33 @@ func preparePreviewRunReport(capture *previewCapture) (previewRunReport, error) 
 				depth++
 				parent = ancestor.ParentSpanID
 			}
-			extent := max(last-float64(first), 1)
-			left := (float64(span.StartMs-first) / extent) * 100
+			extent := max(float64(last.Sub(first))/float64(time.Millisecond), 0.001)
+			startMs := float64(span.StartTime.Sub(first)) / float64(time.Millisecond)
+			left := (startMs / extent) * 100
 			width := max(span.DurationMs/extent*100, 1)
 			width = min(width, 100-left)
 			trace.Spans = append(trace.Spans, previewSpanRow{
-				Service:    span.Service,
-				Name:       span.Name,
-				Kind:       span.Kind,
-				StartMs:    float64(span.StartMs - first),
-				DurationMs: span.DurationMs,
-				Status:     span.Status,
-				Depth:      depth,
-				Left:       left,
-				Width:      width,
-				SpanID:     span.SpanID,
+				Service:       span.Service,
+				Name:          span.Name,
+				Kind:          span.Kind,
+				StartMs:       startMs,
+				DurationMs:    span.DurationMs,
+				StartLabel:    formatPreviewMilliseconds(startMs),
+				DurationLabel: formatPreviewMilliseconds(span.DurationMs),
+				Status:        span.Status,
+				Depth:         depth,
+				Left:          left,
+				Width:         width,
+				SpanID:        span.SpanID,
 			})
 		}
 		report.Traces = append(report.Traces, trace)
 	}
 	return report, nil
+}
+
+func formatPreviewMilliseconds(value float64) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", value), "0"), ".")
 }
 
 func describeCall(call synth.Call) string {
@@ -429,8 +442,8 @@ var previewHTMLTemplate = template.Must(template.New("preview").Parse(`<!doctype
 <header><div class="eyebrow">motel / topology preview</div><h1>{{.Title}}</h1><p class="subtle">Defined topology and effective trace rate over {{.Duration}}.</p><ul class="facts"><li><strong>{{len .Services}}</strong>services</li><li><strong>{{.OperationCount}}</strong>operations</li><li><strong>{{.CallCount}}</strong>defined calls</li><li><strong>{{len .Roots}}</strong>root operations</li><li><strong>{{len .Scenarios}}</strong>scenarios</li></ul></header>
 <section class="section"><h2>Trace rate</h2><p class="subtle">Traffic patterns and scenario traffic overrides. Shaded regions show scenario windows.</p><div class="graphic">{{.TrafficSVG}}</div></section>
 <section class="section"><h2>Service map</h2><p class="subtle">Arrows show defined calls between services. Dashed arrows appear only in scenario additions.</p><div class="graphic map">{{.MapSVG}}</div><div class="legend"><span class="root">contains a root operation</span><span>defined call</span><span class="extra">scenario addition</span></div></section>
-{{if .Run.Stats}}<section class="section"><h2>Captured run</h2><p class="subtle">One local simulation: up to {{.Run.Duration}}, seed {{.Run.Seed}}. Up to {{.Run.MaxTraces}} traces, 1,000 spans, 500 metric data points, and 500 logs are stored in this file.</p><ul class="facts"><li><strong>{{.Run.Stats.Traces}}</strong>traces generated</li><li><strong>{{.Run.Stats.Spans}}</strong>spans generated</li><li><strong>{{.Run.Stats.Errors}}</strong>span errors</li><li><strong>{{.Run.Stats.ElapsedMs}}</strong>ms elapsed</li><li><strong>{{len .Run.Metrics}}</strong>metric points</li><li><strong>{{len .Run.Logs}}</strong>logs</li></ul>{{if .Run.DroppedSpans}}<p class="note">{{.Run.CapturedSpans}} spans captured; {{.Run.DroppedSpans}} omitted by the capture limit.</p>{{end}}
-<h3>Traces</h3>{{if .Run.Traces}}{{range .Run.Traces}}<details><summary>Trace {{.ID}} · {{len .Spans}} captured spans</summary><div class="scroll"><div class="trace">{{range .Spans}}<div class="trace-row"><div class="trace-name" style="padding-left:{{.Depth}}em"><strong>{{.Service}}</strong> / {{.Name}} <span class="note">{{.Kind}}</span></div><span>{{printf "%.2f" .StartMs}} ms</span><span>{{printf "%.2f" .DurationMs}} ms</span><div class="trace-timeline" title="{{.Status}} · {{.SpanID}}"><span class="trace-bar {{if eq .Status "Error"}}error{{end}}" style="left:{{printf "%.2f" .Left}}%;width:{{printf "%.2f" .Width}}%"></span></div></div>{{end}}</div></div></details>{{end}}{{else}}<p class="note">No traces captured.</p>{{end}}
+{{if .Run.Stats}}<section class="section"><h2>Captured run</h2><p class="subtle">One local simulation: up to {{.Run.Duration}}, seed {{.Run.Seed}}. Up to {{.Run.MaxTraces}} traces, 1,000 spans, 500 metric data points, and 500 logs are stored in this file.</p><ul class="facts"><li><strong>{{.Run.Stats.Traces}}</strong>traces generated</li><li><strong>{{.Run.Stats.Spans}}</strong>spans generated</li><li><strong>{{.Run.Stats.Errors}}</strong>span errors</li><li><strong>{{.Run.Stats.ElapsedMs}}</strong>ms elapsed</li><li><strong>{{len .Run.Metrics}}</strong>metric points</li><li><strong>{{len .Run.Logs}}</strong>logs</li></ul>{{if .Run.DroppedSpans}}<p class="note">{{.Run.CapturedSpans}} spans captured; {{.Run.DroppedSpans}} omitted by the capture limit.</p>{{end}}{{if .Run.DroppedLogs}}<p class="note">{{len .Run.Logs}} logs captured; {{.Run.DroppedLogs}} omitted by the capture limit.</p>{{end}}
+<h3>Traces</h3>{{if .Run.Traces}}{{range .Run.Traces}}<details><summary>Trace {{.ID}} · {{len .Spans}} captured spans</summary><div class="scroll"><div class="trace">{{range .Spans}}<div class="trace-row"><div class="trace-name" style="padding-left:{{.Depth}}em"><strong>{{.Service}}</strong> / {{.Name}} <span class="note">{{.Kind}}</span></div><span>{{.StartLabel}} ms</span><span>{{.DurationLabel}} ms</span><div class="trace-timeline" title="{{.Status}} · {{.SpanID}}"><span class="trace-bar {{if eq .Status "Error"}}error{{end}}" style="left:{{printf "%.2f" .Left}}%;width:{{printf "%.2f" .Width}}%"></span></div></div>{{end}}</div></div></details>{{end}}{{else}}<p class="note">No traces captured.</p>{{end}}
 <h3>Metrics</h3>{{if .Run.Metrics}}<div class="scroll"><table class="data-table"><thead><tr><th>Service</th><th>Metric</th><th>Type</th><th>Value</th></tr></thead><tbody>{{range .Run.Metrics}}<tr><td>{{.Service}}</td><td>{{.Name}}</td><td>{{.Type}}</td><td>{{.Value}} {{.Unit}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="note">No metric data points emitted.</p>{{end}}
 <h3>Logs</h3>{{if .Run.Logs}}<div class="scroll"><table class="data-table"><thead><tr><th>Service</th><th>Severity</th><th>Message</th><th>Trace</th></tr></thead><tbody>{{range .Run.Logs}}<tr><td>{{.Service}}</td><td>{{.Severity}}</td><td>{{.Body}}</td><td>{{.TraceID}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="note">No logs emitted.</p>{{end}}
 <details><summary>Raw captured output (JSON)</summary><pre>{{.Run.RawJSON}}</pre></details></section>{{end}}

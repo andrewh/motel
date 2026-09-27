@@ -62,7 +62,7 @@ type previewSpan struct {
 	Kind         string                      `json:"kind"`
 	StartTime    time.Time                   `json:"start_time"`
 	EndTime      time.Time                   `json:"end_time"`
-	StartMs      int64                       `json:"start_ms"`
+	StartMs      float64                     `json:"start_ms"`
 	DurationMs   float64                     `json:"duration_ms"`
 	Status       string                      `json:"status"`
 	Resource     map[string]previewAttribute `json:"resource,omitempty"`
@@ -84,21 +84,22 @@ type previewLink struct {
 }
 
 type previewMetric struct {
-	Name       string                      `json:"name"`
-	Type       string                      `json:"type"`
-	Unit       string                      `json:"unit,omitempty"`
-	Service    string                      `json:"service"`
-	Resource   map[string]previewAttribute `json:"resource,omitempty"`
-	Value      string                      `json:"value"`
-	TimeMs     int64                       `json:"time_ms"`
-	StartMs    int64                       `json:"start_ms"`
-	Count      uint64                      `json:"count,omitempty"`
-	Sum        float64                     `json:"sum,omitempty"`
-	Min        *float64                    `json:"min,omitempty"`
-	Max        *float64                    `json:"max,omitempty"`
-	Bounds     []float64                   `json:"bounds,omitempty"`
-	Buckets    []uint64                    `json:"buckets,omitempty"`
-	Attributes map[string]previewAttribute `json:"attributes,omitempty"`
+	Name        string                      `json:"name"`
+	Type        string                      `json:"type"`
+	Temporality string                      `json:"temporality,omitempty"`
+	Unit        string                      `json:"unit,omitempty"`
+	Service     string                      `json:"service"`
+	Resource    map[string]previewAttribute `json:"resource,omitempty"`
+	Value       string                      `json:"value"`
+	TimeMs      int64                       `json:"time_ms"`
+	StartMs     int64                       `json:"start_ms"`
+	Count       uint64                      `json:"count,omitempty"`
+	Sum         float64                     `json:"sum,omitempty"`
+	Min         *float64                    `json:"min,omitempty"`
+	Max         *float64                    `json:"max,omitempty"`
+	Bounds      []float64                   `json:"bounds,omitempty"`
+	Buckets     []uint64                    `json:"buckets,omitempty"`
+	Attributes  map[string]previewAttribute `json:"attributes,omitempty"`
 }
 
 type previewLog struct {
@@ -122,6 +123,7 @@ type previewCapture struct {
 	Metrics       []previewMetric `json:"metrics"`
 	Logs          []previewLog    `json:"logs"`
 	DroppedSpans  int             `json:"dropped_spans"`
+	DroppedLogs   int             `json:"dropped_logs"`
 }
 
 type previewSpanExporter struct {
@@ -156,8 +158,8 @@ func (e *previewSpanExporter) ExportSpans(_ context.Context, spans []sdktrace.Re
 			Kind:         span.SpanKind().String(),
 			StartTime:    span.StartTime(),
 			EndTime:      span.EndTime(),
-			StartMs:      span.StartTime().UnixMilli(),
-			DurationMs:   float64(span.EndTime().Sub(span.StartTime()).Microseconds()) / 1000,
+			StartMs:      float64(span.StartTime().UnixNano()) / float64(time.Millisecond),
+			DurationMs:   float64(span.EndTime().Sub(span.StartTime()).Nanoseconds()) / float64(time.Millisecond),
 			Status:       span.Status().Code.String(),
 			Resource:     previewResourceAttributes(span.Resource()),
 			Attributes:   attrs,
@@ -184,6 +186,7 @@ func (e *previewSpanExporter) Records() ([]previewSpan, int) {
 type previewLogExporter struct {
 	mu      sync.Mutex
 	records []sdklog.Record
+	dropped int
 }
 
 func (e *previewLogExporter) Export(_ context.Context, records []sdklog.Record) error {
@@ -191,7 +194,8 @@ func (e *previewLogExporter) Export(_ context.Context, records []sdklog.Record) 
 	defer e.mu.Unlock()
 	for _, record := range records {
 		if len(e.records) >= maxPreviewLogs {
-			break
+			e.dropped++
+			continue
 		}
 		e.records = append(e.records, record.Clone())
 	}
@@ -201,7 +205,7 @@ func (e *previewLogExporter) Export(_ context.Context, records []sdklog.Record) 
 func (e *previewLogExporter) Shutdown(context.Context) error   { return nil }
 func (e *previewLogExporter) ForceFlush(context.Context) error { return nil }
 
-func (e *previewLogExporter) Records() []previewLog {
+func (e *previewLogExporter) Records() ([]previewLog, int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	result := make([]previewLog, 0, len(e.records))
@@ -226,13 +230,10 @@ func (e *previewLogExporter) Records() []previewLog {
 		}
 		result = append(result, item)
 	}
-	return result
+	return result, e.dropped
 }
 
 func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenarios []synth.Scenario, opts previewRunOptions) (*previewCapture, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.duration+2*time.Second)
-	defer cancel()
-
 	spans := &previewSpanExporter{}
 	traceProviders := make(map[string]*sdktrace.TracerProvider, len(topo.Services))
 
@@ -305,10 +306,14 @@ func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenario
 		State:            synth.NewSimulationState(topo),
 		LabelScenarios:   true,
 	}
-	stats, err := engine.Run(ctx)
+	runCtx, cancelRun := context.WithTimeout(context.Background(), opts.duration)
+	stats, err := engine.Run(runCtx)
+	cancelRun()
 	if err != nil {
 		return nil, fmt.Errorf("running preview simulation: %w", err)
 	}
+	collectionCtx, cancelCollection := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelCollection()
 	stopMetrics()
 	stopMetrics = nil
 	result := &previewCapture{
@@ -329,20 +334,20 @@ func capturePreview(topo *synth.Topology, traffic synth.TrafficPattern, scenario
 			break
 		}
 		var rm metricdata.ResourceMetrics
-		if err := reader.Collect(ctx, &rm); err != nil {
+		if err := reader.Collect(collectionCtx, &rm); err != nil {
 			return nil, fmt.Errorf("collecting preview metrics: %w", err)
 		}
 		result.Metrics = append(result.Metrics, previewMetricRecords(rm, maxPreviewMetrics-len(result.Metrics))...)
 	}
 	for _, provider := range logProviders {
-		if err := provider.ForceFlush(ctx); err != nil {
+		if err := provider.ForceFlush(collectionCtx); err != nil {
 			return nil, fmt.Errorf("flushing preview logs: %w", err)
 		}
 	}
-	result.Logs = logs.Records()
+	result.Logs, result.DroppedLogs = logs.Records()
 	slices.SortFunc(result.Spans, func(a, b previewSpan) int {
-		if a.StartMs != b.StartMs {
-			return cmp.Compare(a.StartMs, b.StartMs)
+		if !a.StartTime.Equal(b.StartTime) {
+			return a.StartTime.Compare(b.StartTime)
 		}
 		return cmp.Compare(a.SpanID, b.SpanID)
 	})
@@ -394,9 +399,9 @@ func previewMetricRecords(rm metricdata.ResourceMetrics, limit int) []previewMet
 			case metricdata.Gauge[float64]:
 				result = append(result, previewNumberMetrics(metric.Name, "gauge", metric.Unit, service, data.DataPoints, limit-len(result))...)
 			case metricdata.Sum[int64]:
-				result = append(result, previewNumberMetrics(metric.Name, "sum", metric.Unit, service, data.DataPoints, limit-len(result))...)
+				result = append(result, previewNumberMetrics(metric.Name, previewSumType(data.IsMonotonic), metric.Unit, service, data.DataPoints, limit-len(result))...)
 			case metricdata.Sum[float64]:
-				result = append(result, previewNumberMetrics(metric.Name, "sum", metric.Unit, service, data.DataPoints, limit-len(result))...)
+				result = append(result, previewNumberMetrics(metric.Name, previewSumType(data.IsMonotonic), metric.Unit, service, data.DataPoints, limit-len(result))...)
 			case metricdata.Histogram[int64]:
 				result = append(result, previewHistogramMetrics(metric.Name, metric.Unit, service, data.DataPoints, limit-len(result))...)
 			case metricdata.Histogram[float64]:
@@ -404,10 +409,23 @@ func previewMetricRecords(rm metricdata.ResourceMetrics, limit int) []previewMet
 			}
 			for i := start; i < len(result); i++ {
 				result[i].Resource = resourceAttrs
+				switch data := metric.Data.(type) {
+				case metricdata.Sum[int64]:
+					result[i].Temporality = data.Temporality.String()
+				case metricdata.Sum[float64]:
+					result[i].Temporality = data.Temporality.String()
+				}
 			}
 		}
 	}
 	return result
+}
+
+func previewSumType(monotonic bool) string {
+	if monotonic {
+		return "counter"
+	}
+	return "up-down counter"
 }
 
 func previewNumberMetrics[N int64 | float64](name, kind, unit, service string, points []metricdata.DataPoint[N], limit int) []previewMetric {
