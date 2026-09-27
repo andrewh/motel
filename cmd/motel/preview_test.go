@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/andrewh/motel/pkg/synth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func TestPreviewCommand(t *testing.T) {
@@ -46,6 +49,96 @@ func TestPreviewCommand(t *testing.T) {
 		data, err := os.ReadFile(outFile)
 		require.NoError(t, err)
 		assert.True(t, strings.HasPrefix(string(data), "<svg"))
+	})
+
+	t.Run("produces a standalone HTML report", func(t *testing.T) {
+		t.Parallel()
+		path := writeTestConfig(t, `
+version: 1
+services:
+  api:
+    metrics:
+      - name: api.requests
+        type: counter
+    logs:
+      - severity: INFO
+        body: handled request
+    operations:
+      request:
+        duration: 10ms
+        calls:
+          - target: database.query
+            probability: 0.5
+  database:
+    operations:
+      query:
+        duration: 5ms
+  cache:
+    operations:
+      get:
+        duration: 1ms
+traffic:
+  rate: 50/s
+scenarios:
+  - name: fallback
+    at: +3s
+    duration: 4s
+    override:
+      api.request:
+        remove_calls:
+          - database.query
+        add_calls:
+          - target: cache.get
+`)
+		root := rootCmd()
+		root.SetArgs([]string{"preview", "--format", "html", "--duration", "8s", path})
+		var out bytes.Buffer
+		root.SetOut(&out)
+		require.NoError(t, root.Execute())
+		document := out.String()
+		assert.True(t, strings.HasPrefix(document, "<!doctype html>"))
+		assert.Contains(t, document, "Service map")
+		assert.Contains(t, document, "api.request removes database.query")
+		assert.Contains(t, document, "api.request adds cache.get")
+		assert.Contains(t, document, "database.query · 50%")
+		assert.Contains(t, document, `class="edge added"`)
+		assert.Contains(t, document, "<svg")
+		assert.NotContains(t, document, "<script")
+		assert.Contains(t, document, "Captured run")
+		assert.Contains(t, document, "api.requests")
+		assert.Contains(t, document, "handled request")
+		start := strings.Index(document, "<pre>")
+		end := strings.Index(document, "</pre>")
+		require.Greater(t, start, 0)
+		require.Greater(t, end, start)
+		var capture previewCapture
+		require.NoError(t, json.Unmarshal([]byte(html.UnescapeString(document[start+len("<pre>"):end])), &capture))
+		assert.Positive(t, capture.Stats.Traces)
+		assert.NotEmpty(t, capture.Spans)
+		assert.NotEmpty(t, capture.Metrics)
+		assert.NotEmpty(t, capture.Logs)
+	})
+
+	t.Run("rejects unknown format", func(t *testing.T) {
+		t.Parallel()
+		root := rootCmd()
+		root.SetArgs([]string{"preview", "--format", "pdf", "ignored.yaml"})
+		err := root.Execute()
+		require.ErrorContains(t, err, "unsupported preview format")
+	})
+
+	t.Run("rejects unbounded HTML runs", func(t *testing.T) {
+		t.Parallel()
+		for _, args := range [][]string{
+			{"preview", "--format", "html", "--run-duration", "11s", "ignored.yaml"},
+			{"preview", "--format", "html", "--max-traces", "201", "ignored.yaml"},
+		} {
+			root := rootCmd()
+			root.SetArgs(args)
+			err := root.Execute()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "must be")
+		}
 	})
 
 	t.Run("missing config file", func(t *testing.T) {
@@ -321,4 +414,33 @@ func TestRenderSVG(t *testing.T) {
 		labelIdx := strings.Index(svg, "spike")
 		assert.Greater(t, labelIdx, polylineIdx, "scenario label should appear after polyline in SVG")
 	})
+}
+
+func TestPreviewHTMLEscapesTopologyText(t *testing.T) {
+	t.Parallel()
+	service := &synth.Service{Name: "<script>alert(1)</script>"}
+	op := &synth.Operation{Service: service, Name: "request", Ref: service.Name + ".request"}
+	service.Operations = map[string]*synth.Operation{"request": op}
+	topo := &synth.Topology{Services: map[string]*synth.Service{service.Name: service}, Roots: []*synth.Operation{op}}
+	cfg := &synth.Config{}
+	samples := []rateSample{{Elapsed: 0, Rate: 1}, {Elapsed: time.Second, Rate: 1}}
+	var out bytes.Buffer
+	require.NoError(t, renderPreviewHTML(&out, "<unsafe>", cfg, topo, samples, nil, nil))
+	assert.NotContains(t, out.String(), "<script>alert(1)</script>")
+	assert.Contains(t, out.String(), "&lt;script&gt;alert(1)&lt;/script&gt;")
+	assert.Contains(t, out.String(), "&lt;unsafe&gt;")
+}
+
+func TestPreviewCapturePreservesAttributeTypes(t *testing.T) {
+	t.Parallel()
+	attrs := spanAttributes([]attribute.KeyValue{
+		attribute.String("method", "GET"),
+		attribute.Int64("bytes", 128),
+		attribute.Bool("cached", false),
+		attribute.Float64("ratio", 1.25),
+	})
+	assert.Equal(t, previewAttribute{Type: "STRING", Value: "GET"}, attrs["method"])
+	assert.Equal(t, previewAttribute{Type: "INT64", Value: int64(128)}, attrs["bytes"])
+	assert.Equal(t, previewAttribute{Type: "BOOL", Value: false}, attrs["cached"])
+	assert.Equal(t, previewAttribute{Type: "FLOAT64", Value: 1.25}, attrs["ratio"])
 }

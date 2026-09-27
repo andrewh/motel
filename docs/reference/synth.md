@@ -199,7 +199,8 @@ When `--min-traces` is greater than 1, confidence diagnostics are written to std
 
 ### preview
 
-Render the traffic rate over time as an SVG chart.
+Render the effective trace rate over time as an SVG chart, with scenario windows shaded and labelled.
+Use `--format html` for a self-contained report that adds a service map, operation calls, scenario changes, and a bounded local simulation. The report embeds captured traces, metric data points, logs, and the raw capture as JSON. The map shows defined calls and scenario-only additions; the trace section shows what the one run actually emitted.
 
 ```sh
 motel preview <topology.yaml | URL> [flags]
@@ -208,7 +209,17 @@ motel preview <topology.yaml | URL> [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--duration` | duration | inferred from topology | Preview duration |
+| `--format` | `svg` or `html` | `svg` | Output format |
+| `--run-duration` | duration | `1s` | HTML simulation duration, at most `10s` |
+| `--seed` | integer | `1` | HTML simulation seed |
+| `--max-traces` | integer | `200` | HTML simulation trace cap, at most `200` |
 | `--output`, `-o` | string | stdout | Output file path |
+
+```sh
+motel preview --format html --run-duration 5s -o preview.html topology.yaml
+```
+
+The HTML capture stores at most 1,000 spans, 500 metric data points, and 500 logs. The report states when spans are omitted by the capture limit. `--duration` controls the traffic chart window; `--run-duration` controls the actual simulation.
 
 ### version
 

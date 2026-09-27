@@ -2,7 +2,9 @@
 
 *2026-02-22T09:00:00Z*
 
-motel preview renders the effective traffic rate over time as an SVG chart. This is useful for verifying bursty patterns, scenario overrides, and ramp-up shapes before sending traffic to a collector.
+motel preview renders the effective trace rate over time as an SVG chart, with scenario windows shaded and labelled. This is useful for verifying bursty patterns, scenario overrides, and ramp-up shapes before sending traffic to a collector.
+
+For a self-contained report with the service map, operation calls, scenario changes, and captured traces, metrics, and logs, use `motel preview --format html --run-duration 5s -o preview.html topology.yaml`. The map shows the defined topology; the trace section and embedded JSON come from one bounded local run.
 
 ## Uniform traffic
 
