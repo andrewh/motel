@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>motel preview · imported-example.yaml</title>
+<style>
+:root{color-scheme:light;--ink:#17303e;--muted:#526875;--line:#cbd8d7;--paper:#f7f8f3;--surface:#fffefa;--green:#217b54;--amber:#a15e1d}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:1200px;margin:auto;padding:clamp(24px,5vw,72px)}header{border-bottom:2px solid var(--ink);padding-bottom:28px;margin-bottom:40px}.eyebrow{color:var(--green);font-size:.75rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(2rem,5vw,4rem);line-height:1.05;letter-spacing:-.045em;margin:12px 0;overflow-wrap:anywhere}h2{font-size:clamp(1.4rem,2vw,2rem);letter-spacing:-.025em;margin:0 0 12px}h3{font-size:1.15rem;margin:24px 0 10px}p{margin:0 0 16px}.subtle{color:var(--muted)}.facts{display:flex;flex-wrap:wrap;gap:10px 32px;margin:24px 0 0;padding:0;list-style:none}.facts strong{font-size:1.5rem;margin-right:7px;font-variant-numeric:tabular-nums}.section{margin:0 0 54px}.graphic{background:var(--surface);border:1px solid var(--line);padding:12px;overflow:auto}.graphic svg{display:block;max-width:100%;height:auto;margin:auto}.map svg{min-width:700px;max-width:none}.legend{display:flex;gap:24px;flex-wrap:wrap;margin:14px 0 0;color:var(--muted);font-size:.875rem}.legend span:before{content:"";display:inline-block;width:24px;border-top:2px solid var(--ink);vertical-align:middle;margin-right:8px}.legend .extra:before{border-color:var(--amber);border-style:dashed}.legend .root:before{border-color:var(--green)}.service{border-top:1px solid var(--line);padding:18px 0;display:grid;grid-template-columns:minmax(150px,1fr) 3fr;gap:24px}.service h3{margin:0;font-size:1.1rem}.operation{margin:0 0 12px}.operation strong{overflow-wrap:anywhere}.operation ul{margin:4px 0 0;padding-left:22px;color:var(--muted)}.tag{color:var(--green);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.scenario{border-top:1px solid var(--line);padding:18px 0;display:grid;grid-template-columns:minmax(150px,1fr) 3fr;gap:24px}.scenario h3{margin:0}.scenario ul{margin:0;padding-left:22px}.note{font-size:.875rem;color:var(--muted)}details{border-top:1px solid var(--line);padding:12px 0}summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}.trace{margin:16px 0;min-width:600px}.trace-row{display:grid;grid-template-columns:minmax(170px,1fr) 100px 90px minmax(180px,2fr);gap:12px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:.82rem}.trace-name{overflow-wrap:anywhere}.trace-timeline{height:14px;background:#e8eeec;position:relative}.trace-bar{position:absolute;top:2px;height:10px;background:var(--green)}.trace-bar.error{background:var(--amber)}.scroll{overflow:auto}.data-table{width:100%;border-collapse:collapse;font-size:.875rem}.data-table th,.data-table td{text-align:left;border-bottom:1px solid var(--line);padding:8px;vertical-align:top}.data-table td{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.75rem;max-height:600px;overflow:auto;padding:16px;background:var(--surface)}code{font:inherit;overflow-wrap:anywhere}footer{border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:.875rem}@media(max-width:650px){.service,.scenario{display:block}.service h3,.scenario h3{margin-bottom:10px}}
+</style>
+</head>
+<body><main>
+<header><div class="eyebrow">motel / topology preview</div><h1>imported-example.yaml</h1><p class="subtle">Defined topology and effective trace rate over 10s.</p><ul class="facts"><li><strong>2</strong>services</li><li><strong>2</strong>operations</li><li><strong>1</strong>defined calls</li><li><strong>1</strong>root operations</li><li><strong>0</strong>scenarios</li></ul></header>
+<section class="section"><h2>Trace rate</h2><p class="subtle">Traffic patterns and scenario traffic overrides. Shaded regions show scenario windows.</p><div class="graphic"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+<style>
+  text { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; fill: #333; }
+  .title { font-size: 14px; font-weight: 600; }
+  .axis-label { font-size: 11px; }
+  .tick-label { font-size: 10px; fill: #666; }
+  .grid { stroke: #e0e0e0; stroke-width: 1; }
+  .rate-line { fill: none; stroke: #2563eb; stroke-width: 1.5; stroke-linejoin: round; }
+  .scenario-rect { fill: #f59e0b; fill-opacity: 0.15; stroke: #f59e0b; stroke-width: 1; stroke-opacity: 0.4; }
+  .scenario-label { font-size: 9px; fill: #92400e; }
+</style>
+<rect width="800" height="400" fill="white"/>
+<text x="70" y="24" class="title">imported-example.yaml</text>
+<line x1="70" y1="350" x2="780" y2="350" class="grid"/>
+<text x="64" y="354" text-anchor="end" class="tick-label">0</text>
+<line x1="70" y1="288" x2="780" y2="288" class="grid"/>
+<text x="64" y="292" text-anchor="end" class="tick-label">0.2</text>
+<line x1="70" y1="226" x2="780" y2="226" class="grid"/>
+<text x="64" y="230" text-anchor="end" class="tick-label">0.4</text>
+<line x1="70" y1="164" x2="780" y2="164" class="grid"/>
+<text x="64" y="168" text-anchor="end" class="tick-label">0.7</text>
+<line x1="70" y1="102" x2="780" y2="102" class="grid"/>
+<text x="64" y="106" text-anchor="end" class="tick-label">0.9</text>
+<line x1="70" y1="40" x2="780" y2="40" class="grid"/>
+<text x="64" y="44" text-anchor="end" class="tick-label">1.1</text>
+<text x="70" y="370" text-anchor="middle" class="tick-label">0</text>
+<text x="141" y="370" text-anchor="middle" class="tick-label">1s</text>
+<text x="212" y="370" text-anchor="middle" class="tick-label">2s</text>
+<text x="283" y="370" text-anchor="middle" class="tick-label">3s</text>
+<text x="354" y="370" text-anchor="middle" class="tick-label">4s</text>
+<text x="425" y="370" text-anchor="middle" class="tick-label">5s</text>
+<text x="496" y="370" text-anchor="middle" class="tick-label">6s</text>
+<text x="567" y="370" text-anchor="middle" class="tick-label">7s</text>
+<text x="638" y="370" text-anchor="middle" class="tick-label">8s</text>
+<text x="709" y="370" text-anchor="middle" class="tick-label">9s</text>
+<text x="780" y="370" text-anchor="middle" class="tick-label">10s</text>
+<text x="425" y="392" text-anchor="middle" class="axis-label">elapsed time</text>
+<text x="16" y="195" text-anchor="middle" transform="rotate(-90,16,195)" class="axis-label">traces/s</text>
+<polyline points="70.0,68.2 141.0,68.2 212.0,68.2 283.0,68.2 354.0,68.2 425.0,68.2 496.0,68.2 567.0,68.2 638.0,68.2 709.0,68.2 780.0,68.2" class="rate-line"/>
+<rect x="70" y="40" width="710" height="310" fill="none" stroke="#ccc" stroke-width="1"/>
+</svg>
+</div></section>
+<section class="section"><h2>Service map</h2><p class="subtle">Arrows show defined calls between services. Dashed arrows appear only in scenario additions.</p><div class="graphic map"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 556 172" width="556" height="172" role="img" aria-label="Defined service topology"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#47667a"/></marker></defs><style>.edge{fill:none;stroke:#47667a;stroke-width:1.6;marker-end:url(#arrow)}.added{stroke:#b36b28;stroke-dasharray:6 4}.node{fill:#f3f6f5;stroke:#466273;stroke-width:1.5}.root{fill:#e4f2ea;stroke:#217b54}.label{font:600 14px ui-sans-serif,system-ui,sans-serif;fill:#17303e}</style><path class="edge" d="M 218 66 C 248 66, 248 66, 278 66"><title>api → db</title></path><g><rect class="node root" x="42" y="42" width="176" height="48" rx="5"/><title>api</title><text class="label" x="130" y="71" text-anchor="middle">api</text></g><g><rect class="node" x="278" y="42" width="176" height="48" rx="5"/><title>db</title><text class="label" x="366" y="71" text-anchor="middle">db</text></g></svg></div><div class="legend"><span class="root">contains a root operation</span><span>defined call</span><span class="extra">scenario addition</span></div></section>
+<section class="section"><h2>Captured run</h2><p class="subtle">One local simulation: up to 5s, seed 253. Up to 20 traces, 1,000 spans, 500 metric data points, and 500 logs are stored in this file.</p><ul class="facts"><li><strong>5</strong>traces generated</li><li><strong>10</strong>spans generated</li><li><strong>0</strong>span errors</li><li><strong>5001</strong>ms elapsed</li><li><strong>0</strong>metric points</li><li><strong>0</strong>logs</li></ul>
+<h3>Traces</h3><details><summary>Trace 7b0d68cfdfa214d97096bcdb2c7e7b71 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>api</strong> / GET /users <span class="note">server</span></div><span>0 ms</span><span>30 ms</span><div class="trace-timeline" title="Unset · 88fe2629af0b446d"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>db</strong> / query <span class="note">client</span></div><span>10 ms</span><span>10 ms</span><div class="trace-timeline" title="Unset · ef4bf3d87b27c2d3"><span class="trace-bar " style="left:33.33%;width:33.33%"></span></div></div></div></div></details><details><summary>Trace 1ac5dbe0dde5e7b22f87b3ab41044a49 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>api</strong> / GET /users <span class="note">server</span></div><span>0 ms</span><span>30 ms</span><div class="trace-timeline" title="Unset · 77592f328874db6f"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>db</strong> / query <span class="note">client</span></div><span>10 ms</span><span>10 ms</span><div class="trace-timeline" title="Unset · 0440d15f8db35d09"><span class="trace-bar " style="left:33.33%;width:33.33%"></span></div></div></div></div></details><details><summary>Trace ce48a840204da31c51a3833bf6a761d0 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>api</strong> / GET /users <span class="note">server</span></div><span>0 ms</span><span>30 ms</span><div class="trace-timeline" title="Unset · ee0d07fa28de5af3"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>db</strong> / query <span class="note">client</span></div><span>10 ms</span><span>10 ms</span><div class="trace-timeline" title="Unset · 19656ce4b83c1188"><span class="trace-bar " style="left:33.33%;width:33.33%"></span></div></div></div></div></details><details><summary>Trace 948c7cee015a079159d460be3acd734b · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>api</strong> / GET /users <span class="note">server</span></div><span>0 ms</span><span>30 ms</span><div class="trace-timeline" title="Unset · aa7636486e048a0a"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>db</strong> / query <span class="note">client</span></div><span>10 ms</span><span>10 ms</span><div class="trace-timeline" title="Unset · fb64fc8a03c3c614"><span class="trace-bar " style="left:33.33%;width:33.33%"></span></div></div></div></div></details><details><summary>Trace f6c05ae1d74eadbda60a0a44979003c7 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>api</strong> / GET /users <span class="note">server</span></div><span>0 ms</span><span>30 ms</span><div class="trace-timeline" title="Unset · e7a36bee2a1c80f9"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>db</strong> / query <span class="note">client</span></div><span>10 ms</span><span>10 ms</span><div class="trace-timeline" title="Unset · d9b186bbee1488fe"><span class="trace-bar " style="left:33.33%;width:33.33%"></span></div></div></div></div></details>
+<h3>Metrics</h3><p class="note">No metric data points emitted.</p>
+<h3>Logs</h3><p class="note">No logs emitted.</p>
+<details><summary>Raw captured output (JSON)</summary><pre>{
+  &#34;duration&#34;: &#34;5s&#34;,
+  &#34;slow_threshold&#34;: &#34;1s&#34;,
+  &#34;seed&#34;: 253,
+  &#34;max_traces&#34;: 20,
+  &#34;stats&#34;: {
+    &#34;traces&#34;: 5,
+    &#34;spans&#34;: 10,
+    &#34;errors&#34;: 0,
+    &#34;failed_traces&#34;: 0,
+    &#34;timeouts&#34;: 0,
+    &#34;retries&#34;: 0,
+    &#34;spans_bounded&#34;: 0,
+    &#34;queue_rejections&#34;: 0,
+    &#34;circuit_breaker_trips&#34;: 0,
+    &#34;elapsed_ms&#34;: 5001,
+    &#34;traces_per_second&#34;: 0.9997830554751396,
+    &#34;spans_per_second&#34;: 1.9995661109502791,
+    &#34;error_rate&#34;: 0,
+    &#34;trace_error_rate&#34;: 0
+  },
+  &#34;spans&#34;: [
+    {
+      &#34;trace_id&#34;: &#34;7b0d68cfdfa214d97096bcdb2c7e7b71&#34;,
+      &#34;span_id&#34;: &#34;88fe2629af0b446d&#34;,
+      &#34;service&#34;: &#34;api&#34;,
+      &#34;name&#34;: &#34;GET /users&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.873759&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.903759&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364873.759,
+      &#34;duration_ms&#34;: 30,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;http.request.method&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET&#34;
+        },
+        &#34;http.response.body.size&#34;: {
+          &#34;type&#34;: &#34;INT64&#34;,
+          &#34;value&#34;: 128
+        },
+        &#34;response.cached&#34;: {
+          &#34;type&#34;: &#34;BOOL&#34;,
+          &#34;value&#34;: false
+        },
+        &#34;response.ratio&#34;: {
+          &#34;type&#34;: &#34;FLOAT64&#34;,
+          &#34;value&#34;: 1
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /users&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;7b0d68cfdfa214d97096bcdb2c7e7b71&#34;,
+      &#34;span_id&#34;: &#34;ef4bf3d87b27c2d3&#34;,
+      &#34;parent_span_id&#34;: &#34;88fe2629af0b446d&#34;,
+      &#34;service&#34;: &#34;db&#34;,
+      &#34;name&#34;: &#34;query&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.883759&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.893759&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364883.759,
+      &#34;duration_ms&#34;: 10,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;db.system.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;postgresql&#34;
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;query&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;1ac5dbe0dde5e7b22f87b3ab41044a49&#34;,
+      &#34;span_id&#34;: &#34;77592f328874db6f&#34;,
+      &#34;service&#34;: &#34;api&#34;,
+      &#34;name&#34;: &#34;GET /users&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.8748&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.9048&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365874.8,
+      &#34;duration_ms&#34;: 30,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;http.request.method&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET&#34;
+        },
+        &#34;http.response.body.size&#34;: {
+          &#34;type&#34;: &#34;INT64&#34;,
+          &#34;value&#34;: 128
+        },
+        &#34;response.cached&#34;: {
+          &#34;type&#34;: &#34;BOOL&#34;,
+          &#34;value&#34;: false
+        },
+        &#34;response.ratio&#34;: {
+          &#34;type&#34;: &#34;FLOAT64&#34;,
+          &#34;value&#34;: 1
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /users&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;1ac5dbe0dde5e7b22f87b3ab41044a49&#34;,
+      &#34;span_id&#34;: &#34;0440d15f8db35d09&#34;,
+      &#34;parent_span_id&#34;: &#34;77592f328874db6f&#34;,
+      &#34;service&#34;: &#34;db&#34;,
+      &#34;name&#34;: &#34;query&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.8848&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.8948&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365884.8,
+      &#34;duration_ms&#34;: 10,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;db.system.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;postgresql&#34;
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;query&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;ce48a840204da31c51a3833bf6a761d0&#34;,
+      &#34;span_id&#34;: &#34;ee0d07fa28de5af3&#34;,
+      &#34;service&#34;: &#34;api&#34;,
+      &#34;name&#34;: &#34;GET /users&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:06.875924&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:06.905924&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541366875.924,
+      &#34;duration_ms&#34;: 30,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;http.request.method&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET&#34;
+        },
+        &#34;http.response.body.size&#34;: {
+          &#34;type&#34;: &#34;INT64&#34;,
+          &#34;value&#34;: 128
+        },
+        &#34;response.cached&#34;: {
+          &#34;type&#34;: &#34;BOOL&#34;,
+          &#34;value&#34;: false
+        },
+        &#34;response.ratio&#34;: {
+          &#34;type&#34;: &#34;FLOAT64&#34;,
+          &#34;value&#34;: 1
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /users&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;ce48a840204da31c51a3833bf6a761d0&#34;,
+      &#34;span_id&#34;: &#34;19656ce4b83c1188&#34;,
+      &#34;parent_span_id&#34;: &#34;ee0d07fa28de5af3&#34;,
+      &#34;service&#34;: &#34;db&#34;,
+      &#34;name&#34;: &#34;query&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:06.885924&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:06.895924&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541366885.924,
+      &#34;duration_ms&#34;: 10,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;db.system.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;postgresql&#34;
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;query&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;948c7cee015a079159d460be3acd734b&#34;,
+      &#34;span_id&#34;: &#34;aa7636486e048a0a&#34;,
+      &#34;service&#34;: &#34;api&#34;,
+      &#34;name&#34;: &#34;GET /users&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:07.877055&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:07.907055&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541367877.055,
+      &#34;duration_ms&#34;: 30,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;http.request.method&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET&#34;
+        },
+        &#34;http.response.body.size&#34;: {
+          &#34;type&#34;: &#34;INT64&#34;,
+          &#34;value&#34;: 128
+        },
+        &#34;response.cached&#34;: {
+          &#34;type&#34;: &#34;BOOL&#34;,
+          &#34;value&#34;: false
+        },
+        &#34;response.ratio&#34;: {
+          &#34;type&#34;: &#34;FLOAT64&#34;,
+          &#34;value&#34;: 1
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /users&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;948c7cee015a079159d460be3acd734b&#34;,
+      &#34;span_id&#34;: &#34;fb64fc8a03c3c614&#34;,
+      &#34;parent_span_id&#34;: &#34;aa7636486e048a0a&#34;,
+      &#34;service&#34;: &#34;db&#34;,
+      &#34;name&#34;: &#34;query&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:07.887055&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:07.897055&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541367887.0552,
+      &#34;duration_ms&#34;: 10,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;db.system.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;postgresql&#34;
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;query&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;f6c05ae1d74eadbda60a0a44979003c7&#34;,
+      &#34;span_id&#34;: &#34;e7a36bee2a1c80f9&#34;,
+      &#34;service&#34;: &#34;api&#34;,
+      &#34;name&#34;: &#34;GET /users&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:08.877925&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:08.907925&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541368877.925,
+      &#34;duration_ms&#34;: 30,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;http.request.method&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET&#34;
+        },
+        &#34;http.response.body.size&#34;: {
+          &#34;type&#34;: &#34;INT64&#34;,
+          &#34;value&#34;: 128
+        },
+        &#34;response.cached&#34;: {
+          &#34;type&#34;: &#34;BOOL&#34;,
+          &#34;value&#34;: false
+        },
+        &#34;response.ratio&#34;: {
+          &#34;type&#34;: &#34;FLOAT64&#34;,
+          &#34;value&#34;: 1
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /users&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;api&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;f6c05ae1d74eadbda60a0a44979003c7&#34;,
+      &#34;span_id&#34;: &#34;d9b186bbee1488fe&#34;,
+      &#34;parent_span_id&#34;: &#34;e7a36bee2a1c80f9&#34;,
+      &#34;service&#34;: &#34;db&#34;,
+      &#34;name&#34;: &#34;query&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:08.887925&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:08.897925&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541368887.925,
+      &#34;duration_ms&#34;: 10,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;db.system.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;postgresql&#34;
+        },
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;query&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;db&#34;
+        }
+      }
+    }
+  ],
+  &#34;metrics&#34;: [],
+  &#34;logs&#34;: [],
+  &#34;dropped_spans&#34;: 0,
+  &#34;dropped_logs&#34;: 0
+}</pre></details></section>
+<section class="section"><h2>Operations and calls</h2><p class="note">Call details are from the baseline topology. Probabilities below 100%, repeated calls, and async calls are labelled.</p><div class="service"><h3>api</h3><div><div class="operation"><strong>api.GET /users</strong> <span class="tag">root</span><ul><li>db.query</li></ul></div></div></div><div class="service"><h3>db</h3><div><div class="operation"><strong>db.query</strong><p class="note">No downstream calls</p></div></div></div></section>
+<section class="section"><h2>Scenarios</h2><p class="note">No scenarios defined.</p></section>
+<footer>Static preview of the topology definition. The map is not an observed trace or a throughput forecast.</footer>
+</main></body></html>

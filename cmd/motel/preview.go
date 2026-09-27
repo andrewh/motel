@@ -15,14 +15,20 @@ import (
 
 func previewCmd() *cobra.Command {
 	var (
-		duration time.Duration
-		output   string
+		duration      time.Duration
+		runDuration   time.Duration
+		slowThreshold time.Duration
+		output        string
+		format        string
+		seed          uint64
+		maxTraces     int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "preview <topology.yaml | URL>",
-		Short: "Render the traffic rate over time as an SVG chart",
-		Long: "Render the traffic rate over time as an SVG chart.\n\n" +
+		Short: "Render a traffic chart or topology report",
+		Long: "By default, render the effective trace rate over time as an SVG chart, with scenario windows shaded and labelled.\n" +
+			"Use --format html for a self-contained report with a service map, scenario changes, and captured traces, metrics, and logs from a bounded run.\n\n" +
 			"The topology source can be a local file path or an HTTP/HTTPS URL.\n" +
 			"URL fetches have a 10-second timeout and a 10 MB response body limit.",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -32,17 +38,30 @@ func previewCmd() *cobra.Command {
 			return cobra.ExactArgs(1)(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPreview(cmd, args[0], duration, output)
+			return runPreview(cmd, args[0], duration, output, format, previewRunOptions{duration: runDuration, slowThreshold: slowThreshold, seed: seed, maxTraces: maxTraces})
 		},
 	}
 
 	cmd.Flags().DurationVar(&duration, "duration", 0, "preview duration (default: inferred from topology)")
+	cmd.Flags().DurationVar(&runDuration, "run-duration", time.Second, "simulation duration in HTML report (maximum: 10s)")
+	cmd.Flags().DurationVar(&slowThreshold, "slow-threshold", time.Second, "duration threshold for slow logs in HTML report (0 disables)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output file path (default: stdout)")
+	cmd.Flags().StringVar(&format, "format", "svg", "output format: svg or html")
+	cmd.Flags().Uint64Var(&seed, "seed", 1, "simulation seed in HTML report")
+	cmd.Flags().IntVar(&maxTraces, "max-traces", 200, "maximum generated traces in HTML report (maximum: 200)")
 
 	return cmd
 }
 
-func runPreview(cmd *cobra.Command, configPath string, duration time.Duration, output string) error {
+func runPreview(cmd *cobra.Command, configPath string, duration time.Duration, output, format string, runOpts previewRunOptions) error {
+	if format != "svg" && format != "html" {
+		return fmt.Errorf("unsupported preview format %q: use svg or html", format)
+	}
+	if format == "html" {
+		if err := runOpts.validate(); err != nil {
+			return err
+		}
+	}
 	cfg, err := synth.LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -68,6 +87,13 @@ func runPreview(cmd *cobra.Command, configPath string, duration time.Duration, o
 	}
 
 	samples := sampleRates(traffic, scenarios, duration)
+	var capture *previewCapture
+	if format == "html" {
+		capture, err = capturePreview(topo, traffic, scenarios, runOpts)
+		if err != nil {
+			return err
+		}
+	}
 
 	var w io.Writer = cmd.OutOrStdout()
 	if output != "" {
@@ -80,6 +106,9 @@ func runPreview(cmd *cobra.Command, configPath string, duration time.Duration, o
 	}
 
 	title := filepath.Base(configPath)
+	if format == "html" {
+		return renderPreviewHTML(w, title, cfg, topo, samples, scenarios, capture)
+	}
 	return renderSVG(w, samples, scenarios, title)
 }
 

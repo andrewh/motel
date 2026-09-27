@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>motel preview · topology-driven-metrics.yaml</title>
+<style>
+:root{color-scheme:light;--ink:#17303e;--muted:#526875;--line:#cbd8d7;--paper:#f7f8f3;--surface:#fffefa;--green:#217b54;--amber:#a15e1d}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:1200px;margin:auto;padding:clamp(24px,5vw,72px)}header{border-bottom:2px solid var(--ink);padding-bottom:28px;margin-bottom:40px}.eyebrow{color:var(--green);font-size:.75rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(2rem,5vw,4rem);line-height:1.05;letter-spacing:-.045em;margin:12px 0;overflow-wrap:anywhere}h2{font-size:clamp(1.4rem,2vw,2rem);letter-spacing:-.025em;margin:0 0 12px}h3{font-size:1.15rem;margin:24px 0 10px}p{margin:0 0 16px}.subtle{color:var(--muted)}.facts{display:flex;flex-wrap:wrap;gap:10px 32px;margin:24px 0 0;padding:0;list-style:none}.facts strong{font-size:1.5rem;margin-right:7px;font-variant-numeric:tabular-nums}.section{margin:0 0 54px}.graphic{background:var(--surface);border:1px solid var(--line);padding:12px;overflow:auto}.graphic svg{display:block;max-width:100%;height:auto;margin:auto}.map svg{min-width:700px;max-width:none}.legend{display:flex;gap:24px;flex-wrap:wrap;margin:14px 0 0;color:var(--muted);font-size:.875rem}.legend span:before{content:"";display:inline-block;width:24px;border-top:2px solid var(--ink);vertical-align:middle;margin-right:8px}.legend .extra:before{border-color:var(--amber);border-style:dashed}.legend .root:before{border-color:var(--green)}.service{border-top:1px solid var(--line);padding:18px 0;display:grid;grid-template-columns:minmax(150px,1fr) 3fr;gap:24px}.service h3{margin:0;font-size:1.1rem}.operation{margin:0 0 12px}.operation strong{overflow-wrap:anywhere}.operation ul{margin:4px 0 0;padding-left:22px;color:var(--muted)}.tag{color:var(--green);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.scenario{border-top:1px solid var(--line);padding:18px 0;display:grid;grid-template-columns:minmax(150px,1fr) 3fr;gap:24px}.scenario h3{margin:0}.scenario ul{margin:0;padding-left:22px}.note{font-size:.875rem;color:var(--muted)}details{border-top:1px solid var(--line);padding:12px 0}summary{cursor:pointer;font-weight:650;overflow-wrap:anywhere}.trace{margin:16px 0;min-width:600px}.trace-row{display:grid;grid-template-columns:minmax(170px,1fr) 100px 90px minmax(180px,2fr);gap:12px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:.82rem}.trace-name{overflow-wrap:anywhere}.trace-timeline{height:14px;background:#e8eeec;position:relative}.trace-bar{position:absolute;top:2px;height:10px;background:var(--green)}.trace-bar.error{background:var(--amber)}.scroll{overflow:auto}.data-table{width:100%;border-collapse:collapse;font-size:.875rem}.data-table th,.data-table td{text-align:left;border-bottom:1px solid var(--line);padding:8px;vertical-align:top}.data-table td{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.75rem;max-height:600px;overflow:auto;padding:16px;background:var(--surface)}code{font:inherit;overflow-wrap:anywhere}footer{border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:.875rem}@media(max-width:650px){.service,.scenario{display:block}.service h3,.scenario h3{margin-bottom:10px}}
+</style>
+</head>
+<body><main>
+<header><div class="eyebrow">motel / topology preview</div><h1>topology-driven-metrics.yaml</h1><p class="subtle">Defined topology and effective trace rate over 5m0s.</p><ul class="facts"><li><strong>2</strong>services</li><li><strong>2</strong>operations</li><li><strong>1</strong>defined calls</li><li><strong>1</strong>root operations</li><li><strong>0</strong>scenarios</li></ul></header>
+<section class="section"><h2>Trace rate</h2><p class="subtle">Traffic patterns and scenario traffic overrides. Shaded regions show scenario windows.</p><div class="graphic"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+<style>
+  text { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; fill: #333; }
+  .title { font-size: 14px; font-weight: 600; }
+  .axis-label { font-size: 11px; }
+  .tick-label { font-size: 10px; fill: #666; }
+  .grid { stroke: #e0e0e0; stroke-width: 1; }
+  .rate-line { fill: none; stroke: #2563eb; stroke-width: 1.5; stroke-linejoin: round; }
+  .scenario-rect { fill: #f59e0b; fill-opacity: 0.15; stroke: #f59e0b; stroke-width: 1; stroke-opacity: 0.4; }
+  .scenario-label { font-size: 9px; fill: #92400e; }
+</style>
+<rect width="800" height="400" fill="white"/>
+<text x="70" y="24" class="title">topology-driven-metrics.yaml</text>
+<line x1="70" y1="350" x2="780" y2="350" class="grid"/>
+<text x="64" y="354" text-anchor="end" class="tick-label">0</text>
+<line x1="70" y1="288" x2="780" y2="288" class="grid"/>
+<text x="64" y="292" text-anchor="end" class="tick-label">11.0</text>
+<line x1="70" y1="226" x2="780" y2="226" class="grid"/>
+<text x="64" y="230" text-anchor="end" class="tick-label">22.0</text>
+<line x1="70" y1="164" x2="780" y2="164" class="grid"/>
+<text x="64" y="168" text-anchor="end" class="tick-label">33.0</text>
+<line x1="70" y1="102" x2="780" y2="102" class="grid"/>
+<text x="64" y="106" text-anchor="end" class="tick-label">44.0</text>
+<line x1="70" y1="40" x2="780" y2="40" class="grid"/>
+<text x="64" y="44" text-anchor="end" class="tick-label">55.0</text>
+<text x="70" y="370" text-anchor="middle" class="tick-label">0</text>
+<text x="141" y="370" text-anchor="middle" class="tick-label">30s</text>
+<text x="212" y="370" text-anchor="middle" class="tick-label">1m</text>
+<text x="283" y="370" text-anchor="middle" class="tick-label">1m30s</text>
+<text x="354" y="370" text-anchor="middle" class="tick-label">2m</text>
+<text x="425" y="370" text-anchor="middle" class="tick-label">2m30s</text>
+<text x="496" y="370" text-anchor="middle" class="tick-label">3m</text>
+<text x="567" y="370" text-anchor="middle" class="tick-label">3m30s</text>
+<text x="638" y="370" text-anchor="middle" class="tick-label">4m</text>
+<text x="709" y="370" text-anchor="middle" class="tick-label">4m30s</text>
+<text x="780" y="370" text-anchor="middle" class="tick-label">5m</text>
+<text x="425" y="392" text-anchor="middle" class="axis-label">elapsed time</text>
+<text x="16" y="195" text-anchor="middle" transform="rotate(-90,16,195)" class="axis-label">traces/s</text>
+<polyline points="70.0,68.2 72.4,68.2 74.7,68.2 77.1,68.2 79.5,68.2 81.8,68.2 84.2,68.2 86.6,68.2 88.9,68.2 91.3,68.2 93.7,68.2 96.0,68.2 98.4,68.2 100.8,68.2 103.1,68.2 105.5,68.2 107.9,68.2 110.2,68.2 112.6,68.2 115.0,68.2 117.3,68.2 119.7,68.2 122.1,68.2 124.4,68.2 126.8,68.2 129.2,68.2 131.5,68.2 133.9,68.2 136.3,68.2 138.6,68.2 141.0,68.2 143.4,68.2 145.7,68.2 148.1,68.2 150.5,68.2 152.8,68.2 155.2,68.2 157.6,68.2 159.9,68.2 162.3,68.2 164.7,68.2 167.0,68.2 169.4,68.2 171.8,68.2 174.1,68.2 176.5,68.2 178.9,68.2 181.2,68.2 183.6,68.2 186.0,68.2 188.3,68.2 190.7,68.2 193.1,68.2 195.4,68.2 197.8,68.2 200.2,68.2 202.5,68.2 204.9,68.2 207.3,68.2 209.6,68.2 212.0,68.2 214.4,68.2 216.7,68.2 219.1,68.2 221.5,68.2 223.8,68.2 226.2,68.2 228.6,68.2 230.9,68.2 233.3,68.2 235.7,68.2 238.0,68.2 240.4,68.2 242.8,68.2 245.1,68.2 247.5,68.2 249.9,68.2 252.2,68.2 254.6,68.2 257.0,68.2 259.3,68.2 261.7,68.2 264.1,68.2 266.4,68.2 268.8,68.2 271.2,68.2 273.5,68.2 275.9,68.2 278.3,68.2 280.6,68.2 283.0,68.2 285.4,68.2 287.7,68.2 290.1,68.2 292.5,68.2 294.8,68.2 297.2,68.2 299.6,68.2 301.9,68.2 304.3,68.2 306.7,68.2 309.0,68.2 311.4,68.2 313.8,68.2 316.1,68.2 318.5,68.2 320.9,68.2 323.2,68.2 325.6,68.2 328.0,68.2 330.3,68.2 332.7,68.2 335.1,68.2 337.4,68.2 339.8,68.2 342.2,68.2 344.5,68.2 346.9,68.2 349.3,68.2 351.6,68.2 354.0,68.2 356.4,68.2 358.7,68.2 361.1,68.2 363.5,68.2 365.8,68.2 368.2,68.2 370.6,68.2 372.9,68.2 375.3,68.2 377.7,68.2 380.0,68.2 382.4,68.2 384.8,68.2 387.1,68.2 389.5,68.2 391.9,68.2 394.2,68.2 396.6,68.2 399.0,68.2 401.3,68.2 403.7,68.2 406.1,68.2 408.4,68.2 410.8,68.2 413.2,68.2 415.5,68.2 417.9,68.2 420.3,68.2 422.6,68.2 425.0,68.2 427.4,68.2 429.7,68.2 432.1,68.2 434.5,68.2 436.8,68.2 439.2,68.2 441.6,68.2 443.9,68.2 446.3,68.2 448.7,68.2 451.0,68.2 453.4,68.2 455.8,68.2 458.1,68.2 460.5,68.2 462.9,68.2 465.2,68.2 467.6,68.2 470.0,68.2 472.3,68.2 474.7,68.2 477.1,68.2 479.4,68.2 481.8,68.2 484.2,68.2 486.5,68.2 488.9,68.2 491.3,68.2 493.6,68.2 496.0,68.2 498.4,68.2 500.7,68.2 503.1,68.2 505.5,68.2 507.8,68.2 510.2,68.2 512.6,68.2 514.9,68.2 517.3,68.2 519.7,68.2 522.0,68.2 524.4,68.2 526.8,68.2 529.1,68.2 531.5,68.2 533.9,68.2 536.2,68.2 538.6,68.2 541.0,68.2 543.3,68.2 545.7,68.2 548.1,68.2 550.4,68.2 552.8,68.2 555.2,68.2 557.5,68.2 559.9,68.2 562.3,68.2 564.6,68.2 567.0,68.2 569.4,68.2 571.7,68.2 574.1,68.2 576.5,68.2 578.8,68.2 581.2,68.2 583.6,68.2 585.9,68.2 588.3,68.2 590.7,68.2 593.0,68.2 595.4,68.2 597.8,68.2 600.1,68.2 602.5,68.2 604.9,68.2 607.2,68.2 609.6,68.2 612.0,68.2 614.3,68.2 616.7,68.2 619.1,68.2 621.4,68.2 623.8,68.2 626.2,68.2 628.5,68.2 630.9,68.2 633.3,68.2 635.6,68.2 638.0,68.2 640.4,68.2 642.7,68.2 645.1,68.2 647.5,68.2 649.8,68.2 652.2,68.2 654.6,68.2 656.9,68.2 659.3,68.2 661.7,68.2 664.0,68.2 666.4,68.2 668.8,68.2 671.1,68.2 673.5,68.2 675.9,68.2 678.2,68.2 680.6,68.2 683.0,68.2 685.3,68.2 687.7,68.2 690.1,68.2 692.4,68.2 694.8,68.2 697.2,68.2 699.5,68.2 701.9,68.2 704.3,68.2 706.6,68.2 709.0,68.2 711.4,68.2 713.7,68.2 716.1,68.2 718.5,68.2 720.8,68.2 723.2,68.2 725.6,68.2 727.9,68.2 730.3,68.2 732.7,68.2 735.0,68.2 737.4,68.2 739.8,68.2 742.1,68.2 744.5,68.2 746.9,68.2 749.2,68.2 751.6,68.2 754.0,68.2 756.3,68.2 758.7,68.2 761.1,68.2 763.4,68.2 765.8,68.2 768.2,68.2 770.5,68.2 772.9,68.2 775.3,68.2 777.6,68.2 780.0,68.2" class="rate-line"/>
+<rect x="70" y="40" width="710" height="310" fill="none" stroke="#ccc" stroke-width="1"/>
+</svg>
+</div></section>
+<section class="section"><h2>Service map</h2><p class="subtle">Arrows show defined calls between services. Dashed arrows appear only in scenario additions.</p><div class="graphic map"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 556 172" width="556" height="172" role="img" aria-label="Defined service topology"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#47667a"/></marker></defs><style>.edge{fill:none;stroke:#47667a;stroke-width:1.6;marker-end:url(#arrow)}.added{stroke:#b36b28;stroke-dasharray:6 4}.node{fill:#f3f6f5;stroke:#466273;stroke-width:1.5}.root{fill:#e4f2ea;stroke:#217b54}.label{font:600 14px ui-sans-serif,system-ui,sans-serif;fill:#17303e}</style><path class="edge" d="M 218 66 C 248 66, 248 66, 278 66"><title>gateway → backend</title></path><g><rect class="node" x="278" y="42" width="176" height="48" rx="5"/><title>backend</title><text class="label" x="366" y="71" text-anchor="middle">backend</text></g><g><rect class="node root" x="42" y="42" width="176" height="48" rx="5"/><title>gateway</title><text class="label" x="130" y="71" text-anchor="middle">gateway</text></g></svg></div><div class="legend"><span class="root">contains a root operation</span><span>defined call</span><span class="extra">scenario addition</span></div></section>
+<section class="section"><h2>Captured run</h2><p class="subtle">One local simulation: up to 500ms, seed 1. Up to 10 traces, 1,000 spans, 500 metric data points, and 500 logs are stored in this file.</p><ul class="facts"><li><strong>10</strong>traces generated</li><li><strong>20</strong>spans generated</li><li><strong>0</strong>span errors</li><li><strong>189</strong>ms elapsed</li><li><strong>6</strong>metric points</li><li><strong>0</strong>logs</li></ul>
+<h3>Traces</h3><details><summary>Trace 6dba76a3d37f6ae7c955f33650c4bfb7 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>56.588077 ms</span><div class="trace-timeline" title="Unset · 4931e87b580059e1"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>14.097469 ms</span><span>28.393139 ms</span><div class="trace-timeline" title="Unset · 6d474692dff3230f"><span class="trace-bar " style="left:24.91%;width:50.18%"></span></div></div></div></div></details><details><summary>Trace d8cfe595c8688f83ba2ac9789975f83f · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>69.181557 ms</span><div class="trace-timeline" title="Unset · d3bc398ac64ed5f5"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>26.386926 ms</span><span>16.407704 ms</span><div class="trace-timeline" title="Unset · 0bc3d4f2fb2ac2ed"><span class="trace-bar " style="left:38.14%;width:23.72%"></span></div></div></div></div></details><details><summary>Trace 5566ba1c30b4dd2d2567d4b12feaf0aa · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>58.095835 ms</span><div class="trace-timeline" title="Unset · e4681f7505dbc5ba"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>19.112597 ms</span><span>19.870641 ms</span><div class="trace-timeline" title="Unset · 1c584d97aa3cad4b"><span class="trace-bar " style="left:32.90%;width:34.20%"></span></div></div></div></div></details><details><summary>Trace da73c253ff2ccae71939e9821644cec7 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>46.550038 ms</span><div class="trace-timeline" title="Unset · 64b1b8c1eb5e1ffd"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>14.955605 ms</span><span>16.638827 ms</span><div class="trace-timeline" title="Unset · 8281f7f38542a808"><span class="trace-bar " style="left:32.13%;width:35.74%"></span></div></div></div></div></details><details><summary>Trace cd7056b37869b38155ec124302dcde3f · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>51.520713 ms</span><div class="trace-timeline" title="Unset · 3b7f12a3352c1478"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>17.718741 ms</span><span>16.083231 ms</span><div class="trace-timeline" title="Unset · f1b0e6cff41ae835"><span class="trace-bar " style="left:34.39%;width:31.22%"></span></div></div></div></div></details><details><summary>Trace 48091a048b0213a1153d0f5f957aa135 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>61.183793 ms</span><div class="trace-timeline" title="Unset · ae56377193f97dc7"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>20.329899 ms</span><span>20.523994 ms</span><div class="trace-timeline" title="Unset · 9995c3a8bc9205f2"><span class="trace-bar " style="left:33.23%;width:33.54%"></span></div></div></div></div></details><details><summary>Trace 813d91ae143819c12f3eab7e2e6b8b97 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>67.787129 ms</span><div class="trace-timeline" title="Unset · 274d4adde687bdd7"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>20.989497 ms</span><span>25.808134 ms</span><div class="trace-timeline" title="Unset · 29d404ac77a22faf"><span class="trace-bar " style="left:30.96%;width:38.07%"></span></div></div></div></div></details><details><summary>Trace abc08c0c3cd857ff5e2258b47a5c920d · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>58.110166 ms</span><div class="trace-timeline" title="Unset · 57e5335a5d8f933a"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>24.216023 ms</span><span>9.67812 ms</span><div class="trace-timeline" title="Unset · b026843383140898"><span class="trace-bar " style="left:41.67%;width:16.65%"></span></div></div></div></div></details><details><summary>Trace 306a0bfc000e834606da5fb2d1909541 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>73.813517 ms</span><div class="trace-timeline" title="Unset · 50fdd027ec1bbbcc"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>24.826648 ms</span><span>24.160221 ms</span><div class="trace-timeline" title="Unset · 76121b2ba04ec41f"><span class="trace-bar " style="left:33.63%;width:32.73%"></span></div></div></div></div></details><details><summary>Trace 10c7f8f8e2568bcba3b9fedeb3cc9658 · 2 captured spans</summary><div class="scroll"><div class="trace"><div class="trace-row"><div class="trace-name" style="padding-left:0em"><strong>gateway</strong> / GET /api <span class="note">server</span></div><span>0 ms</span><span>54.151873 ms</span><div class="trace-timeline" title="Unset · bb00f19484886ee1"><span class="trace-bar " style="left:0.00%;width:100.00%"></span></div></div><div class="trace-row"><div class="trace-name" style="padding-left:1em"><strong>backend</strong> / process <span class="note">client</span></div><span>17.632747 ms</span><span>18.886378 ms</span><div class="trace-timeline" title="Unset · f6b8b201f87e5e03"><span class="trace-bar " style="left:32.56%;width:34.88%"></span></div></div></div></div></details>
+<h3>Metrics</h3><div class="scroll"><table class="data-table"><thead><tr><th>Service</th><th>Metric</th><th>Type</th><th>Value</th></tr></thead><tbody><tr><td>backend</td><td>backend.requests.total</td><td>counter</td><td>10 </td></tr><tr><td>backend</td><td>backend.response.bytes</td><td>counter</td><td>37866.47719454742 By</td></tr><tr><td>gateway</td><td>http.server.request.duration</td><td>histogram</td><td>count 10 · sum 0.596982698 s</td></tr><tr><td>gateway</td><td>http.server.active_requests</td><td>up-down counter</td><td>0 {request}</td></tr><tr><td>gateway</td><td>gateway.cpu.utilisation</td><td>gauge</td><td>0.3861515601986068 </td></tr><tr><td>gateway</td><td>gateway.cache.hit_ratio</td><td>gauge</td><td>0.7854135949826198 </td></tr></tbody></table></div>
+<h3>Logs</h3><p class="note">No logs emitted.</p>
+<details><summary>Raw captured output (JSON)</summary><pre>{
+  &#34;duration&#34;: &#34;500ms&#34;,
+  &#34;slow_threshold&#34;: &#34;1s&#34;,
+  &#34;seed&#34;: 1,
+  &#34;max_traces&#34;: 10,
+  &#34;stats&#34;: {
+    &#34;traces&#34;: 10,
+    &#34;spans&#34;: 20,
+    &#34;errors&#34;: 0,
+    &#34;failed_traces&#34;: 0,
+    &#34;timeouts&#34;: 0,
+    &#34;retries&#34;: 0,
+    &#34;spans_bounded&#34;: 0,
+    &#34;queue_rejections&#34;: 0,
+    &#34;circuit_breaker_trips&#34;: 0,
+    &#34;elapsed_ms&#34;: 189,
+    &#34;traces_per_second&#34;: 52.893343091379364,
+    &#34;spans_per_second&#34;: 105.78668618275873,
+    &#34;error_rate&#34;: 0,
+    &#34;trace_error_rate&#34;: 0
+  },
+  &#34;spans&#34;: [
+    {
+      &#34;trace_id&#34;: &#34;6dba76a3d37f6ae7c955f33650c4bfb7&#34;,
+      &#34;span_id&#34;: &#34;4931e87b580059e1&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.874122&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.930710077&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364874.122,
+      &#34;duration_ms&#34;: 56.588077,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;6dba76a3d37f6ae7c955f33650c4bfb7&#34;,
+      &#34;span_id&#34;: &#34;6d474692dff3230f&#34;,
+      &#34;parent_span_id&#34;: &#34;4931e87b580059e1&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.888219469&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.916612608&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364888.2195,
+      &#34;duration_ms&#34;: 28.393139,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;d8cfe595c8688f83ba2ac9789975f83f&#34;,
+      &#34;span_id&#34;: &#34;d3bc398ac64ed5f5&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.895468&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.964649557&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364895.468,
+      &#34;duration_ms&#34;: 69.181557,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;5566ba1c30b4dd2d2567d4b12feaf0aa&#34;,
+      &#34;span_id&#34;: &#34;e4681f7505dbc5ba&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.91658&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.974675835&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364916.58,
+      &#34;duration_ms&#34;: 58.095835,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;d8cfe595c8688f83ba2ac9789975f83f&#34;,
+      &#34;span_id&#34;: &#34;0bc3d4f2fb2ac2ed&#34;,
+      &#34;parent_span_id&#34;: &#34;d3bc398ac64ed5f5&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.921854926&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.93826263&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364921.855,
+      &#34;duration_ms&#34;: 16.407704,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;5566ba1c30b4dd2d2567d4b12feaf0aa&#34;,
+      &#34;span_id&#34;: &#34;1c584d97aa3cad4b&#34;,
+      &#34;parent_span_id&#34;: &#34;e4681f7505dbc5ba&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.935692597&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.955563238&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364935.6926,
+      &#34;duration_ms&#34;: 19.870641,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;da73c253ff2ccae71939e9821644cec7&#34;,
+      &#34;span_id&#34;: &#34;64b1b8c1eb5e1ffd&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.93733&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.983880038&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364937.3298,
+      &#34;duration_ms&#34;: 46.550038,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;da73c253ff2ccae71939e9821644cec7&#34;,
+      &#34;span_id&#34;: &#34;8281f7f38542a808&#34;,
+      &#34;parent_span_id&#34;: &#34;64b1b8c1eb5e1ffd&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.952285605&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.968924432&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364952.2856,
+      &#34;duration_ms&#34;: 16.638827,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;cd7056b37869b38155ec124302dcde3f&#34;,
+      &#34;span_id&#34;: &#34;3b7f12a3352c1478&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.958405&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.009925713&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364958.405,
+      &#34;duration_ms&#34;: 51.520713,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;cd7056b37869b38155ec124302dcde3f&#34;,
+      &#34;span_id&#34;: &#34;f1b0e6cff41ae835&#34;,
+      &#34;parent_span_id&#34;: &#34;3b7f12a3352c1478&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.976123741&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:04.992206972&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364976.1235,
+      &#34;duration_ms&#34;: 16.083231,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;48091a048b0213a1153d0f5f957aa135&#34;,
+      &#34;span_id&#34;: &#34;ae56377193f97dc7&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.979487&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.040670793&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364979.487,
+      &#34;duration_ms&#34;: 61.183793,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;813d91ae143819c12f3eab7e2e6b8b97&#34;,
+      &#34;span_id&#34;: &#34;274d4adde687bdd7&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.999777&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.067564129&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364999.777,
+      &#34;duration_ms&#34;: 67.787129,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;48091a048b0213a1153d0f5f957aa135&#34;,
+      &#34;span_id&#34;: &#34;9995c3a8bc9205f2&#34;,
+      &#34;parent_span_id&#34;: &#34;ae56377193f97dc7&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:04.999816899&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.020340893&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541364999.817,
+      &#34;duration_ms&#34;: 20.523994,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;813d91ae143819c12f3eab7e2e6b8b97&#34;,
+      &#34;span_id&#34;: &#34;29d404ac77a22faf&#34;,
+      &#34;parent_span_id&#34;: &#34;274d4adde687bdd7&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.020766497&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.046574631&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365020.7664,
+      &#34;duration_ms&#34;: 25.808134,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;abc08c0c3cd857ff5e2258b47a5c920d&#34;,
+      &#34;span_id&#34;: &#34;57e5335a5d8f933a&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.020848&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.078958166&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365020.8481,
+      &#34;duration_ms&#34;: 58.110166,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;306a0bfc000e834606da5fb2d1909541&#34;,
+      &#34;span_id&#34;: &#34;50fdd027ec1bbbcc&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.041967&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.115780517&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365041.967,
+      &#34;duration_ms&#34;: 73.813517,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;abc08c0c3cd857ff5e2258b47a5c920d&#34;,
+      &#34;span_id&#34;: &#34;b026843383140898&#34;,
+      &#34;parent_span_id&#34;: &#34;57e5335a5d8f933a&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.045064023&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.054742143&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365045.064,
+      &#34;duration_ms&#34;: 9.67812,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;10c7f8f8e2568bcba3b9fedeb3cc9658&#34;,
+      &#34;span_id&#34;: &#34;bb00f19484886ee1&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;name&#34;: &#34;GET /api&#34;,
+      &#34;kind&#34;: &#34;server&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.063091&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.117242873&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365063.091,
+      &#34;duration_ms&#34;: 54.151873,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;306a0bfc000e834606da5fb2d1909541&#34;,
+      &#34;span_id&#34;: &#34;76121b2ba04ec41f&#34;,
+      &#34;parent_span_id&#34;: &#34;50fdd027ec1bbbcc&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.066793648&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.090953869&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365066.7937,
+      &#34;duration_ms&#34;: 24.160221,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    },
+    {
+      &#34;trace_id&#34;: &#34;10c7f8f8e2568bcba3b9fedeb3cc9658&#34;,
+      &#34;span_id&#34;: &#34;f6b8b201f87e5e03&#34;,
+      &#34;parent_span_id&#34;: &#34;bb00f19484886ee1&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;name&#34;: &#34;process&#34;,
+      &#34;kind&#34;: &#34;client&#34;,
+      &#34;start_time&#34;: &#34;2026-09-27T21:36:05.080723747&#43;01:00&#34;,
+      &#34;end_time&#34;: &#34;2026-09-27T21:36:05.099610125&#43;01:00&#34;,
+      &#34;start_ms&#34;: 1790541365080.7236,
+      &#34;duration_ms&#34;: 18.886378,
+      &#34;status&#34;: &#34;Unset&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;attributes&#34;: {
+        &#34;synth.operation&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        },
+        &#34;synth.scenarios&#34;: {
+          &#34;type&#34;: &#34;STRINGSLICE&#34;,
+          &#34;value&#34;: []
+        },
+        &#34;synth.service&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      }
+    }
+  ],
+  &#34;metrics&#34;: [
+    {
+      &#34;name&#34;: &#34;backend.requests.total&#34;,
+      &#34;type&#34;: &#34;counter&#34;,
+      &#34;temporality&#34;: &#34;CumulativeTemporality&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;value&#34;: &#34;10&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874,
+      &#34;attributes&#34;: {
+        &#34;operation.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        }
+      }
+    },
+    {
+      &#34;name&#34;: &#34;backend.response.bytes&#34;,
+      &#34;type&#34;: &#34;counter&#34;,
+      &#34;temporality&#34;: &#34;CumulativeTemporality&#34;,
+      &#34;unit&#34;: &#34;By&#34;,
+      &#34;service&#34;: &#34;backend&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;backend&#34;
+        }
+      },
+      &#34;value&#34;: &#34;37866.47719454742&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874,
+      &#34;attributes&#34;: {
+        &#34;operation.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;process&#34;
+        }
+      }
+    },
+    {
+      &#34;name&#34;: &#34;http.server.request.duration&#34;,
+      &#34;type&#34;: &#34;histogram&#34;,
+      &#34;unit&#34;: &#34;s&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;value&#34;: &#34;count 10 · sum 0.596982698&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874,
+      &#34;count&#34;: 10,
+      &#34;sum&#34;: 0.596982698,
+      &#34;min&#34;: 0.046550038,
+      &#34;max&#34;: 0.073813517,
+      &#34;bounds&#34;: [
+        0,
+        5,
+        10,
+        25,
+        50,
+        75,
+        100,
+        250,
+        500,
+        750,
+        1000,
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      &#34;buckets&#34;: [
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      &#34;attributes&#34;: {
+        &#34;operation.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        }
+      }
+    },
+    {
+      &#34;name&#34;: &#34;http.server.active_requests&#34;,
+      &#34;type&#34;: &#34;up-down counter&#34;,
+      &#34;temporality&#34;: &#34;CumulativeTemporality&#34;,
+      &#34;unit&#34;: &#34;{request}&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;value&#34;: &#34;0&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874,
+      &#34;attributes&#34;: {
+        &#34;operation.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        }
+      }
+    },
+    {
+      &#34;name&#34;: &#34;gateway.cpu.utilisation&#34;,
+      &#34;type&#34;: &#34;gauge&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;value&#34;: &#34;0.3861515601986068&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874
+    },
+    {
+      &#34;name&#34;: &#34;gateway.cache.hit_ratio&#34;,
+      &#34;type&#34;: &#34;gauge&#34;,
+      &#34;service&#34;: &#34;gateway&#34;,
+      &#34;resource&#34;: {
+        &#34;service.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;gateway&#34;
+        }
+      },
+      &#34;value&#34;: &#34;0.7854135949826198&#34;,
+      &#34;time_ms&#34;: 1790541365063,
+      &#34;start_ms&#34;: 1790541364874,
+      &#34;attributes&#34;: {
+        &#34;operation.name&#34;: {
+          &#34;type&#34;: &#34;STRING&#34;,
+          &#34;value&#34;: &#34;GET /api&#34;
+        }
+      }
+    }
+  ],
+  &#34;logs&#34;: [],
+  &#34;dropped_spans&#34;: 0,
+  &#34;dropped_logs&#34;: 0
+}</pre></details></section>
+<section class="section"><h2>Operations and calls</h2><p class="note">Call details are from the baseline topology. Probabilities below 100%, repeated calls, and async calls are labelled.</p><div class="service"><h3>backend</h3><div><div class="operation"><strong>backend.process</strong><p class="note">No downstream calls</p></div></div></div><div class="service"><h3>gateway</h3><div><div class="operation"><strong>gateway.GET /api</strong> <span class="tag">root</span><ul><li>backend.process</li></ul></div></div></div></section>
+<section class="section"><h2>Scenarios</h2><p class="note">No scenarios defined.</p></section>
+<footer>Static preview of the topology definition. The map is not an observed trace or a throughput forecast.</footer>
+</main></body></html>

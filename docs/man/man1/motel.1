@@ -175,12 +175,37 @@ YAML checks file or HTTP/HTTPS URL with structural thresholds.
 .B \-\-skip\-scenarios
 Check the baseline topology only, ignoring scenarios.
 .SS preview
-Render the traffic rate over time as an SVG chart. Useful for visualising how
-traffic and scenarios interact before running a simulation.
+Render the effective trace rate over time as an SVG chart, with scenario windows
+shaded and labelled. Useful for visualising how traffic and scenarios interact
+before running a simulation.
+Use \fB\-\-format html\fR for a self-contained report with a service map,
+operation calls, scenario changes, and traces, metrics, and logs from one
+bounded local simulation. The map shows defined calls and scenario-only
+additions; the trace section shows emitted spans.
 .TP
 .B \-\-duration
 \fIduration\fR
 Preview duration (default: inferred from topology).
+.TP
+.B \-\-format
+\fIsvg|html\fR
+Output format (default: svg).
+.TP
+.B \-\-run\-duration
+\fIduration\fR
+HTML simulation duration (default: 1s; maximum: 10s).
+.TP
+.B \-\-slow\-threshold
+\fIduration\fR
+HTML slow\-log threshold (default: 1s; 0 disables slow logs).
+.TP
+.B \-\-seed
+\fIinteger\fR
+HTML simulation seed (default: 1).
+.TP
+.B \-\-max\-traces
+\fIinteger\fR
+HTML simulation trace cap (default and maximum: 200).
 .TP
 .BR \-o ", " \-\-output
 \fIfile\fR
