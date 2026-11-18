@@ -6,7 +6,7 @@ convention and provides guidance for AI coding agents working in this repository
 ## Project Overview
 
 - **Module**: `github.com/andrewh/motel`
-- **Language**: Go 1.25+, modern constructs (`any`, `context.Context`)
+- **Language**: Go 1.26+, modern constructs (`any`, `context.Context`)
 - **Binary**: `build/motel` (always build to the `build/` directory)
 
 ## Quick Commands
